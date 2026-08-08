@@ -50,11 +50,12 @@ Admin defines **sub-roles** (`dev`, `ba`, `tester` by default).
 ## Quick start
 
 ```bash
-make dev-api   # :4700
-make dev-web   # :5174 → proxies /api
+make dev
 ```
 
-Open http://127.0.0.1:5174
+Starts API (`:4700`) and Vite (`:5174`, proxies `/api`) together. Open http://127.0.0.1:5174
+
+Useful extras: `make reset-db` (fresh setup wizard), `make kill-dev-ports`, `make help`.
 
 ## Database
 
