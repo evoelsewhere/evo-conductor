@@ -1,0 +1,22 @@
+[package]
+name = "conductor-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Passwords, JWT, connection tokens, and OIDC/Microsoft SSO"
+
+[dependencies]
+conductor-domain = { workspace = true }
+argon2 = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+jsonwebtoken = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
