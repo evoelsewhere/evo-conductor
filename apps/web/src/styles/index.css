@@ -46,6 +46,8 @@
   --z-overlay: 40;
   --z-modal: 50;
   --z-toast: 60;
+  /* Popovers must clear dialogs: selects and menus open from inside modals. */
+  --z-popover: 70;
 }
 
 :root.dark {
@@ -222,6 +224,7 @@ html,
 body,
 #root {
   min-height: 100%;
+  min-height: 100dvh;
 }
 
 body {
@@ -230,6 +233,11 @@ body {
     radial-gradient(1200px 600px at 12% -10%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 60%),
     radial-gradient(900px 500px at 90% 0%, color-mix(in srgb, #8b5cf6 10%, transparent), transparent 55%),
     var(--bg-page);
+}
+
+/* Soften the ambient wash inside the authenticated shell so content stays readable. */
+body:has([data-shell]) {
+  background: var(--bg-page);
 }
 
 .bg-gradient-primary {

@@ -1,21 +1,44 @@
-import { Radio } from "lucide-react"
-
+import { BrandLogo } from "@/shared/components/logo"
 import { cn } from "@/shared/lib/utils"
 
-export function BrandMark({ className }: { className?: string }) {
+const titleSizes = {
+  sm: "text-[0.8rem]",
+  md: "text-sm",
+  lg: "text-lg",
+} as const
+
+export function BrandMark({
+  className,
+  size = "md",
+  /** Hides the wordmark so only the tile shows — used by the collapsed sidebar. */
+  compact = false,
+  tagline = "master control for EvoFlux",
+}: {
+  className?: string
+  size?: "sm" | "md" | "lg"
+  compact?: boolean
+  tagline?: string | null
+}) {
   return (
-    <div className={cn("flex items-center gap-2.5", className)}>
-      <div className="flex size-8 items-center justify-center rounded-md bg-gradient-primary text-(--color-text-on-accent) shadow-[0_2px_8px_rgba(102,126,234,0.35)]">
-        <Radio className="size-4" strokeWidth={1.75} />
-      </div>
-      <div className="leading-tight">
-        <div className="text-sm font-semibold tracking-tight text-(--color-text)">
-          Evo Conductor
+    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
+      <BrandLogo size={size} />
+      {!compact && (
+        <div className="min-w-0 leading-tight">
+          <div
+            className={cn(
+              "truncate font-semibold tracking-tight text-(--color-text)",
+              titleSizes[size],
+            )}
+          >
+            Evo Conductor
+          </div>
+          {tagline && (
+            <div className="truncate text-[0.7rem] text-(--color-text-subtle)">
+              {tagline}
+            </div>
+          )}
         </div>
-        <div className="text-[0.7rem] text-(--color-text-subtle)">
-          master control for EvoFlux
-        </div>
-      </div>
+      )}
     </div>
   )
 }
