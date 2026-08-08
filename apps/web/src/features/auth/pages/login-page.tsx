@@ -15,9 +15,13 @@ import { TooltipProvider } from "@/shared/ui/tooltip"
 
 export function LoginPage({
   projectName,
+  displayName,
+  logoUrl,
   ssoEnabled,
 }: {
   projectName?: string | null
+  displayName?: string | null
+  logoUrl?: string | null
   ssoEnabled?: boolean
 }) {
   const navigate = useNavigate()
@@ -27,6 +31,14 @@ export function LoginPage({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [ssoBusy, setSsoBusy] = useState(false)
+
+  const brandTitle = displayName?.trim() || projectName?.trim() || null
+  const brandTagline =
+    displayName?.trim() &&
+    projectName?.trim() &&
+    displayName.trim() !== projectName.trim()
+      ? projectName.trim()
+      : null
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -72,12 +84,18 @@ export function LoginPage({
           transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
           className="w-full max-w-md"
         >
-          <BrandMark size="lg" className="mb-8" />
+          <BrandMark
+            size="lg"
+            className="mb-8"
+            title={brandTitle}
+            tagline={brandTagline}
+            logoUrl={logoUrl}
+          />
           <div className="rounded-xl border border-(--border-card) bg-(--bg-card)/85 p-5 shadow-(--shadow-depth) backdrop-blur-sm sm:p-6">
             <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
             <p className="mt-1 text-sm text-(--color-text-muted)">
-              {projectName
-                ? `Access ${projectName} Conductor`
+              {brandTitle
+                ? `Access ${brandTitle}`
                 : "Access your project Conductor"}
             </p>
 

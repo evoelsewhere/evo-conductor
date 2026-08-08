@@ -6,6 +6,8 @@ export type SecretScope = "subscribe_resources" | "report_telemetry" | "sync_inv
 export interface SetupStatus {
   configured: boolean
   project_name: string | null
+  display_name: string | null
+  logo_url: string | null
   public_url: string | null
   sso_enabled: boolean
 }
@@ -131,12 +133,19 @@ export interface SsoConfig {
   scopes: string[]
 }
 
+export interface ProjectBranding {
+  project_name: string
+  display_name: string | null
+  logo_url: string | null
+}
+
 export interface ProjectSettings {
   project_name: string
   display_name: string | null
   bind_host: string
   bind_port: number
   public_url: string | null
+  logo_url: string | null
   sso: SsoConfig
 }
 
@@ -288,11 +297,13 @@ export const api = {
       { method: "PUT", body: JSON.stringify({ tag_ids: tagIds }) },
     ),
 
+  project: () => request<ProjectBranding>("/project"),
   settings: () => request<ProjectSettings>("/settings"),
   updateSettings: (body: {
     project_name?: string
     display_name?: string
     public_url?: string
+    logo_url?: string
   }) =>
     request<ProjectSettings>("/settings", {
       method: "PATCH",

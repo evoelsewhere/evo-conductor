@@ -88,6 +88,8 @@ function LoginRoute() {
   return (
     <LoginPage
       projectName={status.project_name}
+      displayName={status.display_name}
+      logoUrl={status.logo_url}
       ssoEnabled={status.sso_enabled}
     />
   )

@@ -29,6 +29,7 @@ export function SettingsForm() {
   const [projectName, setProjectName] = useState("")
   const [displayName, setDisplayName] = useState("")
   const [publicUrl, setPublicUrl] = useState("")
+  const [logoUrl, setLogoUrl] = useState("")
   const [ssoEnabled, setSsoEnabled] = useState(false)
   const [provider, setProvider] = useState<SsoProvider>("azure_ad")
   const [issuerUrl, setIssuerUrl] = useState("")
@@ -43,6 +44,7 @@ export function SettingsForm() {
     setProjectName(data.project_name)
     setDisplayName(data.display_name ?? "")
     setPublicUrl(data.public_url ?? "")
+    setLogoUrl(data.logo_url ?? "")
     setSsoEnabled(data.sso.enabled)
     setProvider(data.sso.provider)
     setIssuerUrl(data.sso.issuer_url ?? "")
@@ -56,11 +58,13 @@ export function SettingsForm() {
         project_name: projectName,
         display_name: displayName || undefined,
         public_url: publicUrl,
+        logo_url: logoUrl,
       }),
     onSuccess: () => {
       setMessage("Project settings saved")
       setFormError(null)
       void qc.invalidateQueries({ queryKey: ["settings"] })
+      void qc.invalidateQueries({ queryKey: ["project"] })
       void qc.invalidateQueries({ queryKey: ["dashboard"] })
     },
     onError: (e) => setFormError(e instanceof Error ? e.message : "Save failed"),
@@ -133,6 +137,16 @@ export function SettingsForm() {
             onChange={(e) => setPublicUrl(e.target.value)}
             placeholder="https://conductor.example.com"
           />
+        </Field>
+        <Field label="Logo URL">
+          <Input
+            value={logoUrl}
+            onChange={(e) => setLogoUrl(e.target.value)}
+            placeholder="https://…/logo.png"
+          />
+          <p className="text-xs text-(--color-text-subtle)">
+            Leave blank to keep the default EvoFlux mark in the sidebar.
+          </p>
         </Field>
         <p className="text-xs text-(--color-text-subtle)">
           Bind address is {data.bind_host}:{data.bind_port} (restart required to

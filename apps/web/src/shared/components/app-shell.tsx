@@ -86,6 +86,22 @@ export function AppShell() {
     refetchInterval: 30_000,
   })
 
+  const { data: branding } = useQuery({
+    queryKey: ["project"],
+    queryFn: () => api.project(),
+  })
+
+  const brand = useMemo(() => {
+    if (!branding) return { title: undefined, tagline: undefined, logoUrl: undefined }
+    const display = branding.display_name?.trim() || null
+    const name = branding.project_name.trim()
+    return {
+      title: display || name,
+      tagline: display && display !== name ? name : null,
+      logoUrl: branding.logo_url,
+    }
+  }, [branding])
+
   const navGroups = useMemo((): NavGroup[] => {
     const canListMembers =
       user?.primary_role === "admin" || user?.primary_role === "contribute"
@@ -165,17 +181,19 @@ export function AppShell() {
             collapsed={collapsed}
             pathname={pathname}
             navGroups={navGroups}
+            brand={brand}
           />
         ) : (
           <MobileDrawer
             open={mobileOpen}
             pathname={pathname}
             navGroups={navGroups}
+            brand={brand}
           />
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <Topbar />
+          <Topbar brand={brand} />
           <main className="min-h-0 flex-1 overflow-y-auto">
             <Outlet />
           </main>
@@ -192,7 +210,13 @@ export function AppShell() {
   )
 }
 
-function Topbar() {
+type BrandProps = {
+  title?: string | null
+  tagline?: string | null
+  logoUrl?: string | null
+}
+
+function Topbar({ brand }: { brand: BrandProps }) {
   const isDesktop = useIsDesktop()
   const collapsed = useUiStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useUiStore((s) => s.toggleSidebar)
@@ -232,7 +256,15 @@ function Topbar() {
         )}
       </Button>
 
-      {!isDesktop && <BrandMark size="sm" tagline={null} className="min-w-0" />}
+      {!isDesktop && (
+        <BrandMark
+          size="sm"
+          tagline={null}
+          title={brand.title}
+          logoUrl={brand.logoUrl}
+          className="min-w-0"
+        />
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         {user && (
@@ -255,10 +287,12 @@ function SidebarRail({
   collapsed,
   pathname,
   navGroups,
+  brand,
 }: {
   collapsed: boolean
   pathname: string
   navGroups: NavGroup[]
+  brand: BrandProps
 }) {
   return (
     <aside
@@ -276,7 +310,9 @@ function SidebarRail({
         <BrandMark
           size="sm"
           compact={collapsed}
-          tagline={collapsed ? null : "master control for EvoFlux"}
+          title={brand.title}
+          tagline={brand.tagline}
+          logoUrl={brand.logoUrl}
         />
       </div>
 
@@ -300,10 +336,12 @@ function MobileDrawer({
   open,
   pathname,
   navGroups,
+  brand,
 }: {
   open: boolean
   pathname: string
   navGroups: NavGroup[]
+  brand: BrandProps
 }) {
   const setMobileNav = useUiStore((s) => s.setMobileNav)
 
@@ -329,7 +367,12 @@ function MobileDrawer({
             transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="flex h-14 items-center justify-between border-b border-(--border-soft) px-4">
-              <BrandMark size="sm" tagline={null} />
+              <BrandMark
+                size="sm"
+                tagline={null}
+                title={brand.title}
+                logoUrl={brand.logoUrl}
+              />
               <Button
                 variant="ghost"
                 size="icon"
@@ -451,35 +494,41 @@ function NavItem({
   active: boolean
   collapsed: boolean
 }) {
-  const badge =
-    item.badge && item.badge > 0 ? (
-      <span className="ml-auto rounded-full bg-(--color-warning)/20 px-1.5 text-[0.65rem] font-medium text-(--color-warning) tabular-nums">
-        {item.badge > 99 ? "99+" : item.badge}
-      </span>
-    ) : null
+  const count = item.badge ?? 0
+  const hasBadge = count > 0
 
   const link = (
     <Link
       to={item.to}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-(--color-text-muted) transition-colors hover:bg-(--bg-key) hover:text-(--color-text)",
-        collapsed && "relative justify-center px-0",
+        "relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-(--color-text-muted) transition-colors hover:bg-(--bg-key) hover:text-(--color-text)",
+        collapsed && "justify-center px-0",
         active &&
           "arc-active-indicator bg-(--bg-key) font-medium text-(--color-text)",
       )}
     >
       <item.icon className="size-4 shrink-0 opacity-85" strokeWidth={1.65} />
       {!collapsed && <span className="truncate">{item.label}</span>}
-      {!collapsed && badge}
-      {collapsed && item.badge && item.badge > 0 && (
-        <span className="absolute top-1 right-1 size-1.5 rounded-full bg-(--color-warning)" />
+      {!collapsed && hasBadge && (
+        <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-(--color-warning) px-1 text-[0.65rem] leading-none font-semibold text-(--bg-page) tabular-nums">
+          {count > 99 ? "99+" : count}
+        </span>
+      )}
+      {/* Collapsed rail has no room for a count; a ringed dot reads as "needs attention". */}
+      {collapsed && hasBadge && (
+        <span
+          aria-hidden
+          className="absolute top-1.5 right-1.5 size-2 rounded-full bg-(--color-warning) ring-2 ring-(--bg-sidebar)"
+        />
       )}
     </Link>
   )
 
+  const label = hasBadge ? `${item.label} (${count})` : item.label
+
   return (
-    <Tooltip content={item.label} side="right" disabled={!collapsed}>
+    <Tooltip content={label} side="right" disabled={!collapsed}>
       {link}
     </Tooltip>
   )
