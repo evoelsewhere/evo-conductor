@@ -3,14 +3,19 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "framer-motion"
 import {
   Boxes,
+  ChevronDown,
+  ChevronsUpDown,
   KeyRound,
   LayoutDashboard,
   LogOut,
-  Menu,
+  Menu as MenuIcon,
+  Monitor,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
   Shield,
+  Sun,
   Tags,
   Users,
   X,
@@ -21,12 +26,24 @@ import { useEffect, useMemo } from "react"
 import { api } from "@/shared/api/client"
 import { BrandMark } from "@/shared/components/brand"
 import { ThemeToggle } from "@/shared/components/theme-toggle"
+import { SettingsDialog } from "@/features/settings/components/settings-dialog"
 import { useIsDesktop } from "@/shared/hooks/use-media-query"
 import { cn } from "@/shared/lib/utils"
 import { useAuthStore } from "@/shared/stores/auth"
+import { useThemeStore, type ThemeMode } from "@/shared/stores/theme"
 import { useUiStore } from "@/shared/stores/ui"
+import { Avatar } from "@/shared/ui/avatar"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+} from "@/shared/ui/menu"
 import { Tooltip, TooltipProvider } from "@/shared/ui/tooltip"
 
 type NavItemDef = {
@@ -38,6 +55,7 @@ type NavItemDef = {
 }
 
 type NavGroup = {
+  id: string
   label: string
   items: NavItemDef[]
 }
@@ -55,6 +73,8 @@ export function AppShell() {
   const collapsed = useUiStore((s) => s.sidebarCollapsed)
   const mobileOpen = useUiStore((s) => s.mobileNavOpen)
   const setMobileNav = useUiStore((s) => s.setMobileNav)
+  const settingsOpen = useUiStore((s) => s.settingsOpen)
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.primary_role === "admin"
@@ -110,17 +130,9 @@ export function AppShell() {
     }
 
     const groups: NavGroup[] = [
-      { label: "Workspace", items: workspaceItems },
-      { label: "Access", items: accessItems },
+      { id: "workspace", label: "Workspace", items: workspaceItems },
+      { id: "access", label: "Access", items: accessItems },
     ]
-    if (isAdmin) {
-      groups.push({
-        label: "Admin",
-        items: [
-          { to: "/app/settings", label: "Settings", icon: Settings, end: false },
-        ],
-      })
-    }
     return groups
   }, [isAdmin, pending?.count, user?.primary_role])
 
@@ -128,6 +140,14 @@ export function AppShell() {
     hydrateUi()
     hydrateAuth()
   }, [hydrateUi, hydrateAuth])
+
+  // Keep the group that owns the active route open so deep links are not hidden.
+  useEffect(() => {
+    const active = navGroups.find((group) =>
+      group.items.some((item) => isActivePath(pathname, item.to, item.end)),
+    )
+    if (active) useUiStore.getState().expandNavGroup(active.id)
+  }, [pathname, navGroups])
 
   useEffect(() => {
     setMobileNav(false)
@@ -160,6 +180,13 @@ export function AppShell() {
             <Outlet />
           </main>
         </div>
+
+        {isAdmin && (
+          <SettingsDialog
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
       </div>
     </TooltipProvider>
   )
@@ -201,7 +228,7 @@ function Topbar() {
         ) : mobileOpen ? (
           <X className="size-4" />
         ) : (
-          <Menu className="size-4" />
+          <MenuIcon className="size-4" />
         )}
       </Button>
 
@@ -253,25 +280,14 @@ function SidebarRail({
         />
       </div>
 
-      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto p-2">
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
         {navGroups.map((group) => (
-          <div key={group.label}>
-            {!collapsed && (
-              <div className="mb-1 px-2.5 text-[0.65rem] font-medium tracking-wider text-(--color-text-subtle) uppercase">
-                {group.label}
-              </div>
-            )}
-            <div className="flex flex-col gap-0.5">
-              {group.items.map((item) => (
-                <NavItem
-                  key={item.to}
-                  item={item}
-                  active={isActivePath(pathname, item.to, item.end)}
-                  collapsed={collapsed}
-                />
-              ))}
-            </div>
-          </div>
+          <NavGroupSection
+            key={group.id}
+            group={group}
+            pathname={pathname}
+            railCollapsed={collapsed}
+          />
         ))}
       </nav>
 
@@ -324,23 +340,14 @@ function MobileDrawer({
               </Button>
             </div>
 
-            <nav className="flex flex-1 flex-col gap-4 overflow-y-auto p-2">
+            <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
               {navGroups.map((group) => (
-                <div key={group.label}>
-                  <div className="mb-1 px-2.5 text-[0.65rem] font-medium tracking-wider text-(--color-text-subtle) uppercase">
-                    {group.label}
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    {group.items.map((item) => (
-                      <NavItem
-                        key={item.to}
-                        item={item}
-                        active={isActivePath(pathname, item.to, item.end)}
-                        collapsed={false}
-                      />
-                    ))}
-                  </div>
-                </div>
+                <NavGroupSection
+                  key={group.id}
+                  group={group}
+                  pathname={pathname}
+                  railCollapsed={false}
+                />
               ))}
             </nav>
 
@@ -349,6 +356,89 @@ function MobileDrawer({
         </>
       )}
     </AnimatePresence>
+  )
+}
+
+function NavGroupSection({
+  group,
+  pathname,
+  railCollapsed,
+}: {
+  group: NavGroup
+  pathname: string
+  railCollapsed: boolean
+}) {
+  const collapsedGroups = useUiStore((s) => s.collapsedNavGroups)
+  const toggleNavGroup = useUiStore((s) => s.toggleNavGroup)
+  const open = !collapsedGroups.includes(group.id)
+  const hasActive = group.items.some((item) =>
+    isActivePath(pathname, item.to, item.end),
+  )
+
+  // Icon rail has no room for headers; always show every item.
+  if (railCollapsed) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        {group.items.map((item) => (
+          <NavItem
+            key={item.to}
+            item={item}
+            active={isActivePath(pathname, item.to, item.end)}
+            collapsed
+          />
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`nav-group-${group.id}`}
+        onClick={() => toggleNavGroup(group.id)}
+        className={cn(
+          "mb-0.5 flex w-full items-center gap-1 rounded-md px-2.5 py-1.5 text-left text-[0.65rem] font-medium tracking-wider text-(--color-text-subtle) uppercase transition-colors",
+          "hover:bg-(--bg-key) hover:text-(--color-text-muted)",
+          hasActive && !open && "text-(--color-text-muted)",
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{group.label}</span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 opacity-70 transition-transform duration-(--motion-fast)",
+            !open && "-rotate-90",
+          )}
+          aria-hidden
+        />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            id={`nav-group-${group.id}`}
+            key="items"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-col gap-0.5 pb-1">
+              {group.items.map((item) => (
+                <NavItem
+                  key={item.to}
+                  item={item}
+                  active={isActivePath(pathname, item.to, item.end)}
+                  collapsed={false}
+                />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 
@@ -395,59 +485,118 @@ function NavItem({
   )
 }
 
+const themeOptions = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
+] as const
+
 function UserFooter({ collapsed }: { collapsed: boolean }) {
   const user = useAuthStore((s) => s.user)
   const clear = useAuthStore((s) => s.clear)
+  const isAdmin = user?.primary_role === "admin"
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
+  const setMobileNav = useUiStore((s) => s.setMobileNav)
+  const themeMode = useThemeStore((s) => s.mode)
+  const setThemeMode = useThemeStore((s) => s.setMode)
 
-  return (
-    <div
+  if (!user) return null
+
+  const trigger = (
+    <button
+      type="button"
+      aria-label="Account menu"
+      title={collapsed ? user.display_name : undefined}
       className={cn(
-        "mt-auto border-t border-(--border-soft)",
-        collapsed ? "p-2" : "p-3",
+        "flex items-center rounded-lg text-left transition-colors outline-none hover:bg-(--bg-key) focus-visible:ring-2 focus-visible:ring-(--focus-ring)/40 data-popup-open:bg-(--bg-key)",
+        collapsed ? "size-10 justify-center" : "w-full gap-2.5 px-2 py-2",
       )}
     >
-      {!collapsed && user && (
-        <div className="mb-2 min-w-0">
-          <div className="truncate text-sm font-medium text-(--color-text)">
-            {user.display_name}
-          </div>
-          <div className="mt-1 flex items-center gap-1.5">
-            <Badge tone="accent" className="capitalize">
-              {user.primary_role}
-            </Badge>
-            <span className="truncate text-[0.7rem] text-(--color-text-subtle)">
+      <Avatar
+        name={user.display_name}
+        email={user.email}
+        size={collapsed ? "sm" : "md"}
+      />
+      {!collapsed && (
+        <>
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-sm font-medium text-(--color-text)">
+              {user.display_name}
+            </span>
+            <span className="block truncate text-[0.7rem] text-(--color-text-subtle)">
               {user.email}
             </span>
-          </div>
-        </div>
+          </span>
+          <ChevronsUpDown className="size-3.5 shrink-0 text-(--color-text-subtle)" />
+        </>
       )}
+    </button>
+  )
 
-      <div
-        className={cn(
-          "flex gap-1",
-          collapsed ? "flex-col items-center" : "items-center",
-        )}
+  return (
+    <div className="mt-auto border-t border-(--border-soft) p-2">
+      <Menu
+        side="top"
+        align={collapsed ? "center" : "start"}
+        trigger={trigger}
       >
-        <ThemeToggle
-          showLabel={!collapsed}
-          className={collapsed ? undefined : "flex-1"}
-        />
-        <Tooltip content="Sign out" side={collapsed ? "right" : "top"}>
-          <Button
-            variant="ghost"
-            size={collapsed ? "icon" : "sm"}
-            className={cn(!collapsed && "shrink-0")}
-            aria-label="Sign out"
+        <div className="flex items-center gap-2.5 px-2 py-2">
+          <Avatar name={user.display_name} email={user.email} />
+          <div className="min-w-0 leading-tight">
+            <div className="truncate text-sm font-medium text-(--color-text)">
+              {user.display_name}
+            </div>
+            <div className="truncate text-[0.7rem] text-(--color-text-subtle)">
+              {user.email}
+            </div>
+          </div>
+          <Badge tone="accent" className="ml-auto shrink-0 capitalize">
+            {user.primary_role}
+          </Badge>
+        </div>
+
+        <MenuSeparator />
+
+        {isAdmin && (
+          <MenuItem
             onClick={() => {
-              clear()
-              window.location.href = "/login"
+              setSettingsOpen(true)
+              setMobileNav(false)
             }}
           >
-            <LogOut className="size-3.5" />
-            {!collapsed && "Sign out"}
-          </Button>
-        </Tooltip>
-      </div>
+            <Settings className="size-4 opacity-80" strokeWidth={1.7} />
+            Project settings
+          </MenuItem>
+        )}
+
+        <MenuGroup>
+          <MenuGroupLabel>Appearance</MenuGroupLabel>
+          <MenuRadioGroup
+            value={themeMode}
+            onValueChange={(next) => setThemeMode(next as ThemeMode)}
+          >
+            {themeOptions.map((option) => (
+              <MenuRadioItem key={option.value} value={option.value}>
+                <option.icon className="size-4 opacity-80" strokeWidth={1.7} />
+                {option.label}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuGroup>
+
+        <MenuSeparator />
+
+        <MenuItem
+          tone="danger"
+          onClick={() => {
+            clear()
+            window.location.href = "/login"
+          }}
+        >
+          <LogOut className="size-4" strokeWidth={1.7} />
+          Sign out
+        </MenuItem>
+      </Menu>
     </div>
   )
 }

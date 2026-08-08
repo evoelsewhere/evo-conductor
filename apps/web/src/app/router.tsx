@@ -18,7 +18,6 @@ import { OverviewPage } from "@/features/dashboard/pages/overview-page"
 import { ResourcesPage } from "@/features/resources/pages/resources-page"
 import { RolesPage } from "@/features/roles/pages/roles-page"
 import { SecretsPage } from "@/features/secrets/pages/secrets-page"
-import { SettingsPage } from "@/features/settings/pages/settings-page"
 import { SetupPage } from "@/features/setup/pages/setup-page"
 import { TagsPage } from "@/features/tags/pages/tags-page"
 import { useAuthStore } from "@/shared/stores/auth"
@@ -183,9 +182,9 @@ const tagsRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings",
-  component: SettingsPage,
   beforeLoad: () => {
-    if (storedPrimaryRole() !== "admin") throw redirect({ to: "/app" })
+    // Settings lives in a sidebar modal now; keep the old URL as a soft redirect.
+    throw redirect({ to: "/app" })
   },
 })
 
