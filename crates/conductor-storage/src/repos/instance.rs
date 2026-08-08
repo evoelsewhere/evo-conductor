@@ -122,8 +122,9 @@ impl InstanceRepo {
         sqlx::query(
             r#"
             INSERT INTO users (
-                id, email, display_name, password_hash, primary_role, status, created_at
-            ) VALUES (?, ?, ?, ?, 'admin', 'active', ?)
+                id, email, display_name, password_hash, primary_role, status,
+                must_change_password, created_at
+            ) VALUES (?, ?, ?, ?, 'admin', 'active', 0, ?)
             "#,
         )
         .bind(admin_id.to_string())
@@ -175,7 +176,9 @@ impl InstanceRepo {
                 display_name: req.admin_display_name.clone(),
                 primary_role: PrimaryRole::Admin,
                 sub_role_ids: vec![],
+                tag_ids: vec![],
                 status: UserStatus::Active,
+                must_change_password: false,
                 last_seen_at: None,
                 created_at: now,
             },
@@ -298,6 +301,129 @@ impl InstanceRepo {
                 vec!["openid".into(), "profile".into(), "email".into()]
             }),
         }))
+    }
+
+    pub async fn update_instance(
+        &self,
+        project_name: Option<&str>,
+        display_name: Option<&str>,
+        public_url: Option<&str>,
+    ) -> Result<Option<InstanceConfig>, sqlx::Error> {
+        let Some(current) = self.get().await? else {
+            return Ok(None);
+        };
+        let now = Utc::now();
+        let name = project_name.unwrap_or(&current.project_name);
+        let display = display_name
+            .map(|s| Some(s.to_string()))
+            .unwrap_or_else(|| current.display_name.clone());
+        let url = public_url
+            .map(|s| {
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                }
+            })
+            .unwrap_or_else(|| current.public_url.clone());
+
+        sqlx::query(
+            r#"
+            UPDATE instance SET project_name = ?, display_name = ?, public_url = ?, updated_at = ?
+            "#,
+        )
+        .bind(name)
+        .bind(&display)
+        .bind(&url)
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        self.get().await
+    }
+
+    pub async fn update_sso(
+        &self,
+        enabled: bool,
+        provider: SsoProvider,
+        issuer_url: Option<&str>,
+        client_id: Option<&str>,
+        client_secret: Option<&str>,
+        redirect_uri: Option<&str>,
+        scopes: Option<&[String]>,
+    ) -> Result<SsoConfig, sqlx::Error> {
+        let now = Utc::now();
+        let existing = self.sso_config().await?;
+        let scopes_json = serde_json::to_string(
+            scopes.unwrap_or(existing.scopes.as_slice()),
+        )
+        .unwrap_or_else(|_| "[]".into());
+
+        let has_row = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sso_config WHERE id = 1")
+            .fetch_one(&self.pool)
+            .await?
+            > 0;
+
+        if has_row {
+            if let Some(secret) = client_secret.filter(|s| !s.is_empty()) {
+                sqlx::query(
+                    r#"
+                    UPDATE sso_config SET enabled = ?, provider = ?, issuer_url = ?,
+                        client_id = ?, client_secret_enc = ?, redirect_uri = ?,
+                        scopes = ?, updated_at = ?
+                    WHERE id = 1
+                    "#,
+                )
+                .bind(if enabled { 1 } else { 0 })
+                .bind(provider.as_str())
+                .bind(issuer_url)
+                .bind(client_id)
+                .bind(secret)
+                .bind(redirect_uri)
+                .bind(&scopes_json)
+                .bind(now.to_rfc3339())
+                .execute(&self.pool)
+                .await?;
+            } else {
+                sqlx::query(
+                    r#"
+                    UPDATE sso_config SET enabled = ?, provider = ?, issuer_url = ?,
+                        client_id = ?, redirect_uri = ?, scopes = ?, updated_at = ?
+                    WHERE id = 1
+                    "#,
+                )
+                .bind(if enabled { 1 } else { 0 })
+                .bind(provider.as_str())
+                .bind(issuer_url)
+                .bind(client_id)
+                .bind(redirect_uri)
+                .bind(&scopes_json)
+                .bind(now.to_rfc3339())
+                .execute(&self.pool)
+                .await?;
+            }
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO sso_config (
+                    id, enabled, provider, issuer_url, client_id, client_secret_enc,
+                    redirect_uri, scopes, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(if enabled { 1 } else { 0 })
+            .bind(provider.as_str())
+            .bind(issuer_url)
+            .bind(client_id)
+            .bind(client_secret)
+            .bind(redirect_uri)
+            .bind(&scopes_json)
+            .bind(now.to_rfc3339())
+            .execute(&self.pool)
+            .await?;
+        }
+
+        self.sso_config().await
     }
 }
 

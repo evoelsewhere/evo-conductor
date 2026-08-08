@@ -12,11 +12,12 @@ pub fn parse_dt(value: String) -> DateTime<Utc> {
         .unwrap_or_else(|_| Utc::now())
 }
 
-pub fn map_user(r: &AnyRow) -> Result<User, sqlx::Error> {
+pub fn map_user_row(r: &AnyRow) -> Result<User, sqlx::Error> {
     let id_str: String = r.get("id");
     let role_str: String = r.get("primary_role");
     let status_str: String = r.get("status");
     let last_seen: Option<String> = r.get("last_seen_at");
+    let must_change: i64 = r.try_get("must_change_password").unwrap_or(0);
 
     Ok(User {
         id: Uuid::parse_str(&id_str).unwrap_or_else(|_| Uuid::nil()),
@@ -24,11 +25,9 @@ pub fn map_user(r: &AnyRow) -> Result<User, sqlx::Error> {
         display_name: r.get("display_name"),
         primary_role: PrimaryRole::parse(&role_str).unwrap_or(PrimaryRole::User),
         sub_role_ids: vec![],
-        status: match status_str.as_str() {
-            "invited" => UserStatus::Invited,
-            "disabled" => UserStatus::Disabled,
-            _ => UserStatus::Active,
-        },
+        tag_ids: vec![],
+        status: UserStatus::parse(&status_str),
+        must_change_password: must_change == 1,
         last_seen_at: last_seen.map(parse_dt),
         created_at: parse_dt(r.get("created_at")),
     })
