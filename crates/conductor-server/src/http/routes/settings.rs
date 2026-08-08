@@ -1,11 +1,29 @@
 use axum::{extract::State, Json};
 use conductor_domain::{
-    ConductorError, ProjectSettings, UpdateInstanceRequest, UpdateSsoRequest,
+    ConductorError, ProjectBranding, ProjectSettings, UpdateInstanceRequest, UpdateSsoRequest,
 };
 
 use crate::http::error::ApiResult;
 use crate::http::extractors::AuthUser;
 use crate::http::state::AppState;
+
+/// Lightweight branding for every authenticated member (sidebar / topbar).
+pub async fn get_project(
+    State(state): State<AppState>,
+    AuthUser(_user): AuthUser,
+) -> ApiResult<Json<ProjectBranding>> {
+    let instance = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?;
+    Ok(Json(ProjectBranding {
+        project_name: instance.project_name,
+        display_name: instance.display_name,
+        logo_url: instance.logo_url,
+    }))
+}
 
 pub async fn get_settings(
     State(state): State<AppState>,
@@ -27,6 +45,7 @@ pub async fn get_settings(
         bind_host: instance.bind_host,
         bind_port: instance.bind_port,
         public_url: instance.public_url,
+        logo_url: instance.logo_url,
         sso,
     }))
 }
@@ -52,6 +71,7 @@ pub async fn update_settings(
             req.project_name.as_deref().map(str::trim),
             req.display_name.as_deref(),
             req.public_url.as_deref(),
+            req.logo_url.as_deref(),
         )
         .await?
         .ok_or(ConductorError::SetupRequired)?;

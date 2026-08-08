@@ -11,6 +11,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             bind_host TEXT NOT NULL,
             bind_port INTEGER NOT NULL,
             public_url TEXT,
+            logo_url TEXT,
             setup_completed INTEGER NOT NULL DEFAULT 0,
             jwt_secret TEXT NOT NULL,
             created_at TEXT NOT NULL,
@@ -159,6 +160,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE users ADD COLUMN invited_by TEXT",
         "ALTER TABLE users ADD COLUMN approved_at TEXT",
         "ALTER TABLE users ADD COLUMN approved_by TEXT",
+        "ALTER TABLE instance ADD COLUMN logo_url TEXT",
     ];
     for sql in alters {
         let _ = sqlx::query(sql).execute(pool).await;

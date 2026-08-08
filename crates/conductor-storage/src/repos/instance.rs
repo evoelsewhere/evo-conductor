@@ -21,7 +21,7 @@ impl InstanceRepo {
 
     pub async fn setup_status(&self) -> Result<SetupStatus, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT project_name, public_url, setup_completed FROM instance LIMIT 1",
+            "SELECT project_name, display_name, logo_url, public_url, setup_completed FROM instance LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -38,6 +38,8 @@ impl InstanceRepo {
                 SetupStatus {
                     configured: completed == 1,
                     project_name: Some(r.get("project_name")),
+                    display_name: r.get("display_name"),
+                    logo_url: r.get("logo_url"),
                     public_url: r.get("public_url"),
                     sso_enabled,
                 }
@@ -45,6 +47,8 @@ impl InstanceRepo {
             None => SetupStatus {
                 configured: false,
                 project_name: None,
+                display_name: None,
+                logo_url: None,
                 public_url: None,
                 sso_enabled: false,
             },
@@ -166,6 +170,7 @@ impl InstanceRepo {
                 bind_host: req.bind_host.clone(),
                 bind_port: req.bind_port,
                 public_url: req.public_url.clone(),
+                logo_url: None,
                 setup_completed: true,
                 created_at: now,
                 updated_at: now,
@@ -194,7 +199,7 @@ impl InstanceRepo {
     pub async fn get(&self) -> Result<Option<InstanceConfig>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, project_name, display_name, bind_host, bind_port, public_url,
+            SELECT id, project_name, display_name, bind_host, bind_port, public_url, logo_url,
                    setup_completed, created_at, updated_at
             FROM instance LIMIT 1
             "#,
@@ -209,6 +214,7 @@ impl InstanceRepo {
             bind_host: r.get("bind_host"),
             bind_port: r.get::<i64, _>("bind_port") as u16,
             public_url: r.get("public_url"),
+            logo_url: r.get("logo_url"),
             setup_completed: r.get::<i64, _>("setup_completed") == 1,
             created_at: parse_dt(r.get("created_at")),
             updated_at: parse_dt(r.get("updated_at")),
@@ -308,6 +314,7 @@ impl InstanceRepo {
         project_name: Option<&str>,
         display_name: Option<&str>,
         public_url: Option<&str>,
+        logo_url: Option<&str>,
     ) -> Result<Option<InstanceConfig>, sqlx::Error> {
         let Some(current) = self.get().await? else {
             return Ok(None);
@@ -315,26 +322,42 @@ impl InstanceRepo {
         let now = Utc::now();
         let name = project_name.unwrap_or(&current.project_name);
         let display = display_name
-            .map(|s| Some(s.to_string()))
+            .map(|s| {
+                if s.trim().is_empty() {
+                    None
+                } else {
+                    Some(s.trim().to_string())
+                }
+            })
             .unwrap_or_else(|| current.display_name.clone());
         let url = public_url
             .map(|s| {
-                if s.is_empty() {
+                if s.trim().is_empty() {
                     None
                 } else {
-                    Some(s.to_string())
+                    Some(s.trim().to_string())
                 }
             })
             .unwrap_or_else(|| current.public_url.clone());
+        let logo = logo_url
+            .map(|s| {
+                if s.trim().is_empty() {
+                    None
+                } else {
+                    Some(s.trim().to_string())
+                }
+            })
+            .unwrap_or_else(|| current.logo_url.clone());
 
         sqlx::query(
             r#"
-            UPDATE instance SET project_name = ?, display_name = ?, public_url = ?, updated_at = ?
+            UPDATE instance SET project_name = ?, display_name = ?, public_url = ?, logo_url = ?, updated_at = ?
             "#,
         )
         .bind(name)
         .bind(&display)
         .bind(&url)
+        .bind(&logo)
         .bind(now.to_rfc3339())
         .execute(&self.pool)
         .await?;

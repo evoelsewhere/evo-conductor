@@ -10,6 +10,8 @@ pub struct InstanceConfig {
     pub bind_host: String,
     pub bind_port: u16,
     pub public_url: Option<String>,
+    /// Optional project mark URL; when absent the UI falls back to the EvoFlux glyph.
+    pub logo_url: Option<String>,
     pub setup_completed: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -90,8 +92,18 @@ pub struct SetupSsoRequest {
 pub struct SetupStatus {
     pub configured: bool,
     pub project_name: Option<String>,
+    pub display_name: Option<String>,
+    pub logo_url: Option<String>,
     pub public_url: Option<String>,
     pub sso_enabled: bool,
+}
+
+/// Public project identity shared with every authenticated member (sidebar brand).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectBranding {
+    pub project_name: String,
+    pub display_name: Option<String>,
+    pub logo_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +113,7 @@ pub struct ProjectSettings {
     pub bind_host: String,
     pub bind_port: u16,
     pub public_url: Option<String>,
+    pub logo_url: Option<String>,
     pub sso: SsoConfig,
 }
 
@@ -109,6 +122,7 @@ pub struct UpdateInstanceRequest {
     pub project_name: Option<String>,
     pub display_name: Option<String>,
     pub public_url: Option<String>,
+    pub logo_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

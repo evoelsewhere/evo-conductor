@@ -25,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/sso/start", get(auth::sso_start))
         .route("/auth/sso/callback", get(auth::sso_callback))
         .route("/sso", get(sso::get_config).put(settings::update_sso))
+        .route("/project", get(settings::get_project))
         .route(
             "/settings",
             get(settings::get_settings).patch(settings::update_settings),
