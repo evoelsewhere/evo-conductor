@@ -51,7 +51,7 @@ export function SecretsPage() {
   return (
     <PageFrame
       title="Connection secrets"
-      subtitle="Generate tokens for EvoFlux to subscribe to this Conductor (Codex/Copilot-style machine auth)."
+      subtitle="Generate tokens for EvoFlux to subscribe to this Conductor."
       action={
         <>
           <Input
