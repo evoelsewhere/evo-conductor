@@ -10,5 +10,5 @@ pub use oidc::{
     begin_authorization, default_scopes, exchange_code, normalize_issuer, OidcAuthRequest,
     OidcProfile,
 };
-pub use password::{hash_password, verify_password};
+pub use password::{generate_temp_password, hash_password, verify_password};
 pub use secret_token::{generate_connection_token, hash_token};

@@ -1,6 +1,6 @@
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use conductor_domain::{ConductorError, User};
+use conductor_domain::{ConductorError, User, UserStatus};
 use uuid::Uuid;
 
 use crate::http::error::ApiError;
@@ -37,6 +37,10 @@ impl FromRequestParts<AppState> for AuthUser {
             .await?
             .ok_or(ConductorError::Unauthorized)?;
 
-        Ok(AuthUser(user))
+        match user.status {
+            UserStatus::Active => Ok(AuthUser(user)),
+            UserStatus::Disabled => Err(ConductorError::Forbidden.into()),
+            UserStatus::Pending | UserStatus::Invited => Err(ConductorError::Forbidden.into()),
+        }
     }
 }

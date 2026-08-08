@@ -4,8 +4,12 @@ use axum::{
     Json,
 };
 use chrono::{TimeZone, Utc};
-use conductor_auth::{begin_authorization, default_scopes, exchange_code, verify_password};
-use conductor_domain::{AuthSession, ConductorError, User};
+use conductor_auth::{
+    begin_authorization, default_scopes, exchange_code, hash_password, verify_password,
+};
+use conductor_domain::{
+    AuthSession, ChangePasswordRequest, ConductorError, User, UserStatus,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::http::error::ApiResult;
@@ -47,6 +51,17 @@ pub async fn login(
         .await?
         .ok_or(ConductorError::InvalidCredentials)?;
 
+    if !user.status.can_authenticate() {
+        return Err(match user.status {
+            UserStatus::Pending => ConductorError::msg(
+                "account is pending admin approval — sign in after an admin approves you",
+            ),
+            UserStatus::Disabled => ConductorError::msg("account is disabled"),
+            _ => ConductorError::InvalidCredentials,
+        }
+        .into());
+    }
+
     let hash = hash.ok_or(ConductorError::msg(
         "password login unavailable for this account — use SSO",
     ))?;
@@ -55,11 +70,64 @@ pub async fn login(
         return Err(ConductorError::InvalidCredentials.into());
     }
 
+    let user = if user.status == UserStatus::Invited {
+        state
+            .db
+            .users()
+            .activate_invited_on_password_login(user.id)
+            .await?
+    } else {
+        user
+    };
+
     Ok(Json(issue_session(&state, user).await?))
 }
 
 pub async fn me(AuthUser(user): AuthUser) -> ApiResult<Json<User>> {
     Ok(Json(user))
+}
+
+pub async fn change_password(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(req): Json<ChangePasswordRequest>,
+) -> ApiResult<Json<User>> {
+    if req.new_password.len() < 8 {
+        return Err(ConductorError::msg("new_password must be at least 8 characters").into());
+    }
+
+    let (_, hash) = state
+        .db
+        .users()
+        .find_by_email(&user.email)
+        .await?
+        .ok_or(ConductorError::Unauthorized)?;
+
+    if let Some(hash) = hash {
+        let current = req.current_password.as_deref().unwrap_or("");
+        if !user.must_change_password {
+            if current.is_empty() || !verify_password(current, &hash)? {
+                return Err(ConductorError::InvalidCredentials.into());
+            }
+        } else if !current.is_empty() && !verify_password(current, &hash)? {
+            return Err(ConductorError::InvalidCredentials.into());
+        }
+    }
+
+    let new_hash = hash_password(&req.new_password)?;
+    state
+        .db
+        .users()
+        .set_password(user.id, &new_hash, false)
+        .await?;
+
+    let updated = state
+        .db
+        .users()
+        .find_by_id(user.id)
+        .await?
+        .ok_or(ConductorError::NotFound("user".into()))?;
+    Ok(Json(updated))
 }
 
 /// Begin Microsoft Entra ID / generic OIDC login.
@@ -135,20 +203,46 @@ pub async fn sso_callback(
     let user = state
         .db
         .users()
-        .upsert_from_sso(&profile.email, &profile.display_name)
+        .handle_sso_login(&profile.email, &profile.display_name)
         .await?;
 
-    let session = issue_session(&state, user).await?;
-
     let frontend = frontend_base(&state).await?;
-    let redirect = format!(
-        "{}/auth/callback?token={}&expires_at={}",
-        frontend.trim_end_matches('/'),
-        urlencoding_encode(&session.token),
-        urlencoding_encode(&session.expires_at.to_rfc3339()),
-    );
+    let base = frontend.trim_end_matches('/');
 
-    Ok(Redirect::temporary(&redirect))
+    match user.status {
+        UserStatus::Active => {
+            let session = issue_session(&state, user).await?;
+            let redirect = format!(
+                "{}/auth/callback?token={}&expires_at={}",
+                base,
+                urlencoding_encode(&session.token),
+                urlencoding_encode(&session.expires_at.to_rfc3339()),
+            );
+            Ok(Redirect::temporary(&redirect))
+        }
+        UserStatus::Pending => {
+            let redirect = format!(
+                "{}/pending?email={}",
+                base,
+                urlencoding_encode(&user.email)
+            );
+            Ok(Redirect::temporary(&redirect))
+        }
+        UserStatus::Disabled => {
+            let redirect = format!("{}/login?error=disabled", base);
+            Ok(Redirect::temporary(&redirect))
+        }
+        UserStatus::Invited => {
+            // handle_sso_login should have activated invited users
+            let session = issue_session(&state, user).await?;
+            let redirect = format!(
+                "{}/auth/callback?token={}",
+                base,
+                urlencoding_encode(&session.token),
+            );
+            Ok(Redirect::temporary(&redirect))
+        }
+    }
 }
 
 async fn issue_session(state: &AppState, user: User) -> ApiResult<AuthSession> {
