@@ -4,10 +4,14 @@ import { motion } from "framer-motion"
 
 import { api } from "@/shared/api/client"
 import { BrandMark } from "@/shared/components/brand"
+import { ThemeToggle } from "@/shared/components/theme-toggle"
+import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
+import { ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
-import { useAuthStore } from "@/shared/stores/auth"
+import { Spinner } from "@/shared/ui/spinner"
+import { TooltipProvider } from "@/shared/ui/tooltip"
 
 export function LoginPage({
   projectName,
@@ -31,7 +35,11 @@ export function LoginPage({
     try {
       const session = await api.login(email.trim(), password)
       setSession(session.token, session.user)
-      navigate({ to: "/app" })
+      if (session.user.must_change_password) {
+        navigate({ to: "/change-password" })
+      } else {
+        navigate({ to: "/app" })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed")
     } finally {
@@ -52,74 +60,88 @@ export function LoginPage({
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-6">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-md"
-      >
-        <BrandMark className="mb-8" />
-        <div className="rounded-xl border border-(--border-card) bg-(--bg-card)/85 p-6 shadow-(--shadow-depth) backdrop-blur-sm">
-          <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
-          <p className="mt-1 text-sm text-(--color-text-muted)">
-            {projectName
-              ? `Access ${projectName} Conductor`
-              : "Access your project Conductor"}
-          </p>
+    <TooltipProvider>
+      <div className="relative flex min-h-dvh items-center justify-center px-4 py-10 sm:px-6">
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
 
-          <form className="mt-5 space-y-3" onSubmit={(e) => void onSubmit(e)}>
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          className="w-full max-w-md"
+        >
+          <BrandMark size="lg" className="mb-8" />
+          <div className="rounded-xl border border-(--border-card) bg-(--bg-card)/85 p-5 shadow-(--shadow-depth) backdrop-blur-sm sm:p-6">
+            <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
+            <p className="mt-1 text-sm text-(--color-text-muted)">
+              {projectName
+                ? `Access ${projectName} Conductor`
+                : "Access your project Conductor"}
+            </p>
 
-            {error && (
-              <div className="rounded-md border border-(--color-error)/30 bg-(--color-error-subtle) px-3 py-2 text-sm text-(--color-error)">
-                {error}
+            <form className="mt-5 space-y-3" onSubmit={(e) => void onSubmit(e)}>
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
               </div>
-            )}
+              <div className="space-y-1.5">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
 
-            <Button type="submit" variant="gradient" className="w-full" disabled={busy || ssoBusy}>
-              {busy ? "Signing in…" : "Continue"}
-            </Button>
-          </form>
+              {error && <ErrorState message={error} />}
 
-          {ssoEnabled && (
-            <div className="mt-4 border-t border-(--border-soft) pt-4">
               <Button
-                variant="outline"
+                type="submit"
+                variant="gradient"
                 className="w-full"
                 disabled={busy || ssoBusy}
-                onClick={() => void onSso()}
               >
-                {ssoBusy ? "Redirecting…" : "Continue with Microsoft / SSO"}
+                {busy ? (
+                  <>
+                    <Spinner className="text-current" />
+                    Signing in…
+                  </>
+                ) : (
+                  "Continue"
+                )}
               </Button>
-              <p className="mt-2 text-center text-[0.7rem] text-(--color-text-subtle)">
-                Microsoft Entra ID (Azure AD) and generic OIDC
-              </p>
-            </div>
-          )}
-        </div>
-      </motion.div>
-    </div>
+            </form>
+
+            {ssoEnabled && (
+              <div className="mt-4 border-t border-(--border-soft) pt-4">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={busy || ssoBusy}
+                  onClick={() => void onSso()}
+                >
+                  {ssoBusy ? "Redirecting…" : "Continue with Microsoft / SSO"}
+                </Button>
+                <p className="mt-2 text-center text-[0.7rem] text-(--color-text-subtle)">
+                  Microsoft Entra ID (Azure AD) and generic OIDC
+                </p>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    </TooltipProvider>
   )
 }

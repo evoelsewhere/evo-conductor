@@ -4,6 +4,8 @@ import { useNavigate } from "@tanstack/react-router"
 import { api } from "@/shared/api/client"
 import { BrandMark } from "@/shared/components/brand"
 import { useAuthStore } from "@/shared/stores/auth"
+import { ErrorState } from "@/shared/ui/empty-state"
+import { Spinner } from "@/shared/ui/spinner"
 
 export function SsoCallbackPage() {
   const navigate = useNavigate()
@@ -30,11 +32,16 @@ export function SsoCallbackPage() {
   }, [navigate, setSession])
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6">
-      <BrandMark />
-      <p className="text-sm text-(--color-text-muted)">
-        {error ?? "Completing Microsoft / SSO sign-in…"}
-      </p>
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6">
+      <BrandMark size="lg" />
+      {error ? (
+        <ErrorState message={error} className="max-w-md" />
+      ) : (
+        <p className="inline-flex items-center gap-2 text-sm text-(--color-text-muted)">
+          <Spinner />
+          Completing Microsoft / SSO sign-in…
+        </p>
+      )}
     </div>
   )
 }
