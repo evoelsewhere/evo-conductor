@@ -9,7 +9,7 @@ pub async fn get_config(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
 ) -> ApiResult<Json<SsoConfig>> {
-    if !user.primary_role.can_manage_members() {
+    if !user.primary_role.can_manage_settings() {
         return Err(ConductorError::Forbidden.into());
     }
     Ok(Json(state.db.instance().sso_config().await?))
