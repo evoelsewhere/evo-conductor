@@ -34,12 +34,25 @@ impl PrimaryRole {
         matches!(self, Self::Admin)
     }
 
+    pub fn can_list_members(self) -> bool {
+        matches!(self, Self::Admin | Self::Contribute)
+    }
+
     pub fn can_manage_resources(self) -> bool {
+        matches!(self, Self::Admin | Self::Contribute)
+    }
+
+    /// Tags are shared taxonomy for members, resources, and future entities.
+    pub fn can_manage_tags(self) -> bool {
         matches!(self, Self::Admin | Self::Contribute)
     }
 
     pub fn can_view_telemetry(self) -> bool {
         matches!(self, Self::Admin | Self::Contribute)
+    }
+
+    pub fn can_manage_settings(self) -> bool {
+        matches!(self, Self::Admin)
     }
 }
 
@@ -57,6 +70,38 @@ pub struct SubRole {
 pub struct CreateSubRoleRequest {
     pub slug: String,
     pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSubRoleRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub color: Option<String>,
+}
+
+/// Org / sub-team label (many-to-many with members).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tag {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTagRequest {
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTagRequest {
+    pub name: Option<String>,
     pub description: Option<String>,
     pub color: Option<String>,
 }

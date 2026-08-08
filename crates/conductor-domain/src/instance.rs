@@ -93,3 +93,32 @@ pub struct SetupStatus {
     pub public_url: Option<String>,
     pub sso_enabled: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectSettings {
+    pub project_name: String,
+    pub display_name: Option<String>,
+    pub bind_host: String,
+    pub bind_port: u16,
+    pub public_url: Option<String>,
+    pub sso: SsoConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateInstanceRequest {
+    pub project_name: Option<String>,
+    pub display_name: Option<String>,
+    pub public_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSsoRequest {
+    pub enabled: bool,
+    pub provider: SsoProvider,
+    pub issuer_url: Option<String>,
+    pub client_id: Option<String>,
+    /// Omit or null to keep the existing secret.
+    pub client_secret: Option<String>,
+    pub redirect_uri: Option<String>,
+    pub scopes: Option<Vec<String>>,
+}

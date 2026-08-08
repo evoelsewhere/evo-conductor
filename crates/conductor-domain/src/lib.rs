@@ -12,7 +12,10 @@ pub mod user;
 pub use error::{ConductorError, Result};
 pub use instance::*;
 pub use resource::*;
-pub use role::{CreateSubRoleRequest, PrimaryRole, SubRole};
+pub use role::{
+    CreateSubRoleRequest, CreateTagRequest, PrimaryRole, SubRole, Tag, UpdateSubRoleRequest,
+    UpdateTagRequest,
+};
 pub use secret::*;
 pub use telemetry::*;
 pub use user::*;
