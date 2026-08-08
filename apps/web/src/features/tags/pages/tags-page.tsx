@@ -1,79 +1,60 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Plus, Tags, Trash2 } from "lucide-react"
 import { useState } from "react"
 
-import { api, type SubRole } from "@/shared/api/client"
+import { api, type Tag } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
 import { Card, CardHeader, CardList, CardTitle } from "@/shared/ui/card"
-import { Dialog } from "@/shared/ui/dialog"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
+import { Dialog } from "@/shared/ui/dialog"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { SkeletonRows } from "@/shared/ui/skeleton"
 
-const primaryRoles = [
-  {
-    role: "admin",
-    desc: "Project settings, SSO, members, roles, tags, full telemetry.",
-  },
-  {
-    role: "contribute",
-    desc: "Publish shared agents/skills/MCP and view team monitoring.",
-  },
-  {
-    role: "user",
-    desc: "Consume shared catalogs, create personal secrets, report usage.",
-  },
-] as const
-
-export function RolesPage() {
+export function TagsPage() {
   const user = useAuthStore((s) => s.user)
+  const canManage =
+    user?.primary_role === "admin" || user?.primary_role === "contribute"
   const qc = useQueryClient()
-  const { data = [], isLoading } = useQuery({
-    queryKey: ["sub-roles"],
-    queryFn: () => api.subRoles(),
+  const { data = [], isLoading, error } = useQuery({
+    queryKey: ["tags"],
+    queryFn: () => api.tags(),
   })
-  const [editor, setEditor] = useState<SubRole | "new" | null>(null)
+  const [editor, setEditor] = useState<Tag | "new" | null>(null)
 
   const remove = useMutation({
-    mutationFn: (id: string) => api.deleteSubRole(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["sub-roles"] }),
+    mutationFn: (id: string) => api.deleteTag(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tags"] }),
   })
-
-  const canManage = user?.primary_role === "admin"
 
   return (
     <PageFrame
-      title="Roles"
-      subtitle="Primary roles gate permissions. Sub-roles describe job functions (dev, ba, tester)."
+      title="Tags"
+      subtitle="Shared taxonomy for organizing teams, resources, policies, and future project entities."
       action={
         canManage ? (
           <Button variant="gradient" onClick={() => setEditor("new")}>
             <Plus className="size-3.5" />
-            New sub-role
+            New tag
           </Button>
         ) : undefined
       }
     >
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-        {primaryRoles.map((item) => (
-          <Card key={item.role} className="p-4">
-            <div className="text-sm font-semibold capitalize">{item.role}</div>
-            <p className="mt-1 text-xs leading-relaxed text-(--color-text-muted)">
-              {item.desc}
-            </p>
-          </Card>
-        ))}
-      </div>
+      {error && (
+        <ErrorState
+          className="mb-4"
+          message={error instanceof Error ? error.message : "Failed to load"}
+        />
+      )}
 
       <Card>
-        <CardHeader className="gap-3">
+        <CardHeader>
           <div>
-            <CardTitle>Sub-roles</CardTitle>
+            <CardTitle>Tag catalog</CardTitle>
             <p className="mt-1 text-xs text-(--color-text-muted)">
-              Job functions assigned by project administrators.
+              Reusable labels available across the project.
             </p>
           </div>
         </CardHeader>
@@ -83,23 +64,24 @@ export function RolesPage() {
         ) : data.length === 0 ? (
           <div className="p-4">
             <EmptyState
-              title="No sub-roles"
-              description="Admins can define project-specific roles like developer, BA, or tester."
+              icon={Tags}
+              title="No tags yet"
+              description="Create reusable labels such as platform, frontend, critical, or squad-a."
               className="border-0 bg-transparent py-8"
             />
           </div>
         ) : (
           <CardList>
-            {data.map((role) => (
-              <div key={role.id} className="flex items-center gap-3 px-4 py-3">
+            {data.map((tag) => (
+              <div key={tag.id} className="flex items-center gap-3 px-4 py-3">
                 <span
                   className="size-2.5 shrink-0 rounded-full"
-                  style={{ background: role.color ?? "var(--color-accent)" }}
+                  style={{ background: tag.color ?? "var(--color-accent)" }}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{role.name}</div>
+                  <div className="text-sm font-medium">{tag.name}</div>
                   <div className="font-mono text-[0.7rem] text-(--color-text-subtle)">
-                    {role.slug}
+                    {tag.slug}
                   </div>
                 </div>
                 {canManage && (
@@ -107,16 +89,16 @@ export function RolesPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      aria-label={`Edit ${role.name}`}
-                      onClick={() => setEditor(role)}
+                      aria-label={`Edit ${tag.name}`}
+                      onClick={() => setEditor(tag)}
                     >
                       <Pencil className="size-3.5" />
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
-                      aria-label={`Delete ${role.name}`}
-                      onClick={() => remove.mutate(role.id)}
+                      aria-label={`Delete ${tag.name}`}
+                      onClick={() => remove.mutate(tag.id)}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -128,12 +110,12 @@ export function RolesPage() {
         )}
       </Card>
       {editor && (
-        <RoleDialog
-          role={editor}
+        <TagDialog
+          tag={editor}
           onClose={() => setEditor(null)}
           onSaved={() => {
             setEditor(null)
-            void qc.invalidateQueries({ queryKey: ["sub-roles"] })
+            void qc.invalidateQueries({ queryKey: ["tags"] })
           }}
         />
       )}
@@ -141,16 +123,16 @@ export function RolesPage() {
   )
 }
 
-function RoleDialog({
-  role,
+function TagDialog({
+  tag,
   onClose,
   onSaved,
 }: {
-  role: SubRole | "new"
+  tag: Tag | "new"
   onClose: () => void
   onSaved: () => void
 }) {
-  const existing = role === "new" ? null : role
+  const existing = tag && tag !== "new" ? tag : null
   const [slug, setSlug] = useState(existing?.slug ?? "")
   const [name, setName] = useState(existing?.name ?? "")
   const [description, setDescription] = useState(existing?.description ?? "")
@@ -160,8 +142,8 @@ function RoleDialog({
   const save = useMutation({
     mutationFn: () =>
       existing
-        ? api.updateSubRole(existing.id, { name, description, color })
-        : api.createSubRole({ slug, name, description, color }),
+        ? api.updateTag(existing.id, { name, description, color })
+        : api.createTag({ slug, name, description, color }),
     onSuccess: onSaved,
     onError: (e) => setError(e instanceof Error ? e.message : "Save failed"),
   })
@@ -169,8 +151,8 @@ function RoleDialog({
   return (
     <Dialog
       open
-      title={existing ? "Edit sub-role" : "Create sub-role"}
-      description="Sub-roles describe a member's project function. System permissions still come from the primary role."
+      title={existing ? "Edit tag" : "Create tag"}
+      description="Tags are shared labels and are not limited to members."
       onClose={onClose}
       footer={
         <>
@@ -182,7 +164,7 @@ function RoleDialog({
             disabled={!slug.trim() || !name.trim() || save.isPending}
             onClick={() => save.mutate()}
           >
-            {existing ? "Save changes" : "Create sub-role"}
+            {existing ? "Save changes" : "Create tag"}
           </Button>
         </>
       }
@@ -191,7 +173,7 @@ function RoleDialog({
         <Field label="Name">
           <Input
             value={name}
-            placeholder="Developer"
+            placeholder="Platform"
             autoFocus
             onChange={(e) => setName(e.target.value)}
           />
@@ -199,7 +181,7 @@ function RoleDialog({
         <Field label="Slug">
           <Input
             value={slug}
-            placeholder="dev"
+            placeholder="platform"
             disabled={Boolean(existing)}
             onChange={(e) => setSlug(e.target.value)}
           />
@@ -207,7 +189,7 @@ function RoleDialog({
         <Field label="Description">
           <Input
             value={description}
-            placeholder="Builds and maintains project software"
+            placeholder="Used for platform-owned entities"
             onChange={(e) => setDescription(e.target.value)}
           />
         </Field>
@@ -216,7 +198,7 @@ function RoleDialog({
             <input
               type="color"
               value={color}
-              aria-label="Sub-role color"
+              aria-label="Tag color"
               className="size-9 rounded-md border border-(--color-border) bg-transparent p-1"
               onChange={(e) => setColor(e.target.value)}
             />

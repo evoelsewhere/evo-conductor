@@ -1,12 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import { Copy, Plus, Trash2 } from "lucide-react"
+import { Copy, KeyRound, Plus, Trash2 } from "lucide-react"
 
 import { api, type SecretScope } from "@/shared/api/client"
-import { Button } from "@/shared/ui/button"
-import { Input } from "@/shared/ui/input"
-import { Badge } from "@/shared/ui/badge"
 import { PageFrame } from "@/shared/components/page-frame"
+import { Badge } from "@/shared/ui/badge"
+import { BadgeList } from "@/shared/ui/badge-list"
+import { Button } from "@/shared/ui/button"
+import { EmptyState } from "@/shared/ui/empty-state"
+import { Input } from "@/shared/ui/input"
+import { SkeletonRows } from "@/shared/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableTd,
+  TableTh,
+  TableWrap,
+} from "@/shared/ui/table"
 
 const defaultScopes: SecretScope[] = [
   "subscribe_resources",
@@ -41,11 +53,11 @@ export function SecretsPage() {
       title="Connection secrets"
       subtitle="Generate tokens for EvoFlux to subscribe to this Conductor (Codex/Copilot-style machine auth)."
       action={
-        <div className="flex items-center gap-2">
+        <>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-48"
+            className="w-full sm:w-48"
             placeholder="Secret name"
           />
           <Button
@@ -56,16 +68,16 @@ export function SecretsPage() {
             <Plus className="size-3.5" />
             Create
           </Button>
-        </div>
+        </>
       }
     >
       {createdToken && (
-        <div className="mb-4 rounded-lg border border-(--accent-blue)/30 bg-(--accent-blue-soft)/40 px-4 py-3">
+        <div className="mb-4 rounded-xl border border-(--accent-blue)/30 bg-(--accent-blue)/8 px-4 py-3">
           <div className="mb-1 text-xs font-medium text-(--accent-blue-text)">
             Copy this token now — it won’t be shown again
           </div>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 truncate rounded-md bg-(--bg-page) px-2 py-1 font-mono text-xs">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <code className="min-w-0 flex-1 truncate rounded-md bg-(--bg-page) px-2 py-1.5 font-mono text-xs">
               {createdToken}
             </code>
             <Button
@@ -81,66 +93,61 @@ export function SecretsPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-(--color-text-muted)">Loading…</p>
+        <TableWrap>
+          <SkeletonRows rows={4} />
+        </TableWrap>
+      ) : data.length === 0 ? (
+        <EmptyState
+          icon={KeyRound}
+          title="No secrets yet"
+          description="Create a connection token and paste it into EvoFlux to subscribe to this Conductor."
+        />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-(--border-card) bg-(--bg-card)">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-(--border-soft) text-xs text-(--color-text-subtle)">
+        <TableWrap>
+          <Table>
+            <TableHead>
               <tr>
-                <th className="px-4 py-2.5 font-medium">Name</th>
-                <th className="px-4 py-2.5 font-medium">Prefix</th>
-                <th className="px-4 py-2.5 font-medium">Scopes</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium" />
+                <TableTh>Name</TableTh>
+                <TableTh>Prefix</TableTh>
+                <TableTh>Scopes</TableTh>
+                <TableTh>Status</TableTh>
+                <TableTh />
               </tr>
-            </thead>
-            <tbody className="divide-y divide-(--border-soft)">
+            </TableHead>
+            <TableBody>
               {data.map((s) => (
-                <tr key={s.id}>
-                  <td className="px-4 py-3 font-medium">{s.name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-(--color-text-muted)">
+                <TableRow key={s.id}>
+                  <TableTd className="font-medium">{s.name}</TableTd>
+                  <TableTd className="font-mono text-xs text-(--color-text-muted)">
                     evc_{s.prefix}_…
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {s.scopes.map((scope) => (
-                        <Badge key={scope}>{scope}</Badge>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs">
+                  </TableTd>
+                  <TableTd>
+                    <BadgeList className="max-w-xs" max={3} items={s.scopes} />
+                  </TableTd>
+                  <TableTd className="text-xs">
                     {s.revoked_at ? (
-                      <span className="text-(--color-error)">revoked</span>
+                      <Badge tone="danger">revoked</Badge>
                     ) : (
-                      <span className="text-(--color-success)">active</span>
+                      <Badge tone="success">active</Badge>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  </TableTd>
+                  <TableTd className="text-right">
                     {!s.revoked_at && (
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Revoke ${s.name}`}
                         onClick={() => revoke.mutate(s.id)}
                       >
                         <Trash2 className="size-3.5" />
                       </Button>
                     )}
-                  </td>
-                </tr>
+                  </TableTd>
+                </TableRow>
               ))}
-              {data.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-4 py-8 text-center text-sm text-(--color-text-subtle)"
-                  >
-                    No secrets yet — create one to connect EvoFlux.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableWrap>
       )}
     </PageFrame>
   )

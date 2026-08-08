@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { motion, AnimatePresence } from "framer-motion"
+import { AnimatePresence, motion } from "framer-motion"
 import {
   ArrowLeft,
   ArrowRight,
@@ -13,10 +13,16 @@ import {
 
 import { api, type SsoProvider } from "@/shared/api/client"
 import { BrandMark } from "@/shared/components/brand"
+import { ThemeToggle } from "@/shared/components/theme-toggle"
+import { cn } from "@/shared/lib/utils"
 import { Button } from "@/shared/ui/button"
+import { ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
-import { cn } from "@/shared/lib/utils"
+import { Select } from "@/shared/ui/select"
+import { Spinner } from "@/shared/ui/spinner"
+import { SwitchField } from "@/shared/ui/switch"
+import { TooltipProvider } from "@/shared/ui/tooltip"
 
 const steps = [
   { id: "project", title: "Project", icon: Sparkles },
@@ -24,6 +30,14 @@ const steps = [
   { id: "admin", title: "Admin", icon: Shield },
   { id: "sso", title: "SSO", icon: KeyRound },
 ] as const
+
+const ssoProviders = [
+  { value: "azure_ad", label: "Microsoft Entra ID (Azure AD)" },
+  { value: "oidc", label: "Generic OIDC" },
+  { value: "google", label: "Google" },
+  { value: "github", label: "GitHub" },
+  { value: "custom", label: "Custom" },
+] as const satisfies ReadonlyArray<{ value: SsoProvider; label: string }>
 
 export function SetupPage() {
   const navigate = useNavigate()
@@ -47,6 +61,7 @@ export function SetupPage() {
   const [redirectUri, setRedirectUri] = useState(
     "http://127.0.0.1:4700/api/auth/sso/callback",
   )
+
   const canNext = useMemo(() => {
     if (step === 0) return projectName.trim().length > 1
     if (step === 1) return Boolean(bindHost) && Number(bindPort) > 0
@@ -58,7 +73,7 @@ export function SetupPage() {
       )
     if (step === 3) {
       if (!ssoEnabled) return true
-      return Boolean(clientId.trim() && clientSecret.trim())
+      return Boolean(clientId.trim() && clientSecret.trim() && issuerUrl.trim())
     }
     return false
   }, [
@@ -72,6 +87,7 @@ export function SetupPage() {
     ssoEnabled,
     clientId,
     clientSecret,
+    issuerUrl,
   ])
 
   async function finish() {
@@ -105,261 +121,271 @@ export function SetupPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-6 py-10">
-      <BrandMark className="mb-10" />
+    <TooltipProvider>
+      <div className="relative mx-auto flex min-h-dvh max-w-3xl flex-col px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <BrandMark size="lg" />
+          <ThemeToggle />
+        </div>
 
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-(--color-text)">
-          Set up your Conductor
-        </h1>
-        <p className="mt-1.5 max-w-xl text-sm text-(--color-text-muted)">
-          First-run wizard for the project master server. After publish, members
-          can sign in and create secrets to connect EvoFlux.
-        </p>
-      </div>
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold tracking-tight text-(--color-text)">
+            Set up your Conductor
+          </h1>
+          <p className="mt-1.5 max-w-xl text-sm text-(--color-text-muted)">
+            First-run wizard for the project master server. After publish,
+            members can sign in and create secrets to connect EvoFlux.
+          </p>
+        </div>
 
-      <div className="mb-6 flex gap-2">
-        {steps.map((s, i) => {
-          const Icon = s.icon
-          const active = i === step
-          const done = i < step
-          return (
-            <div
-              key={s.id}
-              className={cn(
-                "flex flex-1 items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
-                active
-                  ? "border-(--color-accent)/40 bg-(--color-accent-soft) text-(--color-text)"
-                  : done
-                    ? "border-(--color-border) bg-(--bg-card) text-(--color-text-2)"
-                    : "border-(--border-soft) text-(--color-text-subtle)",
-              )}
-            >
-              <span
+        <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {steps.map((s, i) => {
+            const Icon = s.icon
+            const active = i === step
+            const done = i < step
+            return (
+              <div
+                key={s.id}
                 className={cn(
-                  "flex size-5 items-center justify-center rounded-sm",
-                  done || active ? "bg-(--bg-key)" : "bg-transparent",
+                  "flex items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
+                  active
+                    ? "border-(--color-accent)/40 bg-(--color-accent-soft) text-(--color-text)"
+                    : done
+                      ? "border-(--color-border) bg-(--bg-card) text-(--color-text-2)"
+                      : "border-(--border-soft) text-(--color-text-subtle)",
                 )}
               >
-                {done ? <Check className="size-3" /> : <Icon className="size-3" />}
-              </span>
-              {s.title}
-            </div>
-          )
-        })}
-      </div>
+                <span
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded-sm",
+                    done || active ? "bg-(--bg-key)" : "bg-transparent",
+                  )}
+                >
+                  {done ? (
+                    <Check className="size-3" />
+                  ) : (
+                    <Icon className="size-3" />
+                  )}
+                </span>
+                <span className="truncate">{s.title}</span>
+              </div>
+            )
+          })}
+        </div>
 
-      <div className="rounded-xl border border-(--border-card) bg-(--bg-card)/80 p-5 shadow-(--shadow-depth) backdrop-blur-sm">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={step}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="space-y-4"
-          >
-            {step === 0 && (
-              <>
-                <Field label="Project name" htmlFor="project">
-                  <Input
-                    id="project"
-                    value={projectName}
-                    onChange={(e) => setProjectName(e.target.value)}
-                    placeholder="acme-platform"
-                    autoFocus
-                  />
-                </Field>
-                <Field label="Display name" htmlFor="display">
-                  <Input
-                    id="display"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Acme Platform"
-                  />
-                </Field>
-              </>
-            )}
-
-            {step === 1 && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Bind host" htmlFor="host">
+        <div className="rounded-xl border border-(--border-card) bg-(--bg-card)/80 p-4 shadow-(--shadow-depth) backdrop-blur-sm sm:p-5">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="space-y-4"
+            >
+              {step === 0 && (
+                <>
+                  <Field label="Project name" htmlFor="project">
                     <Input
-                      id="host"
-                      value={bindHost}
-                      onChange={(e) => setBindHost(e.target.value)}
-                      placeholder="0.0.0.0"
+                      id="project"
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value)}
+                      placeholder="acme-platform"
+                      autoFocus
                     />
                   </Field>
-                  <Field label="Bind port" htmlFor="port">
+                  <Field label="Display name" htmlFor="display">
                     <Input
-                      id="port"
-                      value={bindPort}
-                      onChange={(e) => setBindPort(e.target.value)}
-                      placeholder="4700"
+                      id="display"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Acme Platform"
                     />
                   </Field>
-                </div>
-                <Field label="Public URL" htmlFor="public">
-                  <Input
-                    id="public"
-                    value={publicUrl}
-                    onChange={(e) => setPublicUrl(e.target.value)}
-                    placeholder="https://conductor.example.com"
-                  />
-                </Field>
-                <p className="text-xs text-(--color-text-subtle)">
-                  EvoFlux clients and SSO redirects will use this published URL.
-                </p>
-              </>
-            )}
+                </>
+              )}
 
-            {step === 2 && (
-              <>
-                <Field label="Admin display name" htmlFor="admin-name">
-                  <Input
-                    id="admin-name"
-                    value={adminName}
-                    onChange={(e) => setAdminName(e.target.value)}
-                    placeholder="Hung"
-                  />
-                </Field>
-                <Field label="Admin email" htmlFor="admin-email">
-                  <Input
-                    id="admin-email"
-                    type="email"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    placeholder="admin@company.com"
-                  />
-                </Field>
-                <Field label="Admin password" htmlFor="admin-pass">
-                  <Input
-                    id="admin-pass"
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                  />
-                </Field>
-              </>
-            )}
-
-            {step === 3 && (
-              <>
-                <label className="flex items-center gap-2 text-sm text-(--color-text-2)">
-                  <input
-                    type="checkbox"
-                    checked={ssoEnabled}
-                    onChange={(e) => setSsoEnabled(e.target.checked)}
-                    className="size-3.5 accent-(--color-accent)"
-                  />
-                  Enable SSO (OIDC / GitHub / Azure AD)
-                </label>
-                <div className={cn("space-y-3", !ssoEnabled && "opacity-45")}>
-                  <Field label="Provider" htmlFor="provider">
-                    <select
-                      id="provider"
-                      disabled={!ssoEnabled}
-                      value={ssoProvider}
-                      onChange={(e) => setSsoProvider(e.target.value as SsoProvider)}
-                      className="h-8 w-full rounded-md border border-(--color-border) bg-(--bg-page) px-2.5 text-sm outline-none"
-                    >
-                      <option value="azure_ad">Microsoft Entra ID (Azure AD)</option>
-                      <option value="oidc">Generic OIDC</option>
-                      <option value="google">Google</option>
-                      <option value="github">GitHub</option>
-                      <option value="custom">Custom</option>
-                    </select>
-                  </Field>
-                  <Field label="Issuer URL" htmlFor="issuer">
-                    <Input
-                      id="issuer"
-                      disabled={!ssoEnabled}
-                      value={issuerUrl}
-                      onChange={(e) => setIssuerUrl(e.target.value)}
-                      placeholder={
-                        ssoProvider === "azure_ad"
-                          ? "https://login.microsoftonline.com/{tenant-id}/v2.0"
-                          : "https://issuer.example.com"
-                      }
-                    />
-                  </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Client ID" htmlFor="client-id">
+              {step === 1 && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Bind host" htmlFor="host">
                       <Input
-                        id="client-id"
-                        disabled={!ssoEnabled}
-                        value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
+                        id="host"
+                        value={bindHost}
+                        onChange={(e) => setBindHost(e.target.value)}
+                        placeholder="0.0.0.0"
                       />
                     </Field>
-                    <Field label="Client secret" htmlFor="client-secret">
+                    <Field label="Bind port" htmlFor="port">
                       <Input
-                        id="client-secret"
-                        type="password"
-                        disabled={!ssoEnabled}
-                        value={clientSecret}
-                        onChange={(e) => setClientSecret(e.target.value)}
+                        id="port"
+                        value={bindPort}
+                        onChange={(e) => setBindPort(e.target.value)}
+                        placeholder="4700"
                       />
                     </Field>
                   </div>
-                  <Field label="Redirect URI" htmlFor="redirect">
+                  <Field label="Public URL" htmlFor="public">
                     <Input
-                      id="redirect"
-                      disabled={!ssoEnabled}
-                      value={redirectUri}
-                      onChange={(e) => setRedirectUri(e.target.value)}
+                      id="public"
+                      value={publicUrl}
+                      onChange={(e) => setPublicUrl(e.target.value)}
+                      placeholder="https://conductor.example.com"
                     />
                   </Field>
                   <p className="text-xs text-(--color-text-subtle)">
-                    {ssoProvider === "azure_ad"
-                      ? "Register a Web app in Entra ID. Redirect URI must match exactly (default http://localhost:4700/api/auth/sso/callback). Public URL is used to return to the console after login."
-                      : "OIDC authorization-code + PKCE. Redirect URI must point at /api/auth/sso/callback on this Conductor host."}
+                    EvoFlux clients and SSO redirects will use this published
+                    URL.
                   </p>
-                </div>
-              </>
+                </>
+              )}
+
+              {step === 2 && (
+                <>
+                  <Field label="Admin display name" htmlFor="admin-name">
+                    <Input
+                      id="admin-name"
+                      value={adminName}
+                      onChange={(e) => setAdminName(e.target.value)}
+                      placeholder="Hung"
+                    />
+                  </Field>
+                  <Field label="Admin email" htmlFor="admin-email">
+                    <Input
+                      id="admin-email"
+                      type="email"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      placeholder="admin@company.com"
+                    />
+                  </Field>
+                  <Field label="Admin password" htmlFor="admin-pass">
+                    <Input
+                      id="admin-pass"
+                      type="password"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="At least 8 characters"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {step === 3 && (
+                <>
+                  <SwitchField
+                    id="sso-enabled"
+                    label="Enable SSO"
+                    description="OIDC / Microsoft Entra ID / GitHub / Google"
+                    checked={ssoEnabled}
+                    onCheckedChange={setSsoEnabled}
+                  />
+                  <div
+                    className={cn(
+                      "space-y-3 transition-opacity",
+                      !ssoEnabled && "pointer-events-none opacity-45",
+                    )}
+                  >
+                    <Field label="Provider" htmlFor="provider">
+                      <Select
+                        id="provider"
+                        disabled={!ssoEnabled}
+                        value={ssoProvider}
+                        onValueChange={setSsoProvider}
+                        options={ssoProviders}
+                      />
+                    </Field>
+                    <Field label="Issuer URL" htmlFor="issuer">
+                      <Input
+                        id="issuer"
+                        disabled={!ssoEnabled}
+                        value={issuerUrl}
+                        onChange={(e) => setIssuerUrl(e.target.value)}
+                        placeholder={
+                          ssoProvider === "azure_ad"
+                            ? "https://login.microsoftonline.com/{tenant-id}/v2.0"
+                            : "https://issuer.example.com"
+                        }
+                      />
+                    </Field>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Client ID" htmlFor="client-id">
+                        <Input
+                          id="client-id"
+                          disabled={!ssoEnabled}
+                          value={clientId}
+                          onChange={(e) => setClientId(e.target.value)}
+                        />
+                      </Field>
+                      <Field label="Client secret" htmlFor="client-secret">
+                        <Input
+                          id="client-secret"
+                          type="password"
+                          disabled={!ssoEnabled}
+                          value={clientSecret}
+                          onChange={(e) => setClientSecret(e.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Redirect URI" htmlFor="redirect">
+                      <Input
+                        id="redirect"
+                        disabled={!ssoEnabled}
+                        value={redirectUri}
+                        onChange={(e) => setRedirectUri(e.target.value)}
+                      />
+                    </Field>
+                    <p className="text-xs text-(--color-text-subtle)">
+                      {ssoProvider === "azure_ad"
+                        ? "Register a Web app in Entra ID. Redirect URI must match exactly. Public URL is used to return to the console after login."
+                        : "OIDC authorization-code + PKCE. Redirect URI must point at /api/auth/sso/callback on this Conductor host."}
+                    </p>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </AnimatePresence>
+
+          {error && <ErrorState className="mt-4" message={error} />}
+
+          <div className="mt-6 flex items-center justify-between gap-3">
+            <Button
+              variant="ghost"
+              disabled={step === 0 || busy}
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
+            >
+              <ArrowLeft className="size-3.5" />
+              Back
+            </Button>
+            {step < steps.length - 1 ? (
+              <Button
+                variant="gradient"
+                disabled={!canNext || busy}
+                onClick={() => setStep((s) => s + 1)}
+              >
+                Continue
+                <ArrowRight className="size-3.5" />
+              </Button>
+            ) : (
+              <Button
+                variant="gradient"
+                disabled={!canNext || busy}
+                onClick={() => void finish()}
+              >
+                {busy ? (
+                  <>
+                    <Spinner className="text-current" />
+                    Publishing…
+                  </>
+                ) : (
+                  "Finish & publish"
+                )}
+              </Button>
             )}
-          </motion.div>
-        </AnimatePresence>
-
-        {error && (
-          <div className="mt-4 rounded-md border border-(--color-error)/30 bg-(--color-error-subtle) px-3 py-2 text-sm text-(--color-error)">
-            {error}
           </div>
-        )}
-
-        <div className="mt-6 flex items-center justify-between">
-          <Button
-            variant="ghost"
-            disabled={step === 0 || busy}
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-          >
-            <ArrowLeft className="size-3.5" />
-            Back
-          </Button>
-          {step < steps.length - 1 ? (
-            <Button
-              variant="gradient"
-              disabled={!canNext || busy}
-              onClick={() => setStep((s) => s + 1)}
-            >
-              Continue
-              <ArrowRight className="size-3.5" />
-            </Button>
-          ) : (
-            <Button
-              variant="gradient"
-              disabled={!canNext || busy}
-              onClick={() => void finish()}
-            >
-              {busy ? "Publishing…" : "Finish & publish"}
-            </Button>
-          )}
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
 

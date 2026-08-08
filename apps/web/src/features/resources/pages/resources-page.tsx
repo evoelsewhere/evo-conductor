@@ -1,8 +1,20 @@
 import { useQuery } from "@tanstack/react-query"
+import { Boxes } from "lucide-react"
 
 import { api } from "@/shared/api/client"
-import { Badge } from "@/shared/ui/badge"
 import { PageFrame } from "@/shared/components/page-frame"
+import { Badge } from "@/shared/ui/badge"
+import { EmptyState } from "@/shared/ui/empty-state"
+import { SkeletonRows } from "@/shared/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableTd,
+  TableTh,
+  TableWrap,
+} from "@/shared/ui/table"
 
 export function ResourcesPage() {
   const { data = [], isLoading } = useQuery({
@@ -16,47 +28,49 @@ export function ResourcesPage() {
       subtitle="Shared agents, skills, MCP servers and workflows subscribed by EvoFlux members."
     >
       {isLoading ? (
-        <p className="text-sm text-(--color-text-muted)">Loading…</p>
+        <TableWrap>
+          <SkeletonRows rows={4} />
+        </TableWrap>
       ) : data.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-(--color-border) bg-(--bg-card)/50 px-6 py-12 text-center">
-          <p className="text-sm font-medium">No shared resources yet</p>
-          <p className="mt-1 text-xs text-(--color-text-muted)">
-            When EvoFlux instances subscribe and sync inventory, catalogs will
-            appear here. Contribute role can also publish shared packages.
-          </p>
-        </div>
+        <EmptyState
+          icon={Boxes}
+          title="No shared resources yet"
+          description="When EvoFlux instances subscribe and sync inventory, catalogs will appear here. Contribute role can also publish shared packages."
+        />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-(--border-card) bg-(--bg-card)">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-(--border-soft) text-xs text-(--color-text-subtle)">
+        <TableWrap>
+          <Table>
+            <TableHead>
               <tr>
-                <th className="px-4 py-2.5 font-medium">Name</th>
-                <th className="px-4 py-2.5 font-medium">Kind</th>
-                <th className="px-4 py-2.5 font-medium">Version</th>
-                <th className="px-4 py-2.5 font-medium">Visibility</th>
+                <TableTh>Name</TableTh>
+                <TableTh>Kind</TableTh>
+                <TableTh>Version</TableTh>
+                <TableTh>Visibility</TableTh>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-(--border-soft)">
+            </TableHead>
+            <TableBody>
               {data.map((r) => (
-                <tr key={r.id}>
-                  <td className="px-4 py-3">
+                <TableRow key={r.id}>
+                  <TableTd>
                     <div className="font-medium">{r.name}</div>
                     <div className="font-mono text-[0.7rem] text-(--color-text-subtle)">
                       {r.slug}
                     </div>
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableTd>
+                  <TableTd>
                     <Badge className="capitalize">{r.kind}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-(--color-text-muted)">{r.version}</td>
-                  <td className="px-4 py-3 capitalize text-(--color-text-muted)">
+                  </TableTd>
+                  <TableTd className="text-(--color-text-muted)">
+                    {r.version}
+                  </TableTd>
+                  <TableTd className="capitalize text-(--color-text-muted)">
                     {r.visibility}
-                  </td>
-                </tr>
+                  </TableTd>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableWrap>
       )}
     </PageFrame>
   )
