@@ -6,8 +6,8 @@ pub mod secret;
 pub mod user;
 
 pub use dashboard::DashboardRepo;
-pub use instance::{InstanceRepo, SsoRuntime};
+pub use instance::{InstanceRepo, SsoConfigUpdate, SsoRuntime};
 pub use resource::ResourceRepo;
 pub use role::RoleRepo;
 pub use secret::SecretRepo;
-pub use user::UserRepo;
+pub use user::{SsoLoginError, UserRepo};

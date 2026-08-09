@@ -27,8 +27,7 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let jwt = state.jwt().await.ok_or(ConductorError::SetupRequired)?;
         let claims = jwt.verify(token)?;
-        let user_id =
-            Uuid::parse_str(&claims.sub).map_err(|_| ConductorError::Unauthorized)?;
+        let user_id = Uuid::parse_str(&claims.sub).map_err(|_| ConductorError::Unauthorized)?;
 
         let user = state
             .db
@@ -36,6 +35,16 @@ impl FromRequestParts<AppState> for AuthUser {
             .find_by_id(user_id)
             .await?
             .ok_or(ConductorError::Unauthorized)?;
+
+        let session_version = state
+            .db
+            .users()
+            .session_version(user_id)
+            .await?
+            .ok_or(ConductorError::Unauthorized)?;
+        if claims.ver != session_version {
+            return Err(ConductorError::Unauthorized.into());
+        }
 
         match user.status {
             UserStatus::Active => Ok(AuthUser(user)),

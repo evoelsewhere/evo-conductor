@@ -40,11 +40,15 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             primary_role TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'active',
             must_change_password INTEGER NOT NULL DEFAULT 0,
+            session_version INTEGER NOT NULL DEFAULT 0,
+            sso_issuer TEXT,
+            sso_subject TEXT,
             invited_by TEXT,
             approved_at TEXT,
             approved_by TEXT,
             last_seen_at TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            UNIQUE (sso_issuer, sso_subject)
         )
         "#,
         r#"
@@ -157,6 +161,9 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
     // Best-effort column upgrades for databases created before this revision.
     let alters = [
         "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN sso_issuer TEXT",
+        "ALTER TABLE users ADD COLUMN sso_subject TEXT",
         "ALTER TABLE users ADD COLUMN invited_by TEXT",
         "ALTER TABLE users ADD COLUMN approved_at TEXT",
         "ALTER TABLE users ADD COLUMN approved_by TEXT",
@@ -165,6 +172,13 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
     for sql in alters {
         let _ = sqlx::query(sql).execute(pool).await;
     }
+
+    // The columns may have been added just above for an older database.
+    let _ = sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sso_identity ON users(sso_issuer, sso_subject)",
+    )
+    .execute(pool)
+    .await;
 
     // Upgrade legacy member-only tag links into the generic assignment model.
     let _ = sqlx::query(

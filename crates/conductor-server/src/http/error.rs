@@ -16,7 +16,8 @@ impl From<ConductorError> for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(value: sqlx::Error) -> Self {
-        Self(ConductorError::msg(value.to_string()))
+        tracing::error!(error = %value, "database request failed");
+        Self(ConductorError::Internal)
     }
 }
 

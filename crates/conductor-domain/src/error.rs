@@ -28,6 +28,9 @@ pub enum ConductorError {
     #[error("invalid credentials")]
     InvalidCredentials,
 
+    #[error("internal server error")]
+    Internal,
+
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
@@ -44,7 +47,8 @@ impl ConductorError {
             Self::Forbidden => 403,
             Self::Conflict(_) | Self::SetupAlreadyCompleted => 409,
             Self::SetupRequired => 428,
-            Self::Message(_) | Self::Other(_) => 400,
+            Self::Internal | Self::Other(_) => 500,
+            Self::Message(_) => 400,
         }
     }
 }

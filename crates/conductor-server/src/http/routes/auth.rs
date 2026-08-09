@@ -7,9 +7,8 @@ use chrono::{TimeZone, Utc};
 use conductor_auth::{
     begin_authorization, default_scopes, exchange_code, hash_password, verify_password,
 };
-use conductor_domain::{
-    AuthSession, ChangePasswordRequest, ConductorError, User, UserStatus,
-};
+use conductor_domain::{AuthSession, ChangePasswordRequest, ConductorError, User, UserStatus};
+use conductor_storage::repos::SsoLoginError;
 use serde::{Deserialize, Serialize};
 
 use crate::http::error::ApiResult;
@@ -47,24 +46,15 @@ pub async fn login(
     let (user, hash) = state
         .db
         .users()
-        .find_by_email(&req.email)
+        .find_by_email(req.email.trim())
         .await?
         .ok_or(ConductorError::InvalidCredentials)?;
 
     if !user.status.can_authenticate() {
-        return Err(match user.status {
-            UserStatus::Pending => ConductorError::msg(
-                "account is pending admin approval — sign in after an admin approves you",
-            ),
-            UserStatus::Disabled => ConductorError::msg("account is disabled"),
-            _ => ConductorError::InvalidCredentials,
-        }
-        .into());
+        return Err(ConductorError::InvalidCredentials.into());
     }
 
-    let hash = hash.ok_or(ConductorError::msg(
-        "password login unavailable for this account — use SSO",
-    ))?;
+    let hash = hash.ok_or(ConductorError::InvalidCredentials)?;
 
     if !verify_password(&req.password, &hash)? {
         return Err(ConductorError::InvalidCredentials.into());
@@ -91,9 +81,9 @@ pub async fn change_password(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Json(req): Json<ChangePasswordRequest>,
-) -> ApiResult<Json<User>> {
-    if req.new_password.len() < 8 {
-        return Err(ConductorError::msg("new_password must be at least 8 characters").into());
+) -> ApiResult<Json<AuthSession>> {
+    if req.new_password.len() < 12 {
+        return Err(ConductorError::msg("new_password must be at least 12 characters").into());
     }
 
     let (_, hash) = state
@@ -103,15 +93,18 @@ pub async fn change_password(
         .await?
         .ok_or(ConductorError::Unauthorized)?;
 
-    if let Some(hash) = hash {
-        let current = req.current_password.as_deref().unwrap_or("");
-        if !user.must_change_password {
-            if current.is_empty() || !verify_password(current, &hash)? {
-                return Err(ConductorError::InvalidCredentials.into());
-            }
-        } else if !current.is_empty() && !verify_password(current, &hash)? {
+    let hash = hash.ok_or_else(|| {
+        ConductorError::msg(
+            "this account uses SSO and has no local password; ask an admin to reset it",
+        )
+    })?;
+    let current = req.current_password.as_deref().unwrap_or("");
+    if !user.must_change_password {
+        if current.is_empty() || !verify_password(current, &hash)? {
             return Err(ConductorError::InvalidCredentials.into());
         }
+    } else if !current.is_empty() && !verify_password(current, &hash)? {
+        return Err(ConductorError::InvalidCredentials.into());
     }
 
     let new_hash = hash_password(&req.new_password)?;
@@ -127,7 +120,7 @@ pub async fn change_password(
         .find_by_id(user.id)
         .await?
         .ok_or(ConductorError::NotFound("user".into()))?;
-    Ok(Json(updated))
+    Ok(Json(issue_session(&state, updated).await?))
 }
 
 /// Begin Microsoft Entra ID / generic OIDC login.
@@ -153,7 +146,7 @@ pub async fn sso_start(State(state): State<AppState>) -> ApiResult<Json<SsoStart
     )
     .await?;
 
-    state.store_oidc_pending(req.state.clone(), req.code_verifier);
+    state.store_oidc_pending(req.state.clone(), req.code_verifier, req.nonce);
 
     Ok(Json(SsoStartResponse {
         authorization_url: req.authorization_url,
@@ -179,7 +172,7 @@ pub async fn sso_callback(
         .state
         .ok_or_else(|| ConductorError::msg("missing OIDC state"))?;
 
-    let code_verifier = state
+    let (code_verifier, nonce) = state
         .take_oidc_pending(&oidc_state)
         .ok_or_else(|| ConductorError::msg("invalid or expired OIDC state"))?;
 
@@ -197,14 +190,30 @@ pub async fn sso_callback(
         &runtime.redirect_uri,
         &code,
         &code_verifier,
+        &nonce,
     )
     .await?;
 
-    let user = state
+    let user = match state
         .db
         .users()
-        .handle_sso_login(&profile.email, &profile.display_name)
-        .await?;
+        .handle_sso_login(
+            &profile.issuer,
+            &profile.subject,
+            &profile.email,
+            &profile.display_name,
+        )
+        .await
+    {
+        Ok(user) => user,
+        Err(SsoLoginError::IdentityConflict) => {
+            return Err(ConductorError::Conflict(
+                "this email is already linked to a different SSO identity".into(),
+            )
+            .into())
+        }
+        Err(SsoLoginError::Database(error)) => return Err(error.into()),
+    };
 
     let frontend = frontend_base(&state).await?;
     let base = frontend.trim_end_matches('/');
@@ -213,7 +222,7 @@ pub async fn sso_callback(
         UserStatus::Active => {
             let session = issue_session(&state, user).await?;
             let redirect = format!(
-                "{}/auth/callback?token={}&expires_at={}",
+                "{}/auth/callback#token={}&expires_at={}",
                 base,
                 urlencoding_encode(&session.token),
                 urlencoding_encode(&session.expires_at.to_rfc3339()),
@@ -221,11 +230,7 @@ pub async fn sso_callback(
             Ok(Redirect::temporary(&redirect))
         }
         UserStatus::Pending => {
-            let redirect = format!(
-                "{}/pending?email={}",
-                base,
-                urlencoding_encode(&user.email)
-            );
+            let redirect = format!("{base}/pending");
             Ok(Redirect::temporary(&redirect))
         }
         UserStatus::Disabled => {
@@ -236,9 +241,10 @@ pub async fn sso_callback(
             // handle_sso_login should have activated invited users
             let session = issue_session(&state, user).await?;
             let redirect = format!(
-                "{}/auth/callback?token={}",
+                "{}/auth/callback#token={}&expires_at={}",
                 base,
                 urlencoding_encode(&session.token),
+                urlencoding_encode(&session.expires_at.to_rfc3339()),
             );
             Ok(Redirect::temporary(&redirect))
         }
@@ -247,11 +253,14 @@ pub async fn sso_callback(
 
 async fn issue_session(state: &AppState, user: User) -> ApiResult<AuthSession> {
     let jwt = state.jwt().await.ok_or(ConductorError::SetupRequired)?;
-    let (token, exp) = jwt.issue(user.id, &user.email, user.primary_role)?;
-    let expires_at = Utc
-        .timestamp_opt(exp, 0)
-        .single()
-        .unwrap_or_else(Utc::now);
+    let session_version = state
+        .db
+        .users()
+        .session_version(user.id)
+        .await?
+        .ok_or(ConductorError::Unauthorized)?;
+    let (token, exp) = jwt.issue(user.id, &user.email, user.primary_role, session_version)?;
+    let expires_at = Utc.timestamp_opt(exp, 0).single().unwrap_or_else(Utc::now);
 
     Ok(AuthSession {
         token,
@@ -266,8 +275,7 @@ async fn frontend_base(state: &AppState) -> ApiResult<String> {
             return Ok(url);
         }
     }
-    Ok(std::env::var("CONDUCTOR_PUBLIC_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5174".into()))
+    Ok(std::env::var("CONDUCTOR_PUBLIC_URL").unwrap_or_else(|_| "http://127.0.0.1:5174".into()))
 }
 
 fn urlencoding_encode(value: &str) -> String {

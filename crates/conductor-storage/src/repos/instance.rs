@@ -1,10 +1,10 @@
 use chrono::Utc;
 use conductor_domain::{
-    InstanceConfig, SetupRequest, SetupStatus, SsoConfig, SsoProvider, User, UserStatus,
-    PrimaryRole,
+    InstanceConfig, PrimaryRole, SetupRequest, SetupStatus, SsoConfig, SsoProvider, User,
+    UserStatus,
 };
-use sqlx::{Any, Pool};
 use sqlx::Row;
+use sqlx::{Any, Pool};
 use uuid::Uuid;
 
 use crate::mapping::parse_dt;
@@ -12,6 +12,16 @@ use crate::mapping::parse_dt;
 #[derive(Clone)]
 pub struct InstanceRepo {
     pool: Pool<Any>,
+}
+
+pub struct SsoConfigUpdate<'a> {
+    pub enabled: bool,
+    pub provider: SsoProvider,
+    pub issuer_url: Option<&'a str>,
+    pub client_id: Option<&'a str>,
+    pub client_secret: Option<&'a str>,
+    pub redirect_uri: Option<&'a str>,
+    pub scopes: Option<&'a [String]>,
 }
 
 impl InstanceRepo {
@@ -26,11 +36,12 @@ impl InstanceRepo {
         .fetch_optional(&self.pool)
         .await?;
 
-        let sso_enabled = sqlx::query_scalar::<_, i64>("SELECT enabled FROM sso_config WHERE id = 1")
-            .fetch_optional(&self.pool)
-            .await?
-            .unwrap_or(0)
-            == 1;
+        let sso_enabled =
+            sqlx::query_scalar::<_, i64>("SELECT enabled FROM sso_config WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await?
+                .unwrap_or(0)
+                == 1;
 
         Ok(match row {
             Some(r) => {
@@ -98,8 +109,7 @@ impl InstanceRepo {
             .map(|s| s.provider.as_str().to_string())
             .unwrap_or_else(|| "oidc".into());
         let scopes = serde_json::to_string(
-            &sso
-                .and_then(|s| s.scopes.clone())
+            &sso.and_then(|s| s.scopes.clone())
                 .unwrap_or_else(|| vec!["openid".into(), "profile".into(), "email".into()]),
         )
         .unwrap_or_else(|_| "[]".into());
@@ -303,9 +313,8 @@ impl InstanceRepo {
             client_id,
             client_secret,
             redirect_uri,
-            scopes: serde_json::from_str(&scopes).unwrap_or_else(|_| {
-                vec!["openid".into(), "profile".into(), "email".into()]
-            }),
+            scopes: serde_json::from_str(&scopes)
+                .unwrap_or_else(|_| vec!["openid".into(), "profile".into(), "email".into()]),
         }))
     }
 
@@ -365,22 +374,20 @@ impl InstanceRepo {
         self.get().await
     }
 
-    pub async fn update_sso(
-        &self,
-        enabled: bool,
-        provider: SsoProvider,
-        issuer_url: Option<&str>,
-        client_id: Option<&str>,
-        client_secret: Option<&str>,
-        redirect_uri: Option<&str>,
-        scopes: Option<&[String]>,
-    ) -> Result<SsoConfig, sqlx::Error> {
+    pub async fn update_sso(&self, update: SsoConfigUpdate<'_>) -> Result<SsoConfig, sqlx::Error> {
+        let SsoConfigUpdate {
+            enabled,
+            provider,
+            issuer_url,
+            client_id,
+            client_secret,
+            redirect_uri,
+            scopes,
+        } = update;
         let now = Utc::now();
         let existing = self.sso_config().await?;
-        let scopes_json = serde_json::to_string(
-            scopes.unwrap_or(existing.scopes.as_slice()),
-        )
-        .unwrap_or_else(|_| "[]".into());
+        let scopes_json = serde_json::to_string(scopes.unwrap_or(existing.scopes.as_slice()))
+            .unwrap_or_else(|_| "[]".into());
 
         let has_row = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sso_config WHERE id = 1")
             .fetch_one(&self.pool)

@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 #[derive(Clone)]
 pub struct PendingOidc {
     pub code_verifier: String,
+    pub nonce: String,
     pub created_at: Instant,
 }
 
@@ -25,7 +26,7 @@ impl AppState {
         let jwt = Arc::new(RwLock::new(None));
 
         if let Some(secret) = db.instance().jwt_secret().await? {
-            *jwt.write().await = Some(JwtService::new(secret, 72));
+            *jwt.write().await = Some(JwtService::new(secret, 24));
         }
 
         Ok(Self {
@@ -36,29 +37,30 @@ impl AppState {
     }
 
     pub async fn set_jwt_secret(&self, secret: impl Into<String>) {
-        *self.jwt.write().await = Some(JwtService::new(secret.into(), 72));
+        *self.jwt.write().await = Some(JwtService::new(secret.into(), 24));
     }
 
     pub async fn jwt(&self) -> Option<JwtService> {
         self.jwt.read().await.clone()
     }
 
-    pub fn store_oidc_pending(&self, state: String, code_verifier: String) {
+    pub fn store_oidc_pending(&self, state: String, code_verifier: String, nonce: String) {
         self.purge_oidc_pending();
         self.oidc_pending.insert(
             state,
             PendingOidc {
                 code_verifier,
+                nonce,
                 created_at: Instant::now(),
             },
         );
     }
 
-    pub fn take_oidc_pending(&self, state: &str) -> Option<String> {
+    pub fn take_oidc_pending(&self, state: &str) -> Option<(String, String)> {
         self.purge_oidc_pending();
         self.oidc_pending
             .remove(state)
-            .map(|(_, v)| v.code_verifier)
+            .map(|(_, v)| (v.code_verifier, v.nonce))
     }
 
     fn purge_oidc_pending(&self) {

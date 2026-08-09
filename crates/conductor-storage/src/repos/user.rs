@@ -1,7 +1,5 @@
 use chrono::Utc;
-use conductor_domain::{
-    CreateMemberRequest, MemberListQuery, PrimaryRole, User, UserStatus,
-};
+use conductor_domain::{CreateMemberRequest, MemberListQuery, PrimaryRole, User, UserStatus};
 use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
 
@@ -9,9 +7,22 @@ use crate::mapping::map_user_row;
 
 const USER_SELECT: &str = r#"
     SELECT id, email, display_name, password_hash, primary_role, status,
-           must_change_password, last_seen_at, created_at
+           must_change_password, session_version, sso_issuer, sso_subject,
+           last_seen_at, created_at
     FROM users
 "#;
+
+#[derive(Debug)]
+pub enum SsoLoginError {
+    Database(sqlx::Error),
+    IdentityConflict,
+}
+
+impl From<sqlx::Error> for SsoLoginError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
+}
 
 #[derive(Clone)]
 pub struct UserRepo {
@@ -90,9 +101,9 @@ impl UserRepo {
             "SELECT tag_id FROM tag_assignments \
              WHERE entity_type = 'member' AND entity_id = ?",
         )
-            .bind(user_id.to_string())
-            .fetch_all(&self.pool)
-            .await?;
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
         Ok(rows.iter().map(|r| r.get("tag_id")).collect())
     }
 
@@ -101,38 +112,40 @@ impl UserRepo {
         user_id: Uuid,
         sub_role_ids: &[String],
     ) -> Result<(), sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM user_sub_roles WHERE user_id = ?")
             .bind(user_id.to_string())
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         for rid in sub_role_ids {
             sqlx::query("INSERT INTO user_sub_roles (user_id, sub_role_id) VALUES (?, ?)")
                 .bind(user_id.to_string())
                 .bind(rid)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 
     pub async fn set_tags(&self, user_id: Uuid, tag_ids: &[String]) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM tag_assignments WHERE entity_type = 'member' AND entity_id = ?",
-        )
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM tag_assignments WHERE entity_type = 'member' AND entity_id = ?")
             .bind(user_id.to_string())
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         for tid in tag_ids {
             sqlx::query(
                 "INSERT INTO tag_assignments (tag_id, entity_type, entity_id, created_at) \
                  VALUES (?, 'member', ?, ?)",
             )
-                .bind(tid)
-                .bind(user_id.to_string())
-                .bind(Utc::now().to_rfc3339())
-                .execute(&self.pool)
-                .await?;
+            .bind(tid)
+            .bind(user_id.to_string())
+            .bind(Utc::now().to_rfc3339())
+            .execute(&mut *tx)
+            .await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -141,7 +154,7 @@ impl UserRepo {
         email: &str,
     ) -> Result<Option<(User, Option<String>)>, sqlx::Error> {
         let row = sqlx::query(&format!("{USER_SELECT} WHERE email = ?"))
-            .bind(email.to_lowercase())
+            .bind(email.trim().to_lowercase())
             .fetch_optional(&self.pool)
             .await?;
 
@@ -165,6 +178,22 @@ impl UserRepo {
             Some(r) => Ok(Some(self.attach_junctions(map_user_row(&r)?).await?)),
             None => Ok(None),
         }
+    }
+
+    pub async fn session_version(&self, id: Uuid) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar("SELECT session_version FROM users WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await
+    }
+
+    pub async fn active_admin_count(&self) -> Result<u64, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM users WHERE primary_role = 'admin' AND status = 'active'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
     }
 
     pub async fn list(&self) -> Result<Vec<User>, sqlx::Error> {
@@ -228,9 +257,8 @@ impl UserRepo {
         let count_row = count_q.fetch_one(&self.pool).await?;
         let total: i64 = count_row.get("c");
 
-        let list_sql = format!(
-            "{USER_SELECT}{where_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        );
+        let list_sql =
+            format!("{USER_SELECT}{where_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?");
         let mut list_q = sqlx::query(&list_sql);
         for b in &binds {
             list_q = list_q.bind(b);
@@ -287,6 +315,8 @@ impl UserRepo {
 
     pub async fn create_pending_sso(
         &self,
+        issuer: &str,
+        subject: &str,
         email: &str,
         display_name: &str,
     ) -> Result<User, sqlx::Error> {
@@ -297,13 +327,15 @@ impl UserRepo {
             r#"
             INSERT INTO users (
                 id, email, display_name, password_hash, primary_role, status,
-                must_change_password, created_at
-            ) VALUES (?, ?, ?, NULL, 'user', 'pending', 0, ?)
+                must_change_password, sso_issuer, sso_subject, created_at
+            ) VALUES (?, ?, ?, NULL, 'user', 'pending', 0, ?, ?, ?)
             "#,
         )
         .bind(id.to_string())
         .bind(&email)
-        .bind(display_name)
+        .bind(display_name.trim())
+        .bind(issuer)
+        .bind(subject)
         .bind(now.to_rfc3339())
         .execute(&self.pool)
         .await?;
@@ -316,14 +348,54 @@ impl UserRepo {
     /// SSO login path: return existing user, create pending if new, activate invited.
     pub async fn handle_sso_login(
         &self,
+        issuer: &str,
+        subject: &str,
         email: &str,
         display_name: &str,
-    ) -> Result<User, sqlx::Error> {
-        let email = email.to_lowercase();
-        if let Some((mut user, _)) = self.find_by_email(&email).await? {
+    ) -> Result<User, SsoLoginError> {
+        let email = email.trim().to_lowercase();
+
+        let identity_id: Option<String> =
+            sqlx::query_scalar("SELECT id FROM users WHERE sso_issuer = ? AND sso_subject = ?")
+                .bind(issuer)
+                .bind(subject)
+                .fetch_optional(&self.pool)
+                .await?;
+
+        let mut existing = if let Some(id) = identity_id {
+            let id = Uuid::parse_str(&id).map_err(|_| sqlx::Error::RowNotFound)?;
+            self.find_by_id(id).await?.map(|user| (user, None))
+        } else {
+            self.find_by_email(&email).await?
+        };
+
+        if let Some((mut user, _)) = existing.take() {
+            let binding = sqlx::query("SELECT sso_issuer, sso_subject FROM users WHERE id = ?")
+                .bind(user.id.to_string())
+                .fetch_one(&self.pool)
+                .await?;
+            let bound_issuer: Option<String> = binding.get("sso_issuer");
+            let bound_subject: Option<String> = binding.get("sso_subject");
+            match (bound_issuer, bound_subject) {
+                (Some(bound_issuer), Some(bound_subject))
+                    if bound_issuer != issuer || bound_subject != subject =>
+                {
+                    return Err(SsoLoginError::IdentityConflict);
+                }
+                (None, None) => {
+                    sqlx::query("UPDATE users SET sso_issuer = ?, sso_subject = ? WHERE id = ?")
+                        .bind(issuer)
+                        .bind(subject)
+                        .bind(user.id.to_string())
+                        .execute(&self.pool)
+                        .await?;
+                }
+                _ => return Err(SsoLoginError::IdentityConflict),
+            }
+
             if !display_name.is_empty() && user.display_name != display_name {
                 sqlx::query("UPDATE users SET display_name = ? WHERE id = ?")
-                    .bind(display_name)
+                    .bind(display_name.trim())
                     .bind(user.id.to_string())
                     .execute(&self.pool)
                     .await?;
@@ -341,7 +413,9 @@ impl UserRepo {
             }
             return Ok(user);
         }
-        self.create_pending_sso(&email, display_name).await
+        Ok(self
+            .create_pending_sso(issuer, subject, &email, display_name)
+            .await?)
     }
 
     pub async fn activate_invited_on_password_login(
@@ -406,11 +480,13 @@ impl UserRepo {
     }
 
     pub async fn set_status(&self, user_id: Uuid, status: UserStatus) -> Result<User, sqlx::Error> {
-        sqlx::query("UPDATE users SET status = ? WHERE id = ?")
-            .bind(status.as_str())
-            .bind(user_id.to_string())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE users SET status = ?, session_version = session_version + 1 WHERE id = ?",
+        )
+        .bind(status.as_str())
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await?;
         self.find_by_id(user_id)
             .await?
             .ok_or_else(|| sqlx::Error::RowNotFound)
@@ -456,7 +532,8 @@ impl UserRepo {
         must_change: bool,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?",
+            "UPDATE users SET password_hash = ?, must_change_password = ?, \
+             session_version = session_version + 1 WHERE id = ?",
         )
         .bind(password_hash)
         .bind(if must_change { 1 } else { 0 })
