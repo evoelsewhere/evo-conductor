@@ -29,7 +29,7 @@ async fn seeded_user_is_active_and_gets_a_usable_token() {
     let user = app.seed_user(PrimaryRole::Admin).await;
     assert_eq!(user.primary_role, PrimaryRole::Admin);
 
-    let token = app.token_for(&user);
+    let token = app.token_for(&user).await;
     let claims = app.jwt.verify(&token).expect("token verifies");
     assert_eq!(claims.sub, user.id.to_string());
     assert_eq!(claims.role, PrimaryRole::Admin.as_str());

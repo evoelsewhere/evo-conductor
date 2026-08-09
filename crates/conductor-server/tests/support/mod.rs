@@ -110,9 +110,24 @@ impl TestApp {
         seed_active_user(&self.state.db, role).await
     }
 
-    pub fn token_for(&self, user: &User) -> String {
+    /// A bearer token for an existing member.
+    ///
+    /// The session version is read from the database rather than assumed:
+    /// `set_status` increments it, which is how disabling a member invalidates
+    /// their sessions, and the fixture activates every seeded user. A token
+    /// issued with a stale version is rejected by `AuthUser` with 401.
+    pub async fn token_for(&self, user: &User) -> String {
+        let session_version = self
+            .state
+            .db
+            .users()
+            .session_version(user.id)
+            .await
+            .expect("read session version")
+            .expect("seeded user exists");
+
         self.jwt
-            .issue(user.id, &user.email, user.primary_role)
+            .issue(user.id, &user.email, user.primary_role, session_version)
             .expect("issue token")
             .0
     }
@@ -120,7 +135,7 @@ impl TestApp {
     /// Seed a user of the given role and return their bearer token.
     pub async fn token_for_role(&self, role: PrimaryRole) -> String {
         let user = self.seed_user(role).await;
-        self.token_for(&user)
+        self.token_for(&user).await
     }
 
     pub async fn get(&self, path: &str, token: Option<&str>) -> (StatusCode, Value) {
