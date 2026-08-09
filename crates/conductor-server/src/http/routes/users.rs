@@ -10,9 +10,9 @@ use conductor_domain::{
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::http::error::ApiResult;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
-use crate::http::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {

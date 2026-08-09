@@ -8,9 +8,9 @@ use conductor_domain::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::http::error::ApiResult;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
-use crate::http::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct SetEntityTagsRequest {

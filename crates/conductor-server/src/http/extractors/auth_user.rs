@@ -1,10 +1,11 @@
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use conductor_domain::core::constants::auth::AUTH_SCHEME_BEARER;
 use conductor_domain::{ConductorError, User, UserStatus};
 use uuid::Uuid;
 
-use crate::http::error::ApiError;
-use crate::http::state::AppState;
+use crate::core::error::ApiError;
+use crate::core::state::AppState;
 
 pub struct AuthUser(pub User);
 
@@ -22,7 +23,7 @@ impl FromRequestParts<AppState> for AuthUser {
             .ok_or(ConductorError::Unauthorized)?;
 
         let token = header
-            .strip_prefix("Bearer ")
+            .strip_prefix(AUTH_SCHEME_BEARER)
             .ok_or(ConductorError::Unauthorized)?;
 
         let jwt = state.jwt().await.ok_or(ConductorError::SetupRequired)?;

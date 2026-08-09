@@ -6,9 +6,9 @@ use conductor_domain::{
 };
 use conductor_storage::repos::SsoConfigUpdate;
 
-use crate::http::error::ApiResult;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
-use crate::http::state::AppState;
 
 /// Lightweight branding for every authenticated member (sidebar / topbar).
 pub async fn get_project(

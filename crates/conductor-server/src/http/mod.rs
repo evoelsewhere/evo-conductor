@@ -1,7 +1,7 @@
-mod error;
+//! Transport layer: the router, its handlers, and its extractors.
+
 mod extractors;
 mod routes;
-mod state;
 
 use axum::{
     http::{header, HeaderName, HeaderValue},
@@ -11,18 +11,17 @@ use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
-pub use state::AppState;
-
-use crate::config::Config;
+use crate::core::constants::http::{API_PREFIX, SPA_INDEX_FILE};
+use crate::core::{AppState, Config};
 
 pub fn build_router(state: AppState, config: &Config) -> Router {
     let api = Router::new().merge(routes::router()).with_state(state);
 
     Router::new()
-        .nest("/api", api)
+        .nest(API_PREFIX, api)
         .fallback_service(
             ServeDir::new(&config.web_dist)
-                .not_found_service(ServeFile::new(config.web_dist.join("index.html"))),
+                .not_found_service(ServeFile::new(config.web_dist.join(SPA_INDEX_FILE))),
         )
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
@@ -48,5 +47,3 @@ pub fn build_router(state: AppState, config: &Config) -> Router {
         ))
         .layer(TraceLayer::new_for_http())
 }
-
-pub use error::{ApiError, ApiResult};

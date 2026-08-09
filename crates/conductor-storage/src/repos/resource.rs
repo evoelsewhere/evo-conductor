@@ -2,7 +2,7 @@ use conductor_domain::ManagedResource;
 use sqlx::{Any, Pool};
 use uuid::Uuid;
 
-use crate::mapping::map_resource;
+use crate::core::mapping::map_resource;
 
 #[derive(Clone)]
 pub struct ResourceRepo {

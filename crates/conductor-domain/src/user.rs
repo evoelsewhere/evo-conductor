@@ -113,6 +113,47 @@ pub struct MemberListResponse {
     pub limit: u32,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [UserStatus; 4] = [
+        UserStatus::Pending,
+        UserStatus::Invited,
+        UserStatus::Active,
+        UserStatus::Disabled,
+    ];
+
+    #[test]
+    fn as_str_and_parse_round_trip() {
+        for status in ALL {
+            assert_eq!(UserStatus::parse(status.as_str()), status);
+        }
+    }
+
+    /// `parse` falls back to `Active` for anything it does not recognise. That
+    /// is a permissive default on a security-relevant field, so it is asserted
+    /// deliberately rather than left implicit.
+    #[test]
+    fn parse_falls_back_to_active_for_unknown_values() {
+        for value in ["", "unknown", "ACTIVE", "deleted"] {
+            assert_eq!(
+                UserStatus::parse(value),
+                UserStatus::Active,
+                "unexpected fallback for {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_active_and_invited_may_authenticate() {
+        assert!(UserStatus::Active.can_authenticate());
+        assert!(UserStatus::Invited.can_authenticate());
+        assert!(!UserStatus::Pending.can_authenticate());
+        assert!(!UserStatus::Disabled.can_authenticate());
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MemberListQuery {
     pub q: Option<String>,

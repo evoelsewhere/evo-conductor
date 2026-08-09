@@ -23,27 +23,23 @@ impl DashboardRepo {
             .fetch_one(&self.pool)
             .await?;
 
-        let members_online: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM member_inventory WHERE evoflux_connected = 1",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
+        let members_online: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM member_inventory WHERE evoflux_connected = 1")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(0);
 
-        let secrets_active: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM connection_secrets WHERE revoked_at IS NULL",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        let agents: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'agent'")
+        let secrets_active: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM connection_secrets WHERE revoked_at IS NULL")
                 .fetch_one(&self.pool)
                 .await?;
-        let skills: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'skill'")
-                .fetch_one(&self.pool)
-                .await?;
+
+        let agents: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'agent'")
+            .fetch_one(&self.pool)
+            .await?;
+        let skills: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'skill'")
+            .fetch_one(&self.pool)
+            .await?;
         let mcp: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'mcp'")
             .fetch_one(&self.pool)
             .await?;

@@ -3,7 +3,7 @@ use conductor_domain::{CreateMemberRequest, MemberListQuery, PrimaryRole, User, 
 use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
 
-use crate::mapping::map_user_row;
+use crate::core::mapping::map_user_row;
 
 const USER_SELECT: &str = r#"
     SELECT id, email, display_name, password_hash, primary_role, status,

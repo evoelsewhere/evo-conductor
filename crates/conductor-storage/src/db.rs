@@ -1,11 +1,13 @@
 use sqlx::any::AnyPoolOptions;
 use sqlx::{Any, Pool};
 
-use crate::dialect::DatabaseKind;
-use crate::migrate;
-use crate::repos::{
-    DashboardRepo, InstanceRepo, ResourceRepo, RoleRepo, SecretRepo, UserRepo,
+use crate::core::constants::database::{
+    POOL_MAX_CONNECTIONS, SQLITE_FOREIGN_KEYS_PRAGMA, SQLITE_MEMORY_PATH,
 };
+use crate::core::dialect::DatabaseKind;
+use crate::core::url::sqlite_path;
+use crate::migrate;
+use crate::repos::{DashboardRepo, InstanceRepo, ResourceRepo, RoleRepo, SecretRepo, UserRepo};
 
 /// Database handle. Cheap to clone (shares the connection pool).
 ///
@@ -35,12 +37,12 @@ impl Db {
         sqlx::any::install_default_drivers();
 
         let pool = AnyPoolOptions::new()
-            .max_connections(10)
+            .max_connections(POOL_MAX_CONNECTIONS)
             .connect(database_url)
             .await?;
 
         if kind == DatabaseKind::Sqlite {
-            sqlx::query("PRAGMA foreign_keys = ON;")
+            sqlx::query(SQLITE_FOREIGN_KEYS_PRAGMA)
                 .execute(&pool)
                 .await?;
         }
@@ -84,13 +86,8 @@ impl Db {
 }
 
 fn ensure_sqlite_parent_dir(database_url: &str) {
-    let path = database_url
-        .strip_prefix("sqlite://")
-        .or_else(|| database_url.strip_prefix("sqlite:"))
-        .unwrap_or(database_url);
-    let path = path.trim_start_matches('/');
-    let path = path.split('?').next().unwrap_or(path);
-    if !path.is_empty() && path != ":memory:" {
+    let path = sqlite_path(database_url);
+    if !path.is_empty() && path != SQLITE_MEMORY_PATH {
         if let Some(parent) = std::path::Path::new(path).parent() {
             let _ = std::fs::create_dir_all(parent);
         }

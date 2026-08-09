@@ -6,9 +6,9 @@ use conductor_auth::generate_connection_token;
 use conductor_domain::{ConductorError, ConnectionSecret, CreateSecretRequest, CreatedSecret};
 use uuid::Uuid;
 
-use crate::http::error::ApiResult;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
-use crate::http::state::AppState;
 
 pub async fn list(
     State(state): State<AppState>,

@@ -1,9 +1,9 @@
 use axum::{extract::State, Json};
 use conductor_domain::{ConductorError, SsoConfig};
 
-use crate::http::error::ApiResult;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
-use crate::http::state::AppState;
 
 pub async fn get_config(
     State(state): State<AppState>,
