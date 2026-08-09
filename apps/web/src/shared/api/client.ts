@@ -175,7 +175,77 @@ export interface ManagedResource {
   name: string
   description: string | null
   version: string
+  owner_user_id: string | null
   visibility: "shared" | "private"
+  status: "draft" | "published" | "archived"
+  payload: unknown
+  published_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ResourceVersion {
+  id: string
+  resource_id: string
+  version: string
+  status: "draft" | "published" | "deprecated"
+  payload: unknown
+  changelog: string | null
+  created_by: string
+  created_at: string
+  published_at: string | null
+}
+
+export interface ResourceAccessPolicy {
+  all_members: boolean
+  primary_roles: string[]
+  sub_role_ids: string[]
+  tag_ids: string[]
+  member_ids: string[]
+}
+
+export interface ResourceMonitoring {
+  resource_id: string
+  days: number
+  summary: {
+    executions: number
+    successes: number
+    failures: number
+    active_members: number
+    success_rate: number
+    average_duration_ms: number
+    tokens_in: number
+    tokens_out: number
+    feedback_count: number
+    average_rating: number | null
+  }
+  daily: Array<{
+    date: string
+    executions: number
+    successes: number
+    failures: number
+    average_duration_ms: number
+  }>
+  members: Array<{
+    user_id: string
+    member_name: string
+    executions: number
+    success_rate: number
+    average_duration_ms: number
+    last_used_at: string
+  }>
+}
+
+export interface ResourceFeedback {
+  id: string
+  resource_id: string
+  resource_version: string
+  user_id: string
+  member_name: string
+  rating: number
+  comment: string | null
+  created_at: string
+  updated_at: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -348,6 +418,65 @@ export const api = {
   revokeSecret: (id: string) =>
     request<{ revoked: boolean }>(`/secrets/${id}/revoke`, { method: "POST" }),
   resources: () => request<ManagedResource[]>("/resources"),
+  createResource: (body: {
+    kind: ManagedResource["kind"]
+    slug: string
+    name: string
+    description?: string
+    version: string
+    visibility: ManagedResource["visibility"]
+    payload: unknown
+    changelog?: string
+  }) =>
+    request<ManagedResource>("/resources", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateResource: (
+    id: string,
+    body: {
+      name?: string
+      description?: string
+      visibility?: ManagedResource["visibility"]
+    },
+  ) =>
+    request<ManagedResource>(`/resources/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  archiveResource: (id: string) =>
+    request<ManagedResource>(`/resources/${id}/archive`, { method: "POST" }),
+  resourceVersions: (id: string) =>
+    request<ResourceVersion[]>(`/resources/${id}/versions`),
+  createResourceVersion: (
+    id: string,
+    body: { version: string; payload: unknown; changelog?: string },
+  ) =>
+    request<ResourceVersion>(`/resources/${id}/versions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  publishResourceVersion: (resourceId: string, versionId: string) =>
+    request<ManagedResource>(
+      `/resources/${resourceId}/versions/${versionId}/publish`,
+      { method: "POST" },
+    ),
+  resourceAccess: (id: string) =>
+    request<ResourceAccessPolicy>(`/resources/${id}/access`),
+  setResourceAccess: (id: string, body: ResourceAccessPolicy) =>
+    request<ResourceAccessPolicy>(`/resources/${id}/access`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  resourceMonitoring: (id: string, days = 30) =>
+    request<ResourceMonitoring>(`/resources/${id}/monitoring?days=${days}`),
+  resourceFeedback: (id: string) =>
+    request<ResourceFeedback[]>(`/resources/${id}/feedback`),
+  submitResourceFeedback: (id: string, rating: number, comment?: string) =>
+    request<ResourceFeedback>(`/resources/${id}/feedback`, {
+      method: "PUT",
+      body: JSON.stringify({ rating, comment }),
+    }),
   ssoStart: () =>
     request<{ authorization_url: string; provider: string }>("/auth/sso/start"),
 }
