@@ -3,9 +3,7 @@ use sqlx::{Any, Pool};
 
 use crate::dialect::DatabaseKind;
 use crate::migrate;
-use crate::repos::{
-    DashboardRepo, InstanceRepo, ResourceRepo, RoleRepo, SecretRepo, UserRepo,
-};
+use crate::repos::{DashboardRepo, InstanceRepo, ResourceRepo, RoleRepo, SecretRepo, UserRepo};
 
 /// Database handle. Cheap to clone (shares the connection pool).
 ///

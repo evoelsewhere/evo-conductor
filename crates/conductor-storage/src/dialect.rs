@@ -12,9 +12,7 @@ impl DatabaseKind {
         let url = database_url.split('?').next().unwrap_or(database_url);
         if url.starts_with("sqlite:") || url.starts_with("sqlite://") {
             Some(Self::Sqlite)
-        } else if url.starts_with("postgres://")
-            || url.starts_with("postgresql://")
-        {
+        } else if url.starts_with("postgres://") || url.starts_with("postgresql://") {
             Some(Self::Postgres)
         } else if url.starts_with("mysql://") {
             Some(Self::Mysql)
