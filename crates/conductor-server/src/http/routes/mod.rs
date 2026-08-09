@@ -58,7 +58,27 @@ pub fn router() -> Router<AppState> {
         )
         .route("/secrets", get(secrets::list).post(secrets::create))
         .route("/secrets/{id}/revoke", post(secrets::revoke))
-        .route("/resources", get(resources::list))
+        .route("/resources", get(resources::list).post(resources::create))
+        .route("/resources/{id}", patch(resources::update))
+        .route("/resources/{id}/archive", post(resources::archive))
+        .route(
+            "/resources/{id}/versions",
+            get(resources::versions).post(resources::create_version),
+        )
+        .route(
+            "/resources/{id}/versions/{version_id}/publish",
+            post(resources::publish_version),
+        )
+        .route(
+            "/resources/{id}/access",
+            get(resources::get_access).put(resources::set_access),
+        )
+        .route("/resources/{id}/monitoring", get(resources::monitoring))
+        .route(
+            "/resources/{id}/feedback",
+            get(resources::feedback).put(resources::upsert_feedback),
+        )
         .route("/v1/subscribe/resources", get(resources::subscribe))
+        .route("/v1/usage/resources", post(resources::ingest_usage))
         .route("/v1/realtime/events", get(realtime::events))
 }
