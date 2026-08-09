@@ -550,4 +550,17 @@ impl UserRepo {
             .await?;
         Ok(())
     }
+
+    pub async fn all_users_exist(&self, ids: &[Uuid]) -> Result<bool, sqlx::Error> {
+        for id in ids {
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = ?")
+                .bind(id.to_string())
+                .fetch_one(&self.pool)
+                .await?;
+            if count == 0 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
 }

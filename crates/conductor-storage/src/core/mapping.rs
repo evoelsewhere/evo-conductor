@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use conductor_domain::{
-    ManagedResource, PrimaryRole, ResourceKind, ResourceVisibility, User, UserStatus,
+    ManagedResource, PrimaryRole, ResourceKind, ResourceStatus, ResourceVisibility, User,
+    UserStatus,
 };
 use sqlx::any::AnyRow;
 use sqlx::Row;
@@ -38,6 +39,7 @@ pub fn map_resource(r: &AnyRow) -> Result<ManagedResource, sqlx::Error> {
     let visibility: String = r.get("visibility");
     let payload: String = r.get("payload");
     let owner: Option<String> = r.get("owner_user_id");
+    let published_at: Option<String> = r.get("published_at");
 
     Ok(ManagedResource {
         id: Uuid::parse_str(r.get::<String, _>("id").as_str()).unwrap_or_else(|_| Uuid::nil()),
@@ -58,7 +60,9 @@ pub fn map_resource(r: &AnyRow) -> Result<ManagedResource, sqlx::Error> {
         } else {
             ResourceVisibility::Shared
         },
+        status: ResourceStatus::parse(r.get::<String, _>("status").as_str()),
         payload: serde_json::from_str(&payload).unwrap_or(serde_json::json!({})),
+        published_at: published_at.map(parse_dt),
         created_at: parse_dt(r.get("created_at")),
         updated_at: parse_dt(r.get("updated_at")),
     })

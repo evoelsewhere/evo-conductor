@@ -34,19 +34,26 @@ impl DashboardRepo {
                 .fetch_one(&self.pool)
                 .await?;
 
-        let agents: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'agent'")
-            .fetch_one(&self.pool)
-            .await?;
-        let skills: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'skill'")
-            .fetch_one(&self.pool)
-            .await?;
-        let mcp: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'mcp'")
-            .fetch_one(&self.pool)
-            .await?;
-        let workflows: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE kind = 'workflow'")
-                .fetch_one(&self.pool)
-                .await?;
+        let agents: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resources WHERE kind = 'agent' AND status = 'published'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let skills: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resources WHERE kind = 'skill' AND status = 'published'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let mcp: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resources WHERE kind = 'mcp' AND status = 'published'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let workflows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resources WHERE kind = 'workflow' AND status = 'published'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
 
         let sso = InstanceRepo::new(self.pool.clone()).sso_config().await?;
 
