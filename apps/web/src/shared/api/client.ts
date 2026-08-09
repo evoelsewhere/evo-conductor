@@ -1,3 +1,5 @@
+import { authSession } from "@/shared/lib/auth-session"
+
 export type PrimaryRole = "admin" | "contribute" | "user"
 export type UserStatus = "pending" | "invited" | "active" | "disabled"
 export type SsoProvider = "oidc" | "github" | "azure_ad" | "google" | "custom"
@@ -177,7 +179,7 @@ export interface ManagedResource {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("conductor.token")
+  const token = authSession.getToken()
   const headers = new Headers(init?.headers)
   headers.set("Content-Type", "application/json")
   if (token) headers.set("Authorization", `Bearer ${token}`)
@@ -191,10 +193,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new Error(message)
+    if (res.status === 401 && path !== "/auth/login") {
+      authSession.clear()
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login?reason=session_expired")
+      }
+    }
+    throw new ApiError(message, res.status)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
+}
+
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+  }
 }
 
 function qs(params: Record<string, string | number | undefined | null>): string {
@@ -219,7 +237,7 @@ export const api = {
     }),
   me: () => request<User>("/auth/me"),
   changePassword: (body: { current_password?: string; new_password: string }) =>
-    request<User>("/auth/change-password", {
+    request<AuthSession>("/auth/change-password", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -321,7 +339,11 @@ export const api = {
   }) => request<SsoConfig>("/sso", { method: "PUT", body: JSON.stringify(body) }),
 
   secrets: () => request<ConnectionSecret[]>("/secrets"),
-  createSecret: (body: { name: string; scopes: SecretScope[] }) =>
+  createSecret: (body: {
+    name: string
+    scopes: SecretScope[]
+    expires_at?: string
+  }) =>
     request<CreatedSecret>("/secrets", { method: "POST", body: JSON.stringify(body) }),
   revokeSecret: (id: string) =>
     request<{ revoked: boolean }>(`/secrets/${id}/revoke`, { method: "POST" }),

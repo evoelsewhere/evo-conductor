@@ -21,6 +21,7 @@ import { SecretsPage } from "@/features/secrets/pages/secrets-page"
 import { SetupPage } from "@/features/setup/pages/setup-page"
 import { TagsPage } from "@/features/tags/pages/tags-page"
 import { useAuthStore } from "@/shared/stores/auth"
+import { authSession } from "@/shared/lib/auth-session"
 
 function RootComponent() {
   return <Outlet />
@@ -78,7 +79,7 @@ const changePasswordRoute = createRoute({
   path: "/change-password",
   component: ChangePasswordPage,
   beforeLoad: () => {
-    const token = localStorage.getItem("conductor.token")
+    const token = authSession.getToken()
     if (!token) throw redirect({ to: "/login" })
   },
 })
@@ -102,19 +103,18 @@ const appRoute = createRoute({
   beforeLoad: async () => {
     const status = await api.setupStatus()
     if (!status.configured) throw redirect({ to: "/setup" })
-    const token = localStorage.getItem("conductor.token")
+    const token = authSession.getToken()
     if (!token) throw redirect({ to: "/login" })
 
     try {
       const user = await api.me()
-      localStorage.setItem("conductor.user", JSON.stringify(user))
+      useAuthStore.getState().setSession(token, user)
       if (user.must_change_password) {
         throw redirect({ to: "/change-password" })
       }
     } catch (e) {
       if (e && typeof e === "object" && "to" in e) throw e
-      localStorage.removeItem("conductor.token")
-      localStorage.removeItem("conductor.user")
+      useAuthStore.getState().clear()
       throw redirect({ to: "/login" })
     }
   },
@@ -151,13 +151,7 @@ const secretsRoute = createRoute({
 })
 
 function storedPrimaryRole(): string | null {
-  const raw = localStorage.getItem("conductor.user")
-  if (!raw) return null
-  try {
-    return (JSON.parse(raw) as { primary_role?: string }).primary_role ?? null
-  } catch {
-    return null
-  }
+  return useAuthStore.getState().user?.primary_role ?? null
 }
 
 const rolesRoute = createRoute({
@@ -230,7 +224,7 @@ function BootGate() {
           await router.navigate({ to: "/setup" })
           return
         }
-        const t = localStorage.getItem("conductor.token")
+        const t = authSession.getToken()
         if (t) {
           await router.navigate({ to: "/app" })
         } else {

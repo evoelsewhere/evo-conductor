@@ -13,7 +13,6 @@ export function ChangePasswordPage() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const setSession = useAuthStore((s) => s.setSession)
-  const token = useAuthStore((s) => s.token)
   const [current, setCurrent] = useState("")
   const [next, setNext] = useState("")
   const [confirm, setConfirm] = useState("")
@@ -22,8 +21,8 @@ export function ChangePasswordPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (next.length < 8) {
-      setError("New password must be at least 8 characters")
+    if (next.length < 12) {
+      setError("New password must be at least 12 characters")
       return
     }
     if (next !== confirm) {
@@ -33,11 +32,11 @@ export function ChangePasswordPage() {
     setBusy(true)
     setError(null)
     try {
-      const updated = await api.changePassword({
+      const session = await api.changePassword({
         current_password: current || undefined,
         new_password: next,
       })
-      if (token) setSession(token, updated)
+      setSession(session.token, session.user)
       navigate({ to: "/app" })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed")

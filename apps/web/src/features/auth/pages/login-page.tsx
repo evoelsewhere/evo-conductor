@@ -28,7 +28,16 @@ export function LoginPage({
   const setSession = useAuthStore((s) => s.setSession)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("reason") === "session_expired") {
+      return "Your session expired or access changed. Sign in again."
+    }
+    if (params.get("error") === "disabled") {
+      return "This account is disabled. Contact a project administrator."
+    }
+    return null
+  })
   const [busy, setBusy] = useState(false)
   const [ssoBusy, setSsoBusy] = useState(false)
 
@@ -109,6 +118,7 @@ export function LoginPage({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoFocus
                 />
               </div>
               <div className="space-y-1.5">

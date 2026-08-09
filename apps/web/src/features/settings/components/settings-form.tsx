@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
 import { api, type SsoProvider } from "@/shared/api/client"
+import { Badge, StatusDot } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
@@ -14,7 +15,6 @@ const providers = [
   { value: "azure_ad", label: "Microsoft Entra ID (Azure AD)" },
   { value: "oidc", label: "Generic OIDC" },
   { value: "google", label: "Google" },
-  { value: "github", label: "GitHub" },
   { value: "custom", label: "Custom" },
 ] as const
 
@@ -56,7 +56,7 @@ export function SettingsForm() {
     mutationFn: () =>
       api.updateSettings({
         project_name: projectName,
-        display_name: displayName || undefined,
+        display_name: displayName,
         public_url: publicUrl,
         logo_url: logoUrl,
       }),
@@ -162,11 +162,17 @@ export function SettingsForm() {
       </section>
 
       <section className="space-y-3 border-t border-(--border-soft) pt-5">
-        <h3 className="text-sm font-semibold tracking-tight">SSO</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold tracking-tight">SSO</h3>
+          <Badge tone={data.sso.enabled ? "success" : "neutral"}>
+            <StatusDot tone={data.sso.enabled ? "success" : "neutral"} />
+            {data.sso.enabled ? "Enabled" : "Disabled"}
+          </Badge>
+        </div>
         <SwitchField
           id="sso-enabled"
           label="Enable SSO"
-          description="Microsoft Entra ID / OIDC / Google / GitHub"
+          description="OpenID Connect, Microsoft Entra ID, or Google"
           checked={ssoEnabled}
           onCheckedChange={setSsoEnabled}
         />
@@ -182,6 +188,11 @@ export function SettingsForm() {
           <Input
             disabled={!ssoEnabled}
             value={issuerUrl}
+            placeholder={
+              provider === "azure_ad"
+                ? "https://login.microsoftonline.com/{tenant-id}/v2.0"
+                : "https://id.example.com"
+            }
             onChange={(e) => setIssuerUrl(e.target.value)}
           />
         </Field>
@@ -202,6 +213,7 @@ export function SettingsForm() {
           >
             <Input
               type="password"
+              autoComplete="new-password"
               disabled={!ssoEnabled}
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
@@ -215,6 +227,13 @@ export function SettingsForm() {
             onChange={(e) => setRedirectUri(e.target.value)}
           />
         </Field>
+        {ssoEnabled && (
+          <p className="rounded-lg border border-(--color-border) bg-(--bg-key)/50 px-3 py-2 text-xs text-(--color-text-muted)">
+            ID tokens are verified against the provider JWKS, issuer, audience,
+            and nonce. The redirect URI must match the provider registration
+            exactly.
+          </p>
+        )}
         <Button
           variant="secondary"
           disabled={saveSso.isPending}

@@ -35,7 +35,6 @@ const ssoProviders = [
   { value: "azure_ad", label: "Microsoft Entra ID (Azure AD)" },
   { value: "oidc", label: "Generic OIDC" },
   { value: "google", label: "Google" },
-  { value: "github", label: "GitHub" },
   { value: "custom", label: "Custom" },
 ] as const satisfies ReadonlyArray<{ value: SsoProvider; label: string }>
 
@@ -69,11 +68,16 @@ export function SetupPage() {
       return (
         adminEmail.includes("@") &&
         adminName.trim().length > 1 &&
-        adminPassword.length >= 8
+        adminPassword.length >= 12
       )
     if (step === 3) {
       if (!ssoEnabled) return true
-      return Boolean(clientId.trim() && clientSecret.trim() && issuerUrl.trim())
+      return Boolean(
+        clientId.trim() &&
+          clientSecret.trim() &&
+          issuerUrl.trim() &&
+          redirectUri.trim(),
+      )
     }
     return false
   }, [
@@ -88,6 +92,7 @@ export function SetupPage() {
     clientId,
     clientSecret,
     issuerUrl,
+    redirectUri,
   ])
 
   async function finish() {
@@ -265,7 +270,8 @@ export function SetupPage() {
                       type="password"
                       value={adminPassword}
                       onChange={(e) => setAdminPassword(e.target.value)}
-                      placeholder="At least 8 characters"
+                      placeholder="At least 12 characters"
+                      autoComplete="new-password"
                     />
                   </Field>
                 </>
@@ -276,7 +282,7 @@ export function SetupPage() {
                   <SwitchField
                     id="sso-enabled"
                     label="Enable SSO"
-                    description="OIDC / Microsoft Entra ID / GitHub / Google"
+                    description="OpenID Connect, Microsoft Entra ID, or Google"
                     checked={ssoEnabled}
                     onCheckedChange={setSsoEnabled}
                   />

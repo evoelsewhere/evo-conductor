@@ -1,6 +1,7 @@
 import { create } from "zustand"
 
 import type { User } from "@/shared/api/client"
+import { authSession } from "@/shared/lib/auth-session"
 
 interface AuthState {
   token: string | null
@@ -14,18 +15,16 @@ export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   user: null,
   setSession: (token, user) => {
-    localStorage.setItem("conductor.token", token)
-    localStorage.setItem("conductor.user", JSON.stringify(user))
+    authSession.set(token, user)
     set({ token, user })
   },
   clear: () => {
-    localStorage.removeItem("conductor.token")
-    localStorage.removeItem("conductor.user")
+    authSession.clear()
     set({ token: null, user: null })
   },
   hydrate: () => {
-    const token = localStorage.getItem("conductor.token")
-    const raw = localStorage.getItem("conductor.user")
+    const token = authSession.getToken()
+    const raw = authSession.getUser()
     if (!token || !raw) {
       set({ token: null, user: null })
       return
@@ -33,6 +32,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       set({ token, user: JSON.parse(raw) as User })
     } catch {
+      authSession.clear()
       set({ token: null, user: null })
     }
   },

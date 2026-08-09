@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { api } from "@/shared/api/client"
 import { BrandMark } from "@/shared/components/brand"
 import { useAuthStore } from "@/shared/stores/auth"
+import { authSession } from "@/shared/lib/auth-session"
 import { ErrorState } from "@/shared/ui/empty-state"
 import { Spinner } from "@/shared/ui/spinner"
 
@@ -15,13 +16,14 @@ export function SsoCallbackPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const params = new URLSearchParams(window.location.search)
+        const params = new URLSearchParams(window.location.hash.slice(1))
         const token = params.get("token")
+        window.history.replaceState(null, "", window.location.pathname)
         if (!token) {
           setError("Missing SSO token")
           return
         }
-        localStorage.setItem("conductor.token", token)
+        authSession.setToken(token)
         const user = await api.me()
         setSession(token, user)
         navigate({ to: "/app" })
