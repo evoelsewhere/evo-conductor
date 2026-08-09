@@ -2,6 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use conductor_auth::JwtService;
+use conductor_domain::core::constants::auth::DEFAULT_JWT_TTL_HOURS;
+
+use crate::core::constants::oidc::PENDING_TTL_SECS;
 use conductor_storage::Db;
 use dashmap::DashMap;
 use tokio::sync::RwLock;
@@ -26,7 +29,7 @@ impl AppState {
         let jwt = Arc::new(RwLock::new(None));
 
         if let Some(secret) = db.instance().jwt_secret().await? {
-            *jwt.write().await = Some(JwtService::new(secret, 24));
+            *jwt.write().await = Some(JwtService::new(secret, DEFAULT_JWT_TTL_HOURS));
         }
 
         Ok(Self {
@@ -37,7 +40,7 @@ impl AppState {
     }
 
     pub async fn set_jwt_secret(&self, secret: impl Into<String>) {
-        *self.jwt.write().await = Some(JwtService::new(secret.into(), 24));
+        *self.jwt.write().await = Some(JwtService::new(secret.into(), DEFAULT_JWT_TTL_HOURS));
     }
 
     pub async fn jwt(&self) -> Option<JwtService> {
@@ -64,7 +67,7 @@ impl AppState {
     }
 
     fn purge_oidc_pending(&self) {
-        let ttl = Duration::from_secs(600);
+        let ttl = Duration::from_secs(PENDING_TTL_SECS);
         self.oidc_pending
             .retain(|_, v| v.created_at.elapsed() < ttl);
     }

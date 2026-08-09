@@ -12,7 +12,7 @@ mod users;
 use axum::routing::{get, patch, post};
 use axum::Router;
 
-use crate::http::state::AppState;
+use crate::core::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()

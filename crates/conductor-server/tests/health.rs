@@ -1,21 +1,25 @@
-//! Smoke test proving the fixture builds a working application.
+//! Smoke tests proving the fixture builds a working application.
 
 mod support;
 
 use axum::http::StatusCode;
 use conductor_domain::PrimaryRole;
+use conductor_server::core::routes::{absolute, public, session};
 use support::test_app;
+
+/// The dialect the fixture is expected to report.
+const EXPECTED_DIALECT: &str = "sqlite";
 
 #[tokio::test]
 async fn health_reports_the_active_dialect() {
     let app = test_app().await;
 
-    let (status, body) = app.get("/api/health", None).await;
+    let (status, body) = app.get(&absolute(public::HEALTH), None).await;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "ok");
     assert_eq!(body["service"], "evo-conductor");
-    assert_eq!(body["database"], "sqlite");
+    assert_eq!(body["database"], EXPECTED_DIALECT);
 }
 
 #[tokio::test]
@@ -28,12 +32,12 @@ async fn seeded_user_is_active_and_gets_a_usable_token() {
     let token = app.token_for(&user);
     let claims = app.jwt.verify(&token).expect("token verifies");
     assert_eq!(claims.sub, user.id.to_string());
-    assert_eq!(claims.role, "admin");
+    assert_eq!(claims.role, PrimaryRole::Admin.as_str());
 
-    // The point of activating the seeded user: an authenticated route accepts it.
-    // A 428 here means the fixture forgot set_jwt_secret; a 403 means the user
-    // was left Invited.
-    let (status, _) = app.get("/api/auth/me", Some(&token)).await;
+    // The point of activating the seeded user: an authenticated route accepts
+    // it. A 428 here means the fixture forgot set_jwt_secret; a 403 means the
+    // user was left Invited.
+    let (status, _) = app.get(&absolute(session::AUTH_ME), Some(&token)).await;
     assert_eq!(status, StatusCode::OK, "seeded user should authenticate");
 }
 
@@ -44,11 +48,8 @@ async fn each_test_app_gets_its_own_database() {
 
     a.seed_user(PrimaryRole::User).await;
 
-    let (_, body_a) = a.get("/api/setup/status", None).await;
-    let (_, body_b) = b.get("/api/setup/status", None).await;
-
-    // Neither instance is configured, but more importantly the two must not
-    // share state; the member counts diverge below.
+    let (_, body_a) = a.get(&absolute(public::SETUP_STATUS), None).await;
+    let (_, body_b) = b.get(&absolute(public::SETUP_STATUS), None).await;
     assert_eq!(body_a["configured"], false);
     assert_eq!(body_b["configured"], false);
 
@@ -62,7 +63,7 @@ async fn each_test_app_gets_its_own_database() {
 async fn unauthenticated_request_is_rejected_with_401_not_428() {
     let app = test_app().await;
 
-    let (status, _) = app.get("/api/auth/me", None).await;
+    let (status, _) = app.get(&absolute(session::AUTH_ME), None).await;
 
     // 428 here would mean the fixture failed to install a JWT secret, which is
     // the failure mode this assertion exists to catch.

@@ -4,7 +4,7 @@ use sqlx::Row;
 use sqlx::{Any, Pool};
 use uuid::Uuid;
 
-use crate::mapping::parse_dt;
+use crate::core::mapping::parse_dt;
 
 #[derive(Clone)]
 pub struct SecretRepo {

@@ -11,9 +11,9 @@ use conductor_domain::{AuthSession, ChangePasswordRequest, ConductorError, User,
 use conductor_storage::repos::SsoLoginError;
 use serde::{Deserialize, Serialize};
 
-use crate::http::error::ApiResult;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
-use crate::http::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
@@ -159,7 +159,7 @@ pub async fn sso_start(State(state): State<AppState>) -> ApiResult<Json<SsoStart
 pub async fn sso_callback(
     State(state): State<AppState>,
     Query(query): Query<SsoCallbackQuery>,
-) -> Result<impl IntoResponse, crate::http::error::ApiError> {
+) -> Result<impl IntoResponse, crate::core::error::ApiError> {
     if let Some(err) = query.error {
         let detail = query.error_description.unwrap_or(err);
         return Err(ConductorError::msg(format!("SSO error: {detail}")).into());

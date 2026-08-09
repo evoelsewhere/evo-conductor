@@ -3,8 +3,8 @@ use conductor_auth::{hash_password, validate_oidc_redirect_uri, validate_oidc_ur
 use conductor_domain::{ConductorError, SetupRequest, SetupStatus, SsoProvider};
 use rand::RngCore;
 
-use crate::http::error::ApiResult;
-use crate::http::state::AppState;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 
 pub async fn status(State(state): State<AppState>) -> ApiResult<Json<SetupStatus>> {
     Ok(Json(state.db.instance().setup_status().await?))

@@ -1,18 +1,18 @@
-//! Shared fixture for integration tests.
+//! HTTP fixture for the server suite.
 //!
-//! Three facts about the application drive how this is built, and each of them
-//! produces a confusing failure when ignored:
+//! Only test-only values live here. Anything production also depends on comes
+//! from `conductor_server::core` or `conductor_domain::core`, so a test can
+//! never drift from the thing it is asserting against.
 //!
-//! 1. `Db::connect` builds a ten-connection pool. A plain `sqlite::memory:` URL
-//!    gives every connection its own private database, and `migrate::run` fails
-//!    partway through with `no such table: main.users`. Every test therefore
-//!    gets a uniquely named shared-cache database.
-//! 2. `AppState::new` reads the JWT secret from the `instance` row, which a
-//!    fresh test database does not have. Without `set_jwt_secret` the extractor
-//!    returns **428 SetupRequired**, not 401, and the test looks broken rather
-//!    than unauthenticated.
-//! 3. `AuthUser` admits only `UserStatus::Active`. `create_invited` leaves the
-//!    user `Invited`, so seeding must promote it.
+//! Two application facts drive this fixture, and each produces a misleading
+//! failure when ignored:
+//!
+//! 1. `AppState::new` reads the JWT secret from the `instance` row, which a
+//!    fresh test database does not have. Without [`AppState::set_jwt_secret`]
+//!    the extractor returns **428 SetupRequired**, not 401, and the test looks
+//!    broken rather than unauthenticated.
+//! 2. `AuthUser` admits only `UserStatus::Active`, while `create_invited` leaves
+//!    the user `Invited`; [`seed_active_user`] promotes it.
 
 #![allow(dead_code)]
 
@@ -20,18 +20,58 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use conductor_auth::JwtService;
-use conductor_domain::{CreateMemberRequest, PrimaryRole, User, UserStatus};
+use conductor_domain::core::constants::auth::{AUTH_SCHEME_BEARER, DEFAULT_JWT_TTL_HOURS};
+use conductor_domain::{CreateMemberRequest, UserStatus};
+use conductor_domain::{PrimaryRole, User};
 use conductor_server::{build_router, AppState, Config};
+use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
 use serde_json::Value;
 use std::path::PathBuf;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-/// Argon2 hash of an arbitrary string. Tests never authenticate with a
-/// password, and hashing per test would dominate the suite's runtime.
+/// Test-only values. Anything production also cares about lives in
+/// `conductor_server::core` or `conductor_domain::core`, not here.
+const TEST_DB_NAME_PREFIX: &str = "conductor_test_";
+const TEST_EMAIL_DOMAIN: &str = "example.test";
+const TEST_JWT_SECRET_PREFIX: &str = "test-secret-";
+const TEST_BIND_HOST: &str = "127.0.0.1";
+/// Zero: the fixture never binds a socket, it calls the router directly.
+const TEST_BIND_PORT: u16 = 0;
+/// The router serves the console from disk as a fallback; tests exercise the
+/// API only, so this deliberately points nowhere.
+const UNUSED_WEB_DIST: &str = "/nonexistent-web-dist-for-tests";
+/// Argon2-shaped placeholder; tests never verify a password.
 const PLACEHOLDER_PASSWORD_HASH: &str =
     "$argon2id$v=19$m=19456,t=2,p=1$c3RlcDBzYWx0$0000000000000000000000000000000000000000000";
+
+fn test_database_url() -> String {
+    sqlite_shared_memory_url(&format!("{TEST_DB_NAME_PREFIX}{}", Uuid::new_v4().simple()))
+}
+
+async fn seed_active_user(db: &conductor_storage::Db, role: PrimaryRole) -> User {
+    let req = CreateMemberRequest {
+        email: format!(
+            "{}-{}@{TEST_EMAIL_DOMAIN}",
+            role.as_str(),
+            Uuid::new_v4().simple()
+        ),
+        display_name: format!("Test {}", role.as_str()),
+        primary_role: role,
+        sub_role_ids: vec![],
+        tag_ids: vec![],
+    };
+    let user = db
+        .users()
+        .create_invited(&req, PLACEHOLDER_PASSWORD_HASH, Uuid::new_v4())
+        .await
+        .expect("create_invited");
+    db.users()
+        .set_status(user.id, UserStatus::Active)
+        .await
+        .expect("activate seeded user")
+}
 
 pub struct TestApp {
     pub router: Router,
@@ -41,59 +81,33 @@ pub struct TestApp {
 
 /// A running application backed by an empty, isolated database.
 pub async fn test_app() -> TestApp {
-    let database_url = format!(
-        "sqlite:file:conductor_test_{}?mode=memory&cache=shared",
-        Uuid::new_v4().simple()
-    );
+    let database_url = test_database_url();
 
     let state = AppState::new(&database_url)
         .await
         .expect("connect test database");
 
-    // Fact 2: without this every authenticated request returns 428.
-    let secret = format!("test-secret-{}", Uuid::new_v4().simple());
+    // Fact 1: without this every authenticated request returns 428.
+    let secret = format!("{TEST_JWT_SECRET_PREFIX}{}", Uuid::new_v4().simple());
     state.set_jwt_secret(secret.clone()).await;
 
     let config = Config {
         database_url,
-        host: "127.0.0.1".into(),
-        port: 0,
-        web_dist: PathBuf::from("/nonexistent-web-dist-for-tests"),
+        host: TEST_BIND_HOST.into(),
+        port: TEST_BIND_PORT,
+        web_dist: PathBuf::from(UNUSED_WEB_DIST),
     };
 
     TestApp {
         router: build_router(state.clone(), &config),
         state,
-        jwt: JwtService::new(secret, 72),
+        jwt: JwtService::new(secret, DEFAULT_JWT_TTL_HOURS),
     }
 }
 
 impl TestApp {
-    /// An active member with the given role.
     pub async fn seed_user(&self, role: PrimaryRole) -> User {
-        let req = CreateMemberRequest {
-            email: format!("{}-{}@example.test", role.as_str(), Uuid::new_v4().simple()),
-            display_name: format!("Test {}", role.as_str()),
-            primary_role: role,
-            sub_role_ids: vec![],
-            tag_ids: vec![],
-        };
-
-        let user = self
-            .state
-            .db
-            .users()
-            .create_invited(&req, PLACEHOLDER_PASSWORD_HASH, Uuid::new_v4())
-            .await
-            .expect("create_invited");
-
-        // Fact 3: AuthUser rejects Invited.
-        self.state
-            .db
-            .users()
-            .set_status(user.id, UserStatus::Active)
-            .await
-            .expect("activate seeded user")
+        seed_active_user(&self.state.db, role).await
     }
 
     pub fn token_for(&self, user: &User) -> String {
@@ -130,7 +144,7 @@ impl TestApp {
         body: Option<Value>,
     ) -> (StatusCode, Value) {
         if let Some(token) = token {
-            builder = builder.header("Authorization", format!("Bearer {token}"));
+            builder = builder.header("Authorization", format!("{AUTH_SCHEME_BEARER}{token}"));
         }
 
         let request = match body {

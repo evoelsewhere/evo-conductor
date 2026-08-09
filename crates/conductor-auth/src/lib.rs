@@ -1,5 +1,7 @@
 //! Auth helpers: password hashing, JWT sessions, connection tokens, OIDC/MS SSO.
 
+pub mod core;
+
 mod jwt;
 mod oidc;
 mod password;

@@ -1,7 +1,12 @@
 //! Evo Conductor HTTP server library.
+//!
+//! ```text
+//! core/   configuration, state, errors, constants, route paths
+//! http/   transport: router, handlers, extractors
+//! ```
 
-pub mod config;
+pub mod core;
 pub mod http;
 
-pub use config::Config;
-pub use http::{build_router, AppState};
+pub use core::{ApiError, ApiResult, AppState, Config};
+pub use http::build_router;

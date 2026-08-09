@@ -1,10 +1,12 @@
 use axum::{extract::State, http::HeaderMap, Json};
 use conductor_auth::hash_token;
+use conductor_domain::core::constants::auth::AUTH_SCHEME_BEARER;
+use conductor_domain::core::constants::token::CONNECTION_TOKEN_PREFIX;
 use conductor_domain::{ConductorError, ManagedResource, SecretScope, UserStatus};
 
-use crate::http::error::ApiResult;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
-use crate::http::state::AppState;
 
 pub async fn list(
     State(state): State<AppState>,
@@ -21,10 +23,10 @@ pub async fn subscribe(
     let auth = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
+        .and_then(|v| v.strip_prefix(AUTH_SCHEME_BEARER))
         .ok_or(ConductorError::Unauthorized)?;
 
-    if !auth.starts_with("evc_") {
+    if !auth.starts_with(CONNECTION_TOKEN_PREFIX) {
         return Err(ConductorError::Unauthorized.into());
     }
 
