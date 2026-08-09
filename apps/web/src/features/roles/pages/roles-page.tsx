@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Check, Minus, Pencil, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import { api, type SubRole } from "@/shared/api/client"
@@ -7,11 +7,20 @@ import { PageFrame } from "@/shared/components/page-frame"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
 import { Card, CardHeader, CardList, CardTitle } from "@/shared/ui/card"
-import { Dialog } from "@/shared/ui/dialog"
+import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { SkeletonRows } from "@/shared/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableTd,
+  TableTh,
+  TableWrap,
+} from "@/shared/ui/table"
 
 const primaryRoles = [
   {
@@ -28,6 +37,17 @@ const primaryRoles = [
   },
 ] as const
 
+const permissionMatrix = [
+  { capability: "Project settings & SSO", admin: true, contribute: false, user: false },
+  { capability: "Approve and manage members", admin: true, contribute: false, user: false },
+  { capability: "View active member directory", admin: true, contribute: true, user: false },
+  { capability: "Manage sub-roles", admin: true, contribute: false, user: false },
+  { capability: "Manage shared tags", admin: true, contribute: true, user: false },
+  { capability: "Publish shared resources", admin: true, contribute: true, user: false },
+  { capability: "Consume shared resources", admin: true, contribute: true, user: true },
+  { capability: "Manage own connection secrets", admin: true, contribute: true, user: true },
+] as const
+
 export function RolesPage() {
   const user = useAuthStore((s) => s.user)
   const qc = useQueryClient()
@@ -36,10 +56,15 @@ export function RolesPage() {
     queryFn: () => api.subRoles(),
   })
   const [editor, setEditor] = useState<SubRole | "new" | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<SubRole | null>(null)
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteSubRole(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["sub-roles"] }),
+    onSuccess: () => {
+      setPendingDelete(null)
+      void qc.invalidateQueries({ queryKey: ["sub-roles"] })
+      void qc.invalidateQueries({ queryKey: ["members"] })
+    },
   })
 
   const canManage = user?.primary_role === "admin"
@@ -67,6 +92,41 @@ export function RolesPage() {
           </Card>
         ))}
       </div>
+
+      <TableWrap className="mb-6">
+        <Table>
+          <TableHead>
+            <tr>
+              <TableTh>Permission boundary</TableTh>
+              {primaryRoles.map((role) => (
+                <TableTh key={role.role} className="text-center capitalize">
+                  {role.role}
+                </TableTh>
+              ))}
+            </tr>
+          </TableHead>
+          <TableBody>
+            {permissionMatrix.map((row) => (
+              <TableRow key={row.capability}>
+                <TableTd className="font-medium">{row.capability}</TableTd>
+                {primaryRoles.map((role) => {
+                  const allowed = row[role.role]
+                  return (
+                    <TableTd key={role.role} className="text-center">
+                      <span className="sr-only">{allowed ? "Allowed" : "Not allowed"}</span>
+                      {allowed ? (
+                        <Check className="mx-auto size-4 text-(--color-success)" aria-hidden />
+                      ) : (
+                        <Minus className="mx-auto size-4 text-(--color-text-subtle)" aria-hidden />
+                      )}
+                    </TableTd>
+                  )
+                })}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableWrap>
 
       <Card>
         <CardHeader className="gap-3">
@@ -116,7 +176,7 @@ export function RolesPage() {
                       size="sm"
                       variant="ghost"
                       aria-label={`Delete ${role.name}`}
-                      onClick={() => remove.mutate(role.id)}
+                      onClick={() => setPendingDelete(role)}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -137,6 +197,21 @@ export function RolesPage() {
           }}
         />
       )}
+      {remove.error && (
+        <ErrorState
+          className="mt-4"
+          message={remove.error instanceof Error ? remove.error.message : "Delete failed"}
+        />
+      )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`Delete ${pendingDelete?.name ?? "sub-role"}?`}
+        description="This sub-role will be removed from every member. Primary system permissions are unchanged."
+        confirmLabel="Delete sub-role"
+        busy={remove.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && remove.mutate(pendingDelete.id)}
+      />
     </PageFrame>
   )
 }

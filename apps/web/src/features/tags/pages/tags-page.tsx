@@ -8,7 +8,7 @@ import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
 import { Card, CardHeader, CardList, CardTitle } from "@/shared/ui/card"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
-import { Dialog } from "@/shared/ui/dialog"
+import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { SkeletonRows } from "@/shared/ui/skeleton"
@@ -23,10 +23,15 @@ export function TagsPage() {
     queryFn: () => api.tags(),
   })
   const [editor, setEditor] = useState<Tag | "new" | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<Tag | null>(null)
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteTag(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tags"] }),
+    onSuccess: () => {
+      setPendingDelete(null)
+      void qc.invalidateQueries({ queryKey: ["tags"] })
+      void qc.invalidateQueries({ queryKey: ["members"] })
+    },
   })
 
   return (
@@ -98,7 +103,7 @@ export function TagsPage() {
                       size="sm"
                       variant="ghost"
                       aria-label={`Delete ${tag.name}`}
-                      onClick={() => remove.mutate(tag.id)}
+                      onClick={() => setPendingDelete(tag)}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -119,6 +124,21 @@ export function TagsPage() {
           }}
         />
       )}
+      {remove.error && (
+        <ErrorState
+          className="mt-4"
+          message={remove.error instanceof Error ? remove.error.message : "Delete failed"}
+        />
+      )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`Delete ${pendingDelete?.name ?? "tag"}?`}
+        description="This tag assignment will be removed from members and every tagged project entity."
+        confirmLabel="Delete tag"
+        busy={remove.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && remove.mutate(pendingDelete.id)}
+      />
     </PageFrame>
   )
 }

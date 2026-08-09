@@ -220,6 +220,10 @@
   border-color: var(--color-border);
 }
 
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
+
 html,
 body,
 #root {
@@ -271,4 +275,15 @@ body:has([data-shell]) {
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

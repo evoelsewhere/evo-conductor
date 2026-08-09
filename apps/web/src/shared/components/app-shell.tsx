@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, Outlet, useRouterState } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "framer-motion"
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import {
   Boxes,
   ChevronDown,
@@ -176,6 +177,12 @@ export function AppShell() {
   return (
     <TooltipProvider delay={400}>
       <div data-shell className="flex min-h-dvh">
+        <a
+          href="#main-content"
+          className="fixed top-2 left-2 z-(--z-toast) -translate-y-16 rounded-md bg-(--bg-card) px-3 py-2 text-sm font-medium shadow-(--shadow-depth) transition-transform focus:translate-y-0"
+        >
+          Skip to content
+        </a>
         {isDesktop ? (
           <SidebarRail
             collapsed={collapsed}
@@ -194,7 +201,7 @@ export function AppShell() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar brand={brand} />
-          <main className="min-h-0 flex-1 overflow-y-auto">
+          <main id="main-content" className="min-h-0 flex-1 overflow-y-auto" tabIndex={-1}>
             <Outlet />
           </main>
         </div>
@@ -346,26 +353,18 @@ function MobileDrawer({
   const setMobileNav = useUiStore((s) => s.setMobileNav)
 
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.button
-            type="button"
-            aria-label="Close menu"
-            className="fixed inset-0 z-(--z-overlay) bg-(--color-overlay)"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => setMobileNav(false)}
-          />
-          <motion.aside
-            className="fixed inset-y-0 left-0 z-(--z-modal) flex w-[min(18rem,88vw)] flex-col border-r border-(--sidebar-border) bg-(--bg-sidebar) shadow-(--shadow-depth)"
-            initial={{ x: "-100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "-100%" }}
-            transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-          >
+    <DialogPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setMobileNav(false)
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-(--z-overlay) bg-(--color-overlay) transition-opacity duration-(--motion-fast) data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <DialogPrimitive.Popup className="fixed inset-y-0 left-0 z-(--z-modal) flex w-[min(18rem,88vw)] flex-col border-r border-(--sidebar-border) bg-(--bg-sidebar) shadow-(--shadow-depth) outline-none transition-transform duration-(--motion-base) ease-(--ease-out) data-ending-style:-translate-x-full data-starting-style:-translate-x-full">
+            <DialogPrimitive.Title className="sr-only">
+              Project navigation
+            </DialogPrimitive.Title>
             <div className="flex h-14 items-center justify-between border-b border-(--border-soft) px-4">
               <BrandMark
                 size="sm"
@@ -373,14 +372,13 @@ function MobileDrawer({
                 title={brand.title}
                 logoUrl={brand.logoUrl}
               />
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Close menu"
-                onClick={() => setMobileNav(false)}
+              <DialogPrimitive.Close
+                render={
+                  <Button variant="ghost" size="icon" aria-label="Close menu" />
+                }
               >
                 <X className="size-4" />
-              </Button>
+              </DialogPrimitive.Close>
             </div>
 
             <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
@@ -395,10 +393,9 @@ function MobileDrawer({
             </nav>
 
             <UserFooter collapsed={false} />
-          </motion.aside>
-        </>
-      )}
-    </AnimatePresence>
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }
 

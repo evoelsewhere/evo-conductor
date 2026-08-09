@@ -24,6 +24,7 @@ import { Badge, StatusDot } from "@/shared/ui/badge"
 import { BadgeList } from "@/shared/ui/badge-list"
 import { Button } from "@/shared/ui/button"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
+import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import {
@@ -85,6 +86,10 @@ export function MembersPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
   const [tempPassword, setTempPassword] = useState<string | null>(null)
+  const [confirmation, setConfirmation] = useState<{
+    action: "disable" | "reset"
+    member: User
+  } | null>(null)
 
   const { data: tags = [] } = useQuery({
     queryKey: ["tags"],
@@ -140,7 +145,10 @@ export function MembersPage() {
   })
   const disable = useMutation({
     mutationFn: (id: string) => api.disableMember(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["members"] }),
+    onSuccess: () => {
+      setConfirmation(null)
+      void qc.invalidateQueries({ queryKey: ["members"] })
+    },
   })
   const enable = useMutation({
     mutationFn: (id: string) => api.enableMember(id),
@@ -148,7 +156,10 @@ export function MembersPage() {
   })
   const resetPw = useMutation({
     mutationFn: (id: string) => api.resetMemberPassword(id),
-    onSuccess: (res) => setTempPassword(res.temporary_password),
+    onSuccess: (res) => {
+      setConfirmation(null)
+      setTempPassword(res.temporary_password)
+    },
   })
 
   const items = data?.items ?? []
@@ -156,6 +167,12 @@ export function MembersPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const activeFilterCount =
     Number(Boolean(status)) + Number(Boolean(role)) + Number(Boolean(tag))
+  const actionError = [
+    approve.error,
+    disable.error,
+    enable.error,
+    resetPw.error,
+  ].find((value): value is Error => value instanceof Error)
 
   return (
     <PageFrame
@@ -282,6 +299,13 @@ export function MembersPage() {
         />
       )}
 
+      {actionError && (
+        <ErrorState
+          className="mb-4"
+          message={actionError.message}
+        />
+      )}
+
       {isLoading ? (
         <TableWrap>
           <SkeletonRows rows={6} />
@@ -372,7 +396,9 @@ export function MembersPage() {
                               size="sm"
                               variant="ghost"
                               title="Disable"
-                              onClick={() => disable.mutate(m.id)}
+                              onClick={() =>
+                                setConfirmation({ action: "disable", member: m })
+                              }
                             >
                               <UserX className="size-3.5" />
                             </Button>
@@ -381,7 +407,9 @@ export function MembersPage() {
                             size="sm"
                             variant="ghost"
                             title="Reset password"
-                            onClick={() => resetPw.mutate(m.id)}
+                            onClick={() =>
+                              setConfirmation({ action: "reset", member: m })
+                            }
                           >
                             <RotateCcw className="size-3.5" />
                           </Button>
@@ -446,6 +474,28 @@ export function MembersPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmation !== null}
+        title={
+          confirmation?.action === "disable"
+            ? `Disable ${confirmation.member.display_name}?`
+            : `Reset ${confirmation?.member.display_name ?? "member"}'s password?`
+        }
+        description={
+          confirmation?.action === "disable"
+            ? "Their browser sessions and EvoFlux connection secrets will stop working immediately."
+            : "Existing browser sessions will be revoked. A new temporary password will be shown once."
+        }
+        confirmLabel={confirmation?.action === "disable" ? "Disable member" : "Reset password"}
+        busy={disable.isPending || resetPw.isPending}
+        onClose={() => setConfirmation(null)}
+        onConfirm={() => {
+          if (!confirmation) return
+          if (confirmation.action === "disable") disable.mutate(confirmation.member.id)
+          else resetPw.mutate(confirmation.member.id)
+        }}
+      />
     </PageFrame>
   )
 }
@@ -517,7 +567,7 @@ function MemberDialog({
   })
 
   return (
-    <DialogShell title={title} onClose={onClose}>
+    <Dialog open title={title} onClose={onClose}>
       <div className="space-y-3">
         <Field label="Email">
           <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" />
@@ -567,7 +617,7 @@ function MemberDialog({
           </Button>
         </div>
       </div>
-    </DialogShell>
+    </Dialog>
   )
 }
 
@@ -584,6 +634,8 @@ function EditMemberDialog({
   onClose: () => void
   onSaved: () => void
 }) {
+  const actorId = useAuthStore((state) => state.user?.id)
+  const editingSelf = actorId === user.id
   const [displayName, setDisplayName] = useState(user.display_name)
   const [primaryRole, setPrimaryRole] = useState<PrimaryRole>(user.primary_role)
   const [subRoleIds, setSubRoleIds] = useState(user.sub_role_ids)
@@ -603,7 +655,7 @@ function EditMemberDialog({
   })
 
   return (
-    <DialogShell title={`Edit ${user.email}`} onClose={onClose}>
+    <Dialog open title={`Edit ${user.email}`} onClose={onClose}>
       <div className="space-y-3">
         <Field label="Display name">
           <Input
@@ -611,11 +663,15 @@ function EditMemberDialog({
             onChange={(e) => setDisplayName(e.target.value)}
           />
         </Field>
-        <Field label="Primary role">
+        <Field
+          label="Primary role"
+          hint={editingSelf ? "Ask another admin to change your primary role." : undefined}
+        >
           <Select
             value={primaryRole}
             onValueChange={(v) => setPrimaryRole(v as PrimaryRole)}
             options={[...roleOptions]}
+            disabled={editingSelf}
           />
         </Field>
         <Field label="Sub-roles" hint="Job function within the project.">
@@ -650,32 +706,7 @@ function EditMemberDialog({
           </Button>
         </div>
       </div>
-    </DialogShell>
-  )
-}
-
-function DialogShell({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <div className="fixed inset-0 z-(--z-modal) flex items-end justify-center sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-(--color-overlay)"
-        aria-label="Close"
-        onClick={onClose}
-      />
-      <div className="relative z-10 max-h-[90dvh] w-full overflow-y-auto rounded-t-xl border border-(--border-card) bg-(--bg-card) p-5 shadow-(--shadow-depth) sm:max-w-md sm:rounded-xl">
-        <h2 className="mb-4 text-base font-semibold tracking-tight">{title}</h2>
-        {children}
-      </div>
-    </div>
+    </Dialog>
   )
 }
 
