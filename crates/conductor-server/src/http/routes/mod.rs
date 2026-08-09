@@ -2,6 +2,7 @@ mod access;
 mod auth;
 mod dashboard;
 mod health;
+mod realtime;
 mod resources;
 mod secrets;
 mod settings;
@@ -59,4 +60,5 @@ pub fn router() -> Router<AppState> {
         .route("/secrets/{id}/revoke", post(secrets::revoke))
         .route("/resources", get(resources::list))
         .route("/v1/subscribe/resources", get(resources::subscribe))
+        .route("/v1/realtime/events", get(realtime::events))
 }

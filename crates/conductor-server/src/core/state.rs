@@ -9,6 +9,9 @@ use conductor_storage::Db;
 use dashmap::DashMap;
 use tokio::sync::RwLock;
 
+use crate::core::config::RealtimeConfig;
+use crate::http::realtime::RealtimeHub;
+
 #[derive(Clone)]
 pub struct PendingOidc {
     pub code_verifier: String,
@@ -21,10 +24,11 @@ pub struct AppState {
     pub db: Db,
     pub jwt: Arc<RwLock<Option<JwtService>>>,
     pub oidc_pending: Arc<DashMap<String, PendingOidc>>,
+    pub realtime: RealtimeHub,
 }
 
 impl AppState {
-    pub async fn new(database_url: &str) -> anyhow::Result<Self> {
+    pub async fn new(database_url: &str, realtime_config: RealtimeConfig) -> anyhow::Result<Self> {
         let db = Db::connect(database_url).await?;
         let jwt = Arc::new(RwLock::new(None));
 
@@ -36,6 +40,7 @@ impl AppState {
             db,
             jwt,
             oidc_pending: Arc::new(DashMap::new()),
+            realtime: RealtimeHub::new(realtime_config),
         })
     }
 

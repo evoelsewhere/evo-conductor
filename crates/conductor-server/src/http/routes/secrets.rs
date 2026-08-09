@@ -62,5 +62,6 @@ pub async fn revoke(
     if !ok {
         return Err(ConductorError::NotFound("secret".into()).into());
     }
+    state.realtime.disconnect_secret(id, "secret_revoked");
     Ok(Json(serde_json::json!({ "revoked": true })))
 }

@@ -1,6 +1,7 @@
 //! Transport layer: the router, its handlers, and its extractors.
 
 mod extractors;
+pub mod realtime;
 mod routes;
 
 use axum::{

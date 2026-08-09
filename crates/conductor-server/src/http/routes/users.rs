@@ -275,13 +275,13 @@ pub async fn disable(
         )
         .into());
     }
-    Ok(Json(
-        state
-            .db
-            .users()
-            .set_status(id, UserStatus::Disabled)
-            .await?,
-    ))
+    let user = state
+        .db
+        .users()
+        .set_status(id, UserStatus::Disabled)
+        .await?;
+    state.realtime.disconnect_owner(id, "owner_disabled");
+    Ok(Json(user))
 }
 
 pub async fn enable(

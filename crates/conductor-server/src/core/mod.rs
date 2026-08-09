@@ -11,6 +11,6 @@ pub mod error;
 pub mod routes;
 pub mod state;
 
-pub use config::Config;
+pub use config::{Config, RealtimeConfig};
 pub use error::{ApiError, ApiResult};
 pub use state::AppState;

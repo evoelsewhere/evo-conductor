@@ -125,6 +125,16 @@ impl SecretRepo {
             .await?;
         Ok(())
     }
+
+    pub async fn is_active(&self, id: Uuid) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM connection_secrets WHERE id = ? AND revoked_at IS NULL",
+        )
+        .bind(id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
 }
 
 fn map_secret(r: sqlx::any::AnyRow) -> ConnectionSecret {
