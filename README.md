@@ -83,7 +83,9 @@ CONDUCTOR_DATABASE_URL=mysql://user:pass@127.0.0.1:3306/conductor
    `https://login.microsoftonline.com/{tenant-id}/v2.0`
 5. Set **Public URL** to the web console origin (e.g. `http://127.0.0.1:5174`) so callback can return to `/auth/callback`.
 
-Flow: `GET /api/auth/sso/start` → Entra login → `GET /api/auth/sso/callback` → redirect to console with session token.
+Flow: `GET /api/auth/sso/start` → Entra login → `GET /api/auth/sso/callback` → redirect to the console. Conductor uses authorization code + PKCE, validates state and nonce, and verifies the ID token against provider JWKS, issuer, and audience. The browser session is transferred in a URL fragment (never a query string) and kept in tab-scoped session storage.
+
+Local and temporary passwords must be at least 12 characters. Password resets, password changes, and account disable/enable operations revoke existing browser sessions immediately. Disabling a member also blocks that member's EvoFlux connection secrets.
 
 ## Env
 

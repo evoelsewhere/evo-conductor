@@ -33,8 +33,12 @@
 
 ## Auth
 
-- Browser: JWT session
+- Browser: 24-hour JWT session with issuer/audience validation and a database-backed session version
+- OIDC: authorization code + PKCE, state, nonce, JWKS signature, issuer, and audience validation
+- SSO identity binding: immutable provider `issuer + subject`; email is used only for initial linking/provisioning
+- Authorization: every request reloads current user status and role from storage; UI route guards are convenience only
 - EvoFlux: connection secret `evc_<prefix>_<secret>` (SHA-256 at rest)
+- Private resources are visible only to their owner; disabled owners cannot use existing connection secrets
 
 ## Extension points
 
