@@ -87,6 +87,14 @@ Flow: `GET /api/auth/sso/start` → Entra login → `GET /api/auth/sso/callback`
 
 Local and temporary passwords must be at least 12 characters. Password resets, password changes, and account disable/enable operations revoke existing browser sessions immediately. Disabling a member also blocks that member's EvoFlux connection secrets.
 
+## EvoFlux realtime integration
+
+Conductor exposes a server-sent events control plane at `GET /api/v1/realtime/events` and keeps `GET /api/v1/subscribe/resources` as the snapshot/fallback endpoint. Both use an `evc_…` bearer secret with the `subscribe_resources` scope. The realtime stream sends an authoritative initial snapshot, ordered resource deltas, heartbeats, lag-recovery snapshots, and immediate access-revocation notices.
+
+See [docs/evoflux-integration.md](docs/evoflux-integration.md) for the protocol contract, reconnect state machine, capacity controls, reverse-proxy requirements, and the future EvoFlux implementation checklist.
+
+The governed catalog supports draft/publish/archive lifecycle, version history, role/team/member access policies, idempotent member usage tracking, effectiveness charts and feedback. See [docs/resource-catalog-product.md](docs/resource-catalog-product.md) for the product model and permission matrix.
+
 ## Env
 
 See `.env.example`.

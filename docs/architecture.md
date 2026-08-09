@@ -45,3 +45,27 @@
 - `conductor-application` crate for use-cases if HTTP + workers share logic
 - OIDC callback under `http/routes/auth`
 - Telemetry ingest via `SecretScope::ReportTelemetry`
+
+## EvoFlux realtime control plane
+
+- Transport: authenticated SSE at `/api/v1/realtime/events`; REST remains the authoritative reconnect fallback
+- Fan-out: one bounded Tokio broadcast ring per Conductor process, not one polling task per client
+- Backpressure: a lagging receiver is resynchronized with a fresh owner-filtered snapshot
+- Lifecycle: heartbeat, token-expiry close, secret-revocation close, member-disable close, and server-drain signal
+- Admission control: configurable global and per-secret semaphores; overload returns `503` or `429` with `Retry-After`
+- Presence: the dashboard derives online members from active realtime owners in the local process
+- Horizontal scale boundary: the current hub is single-process. Multiple replicas require a shared broker plus transactional outbox; PostgreSQL and NATS JetStream are the recommended production path
+
+The complete client contract and scale-out design are in [evoflux-integration.md](evoflux-integration.md).
+
+## Governed resource catalog
+
+- `resources` is the stable catalog identity and caches the currently published payload for fast subscriptions
+- `resource_versions` stores draft, published and deprecated immutable payload versions
+- `resource_access_rules` stores allow subjects resolved from primary role, sub-role, tag or member
+- `resource_usage_events` is an idempotent operational event log keyed by EvoFlux event ID
+- `resource_feedback` stores one current response per resource/member
+- Publishing commits storage first, then emits delete/upsert realtime deltas so clients converge without database polling
+- Usage identity is derived from the reporting connection secret; monitoring never trusts a client-provided member ID
+
+Product behavior and permission decisions are documented in [resource-catalog-product.md](resource-catalog-product.md).
