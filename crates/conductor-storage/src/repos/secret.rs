@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use conductor_domain::{ConnectionSecret, SecretScope};
-use sqlx::{Any, Pool};
 use sqlx::Row;
+use sqlx::{Any, Pool};
 use uuid::Uuid;
 
 use crate::mapping::parse_dt;
@@ -115,6 +115,15 @@ impl SecretRepo {
         .await?;
 
         Ok(row.map(map_secret))
+    }
+
+    pub async fn mark_used(&self, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE connection_secrets SET last_used_at = ? WHERE id = ?")
+            .bind(Utc::now().to_rfc3339())
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 

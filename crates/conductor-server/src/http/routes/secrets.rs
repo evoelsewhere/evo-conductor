@@ -3,9 +3,7 @@ use axum::{
     Json,
 };
 use conductor_auth::generate_connection_token;
-use conductor_domain::{
-    ConnectionSecret, CreateSecretRequest, CreatedSecret, ConductorError, SecretScope,
-};
+use conductor_domain::{ConductorError, ConnectionSecret, CreateSecretRequest, CreatedSecret};
 use uuid::Uuid;
 
 use crate::http::error::ApiResult;
@@ -24,25 +22,32 @@ pub async fn create(
     AuthUser(user): AuthUser,
     Json(req): Json<CreateSecretRequest>,
 ) -> ApiResult<Json<CreatedSecret>> {
-    if req.name.trim().is_empty() {
+    if req.name.trim().is_empty() || req.name.trim().len() > 120 {
         return Err(ConductorError::msg("name is required").into());
     }
-
-    let scopes = if req.scopes.is_empty() {
-        vec![
-            SecretScope::SubscribeResources,
-            SecretScope::ReportTelemetry,
-            SecretScope::SyncInventory,
-        ]
-    } else {
-        req.scopes
-    };
+    if req.scopes.is_empty() {
+        return Err(ConductorError::msg("at least one scope is required").into());
+    }
+    if req
+        .expires_at
+        .is_some_and(|expires| expires <= chrono::Utc::now())
+    {
+        return Err(ConductorError::msg("expires_at must be in the future").into());
+    }
+    let scopes = req.scopes;
 
     let (token, prefix, hash) = generate_connection_token();
     let secret = state
         .db
         .secrets()
-        .insert(user.id, &req.name, &prefix, &hash, &scopes, req.expires_at)
+        .insert(
+            user.id,
+            req.name.trim(),
+            &prefix,
+            &hash,
+            &scopes,
+            req.expires_at,
+        )
         .await?;
 
     Ok(Json(CreatedSecret { secret, token }))

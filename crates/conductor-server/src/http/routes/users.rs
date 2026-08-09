@@ -24,6 +24,27 @@ pub struct ListQuery {
     pub limit: Option<u32>,
 }
 
+async fn validate_access_ids(
+    state: &AppState,
+    sub_role_ids: &[String],
+    tag_ids: &[String],
+) -> ApiResult<()> {
+    let unique_sub_roles: std::collections::HashSet<&str> =
+        sub_role_ids.iter().map(String::as_str).collect();
+    let unique_tags: std::collections::HashSet<&str> = tag_ids.iter().map(String::as_str).collect();
+    if unique_sub_roles.len() != sub_role_ids.len()
+        || !state.db.roles().all_sub_roles_exist(sub_role_ids).await?
+    {
+        return Err(
+            ConductorError::msg("sub_role_ids contains duplicates or unknown roles").into(),
+        );
+    }
+    if unique_tags.len() != tag_ids.len() || !state.db.roles().all_tags_exist(tag_ids).await? {
+        return Err(ConductorError::msg("tag_ids contains duplicates or unknown tags").into());
+    }
+    Ok(())
+}
+
 pub async fn list(
     State(state): State<AppState>,
     AuthUser(actor): AuthUser,
@@ -35,10 +56,7 @@ pub async fn list(
 
     let status = query.status.as_deref().map(UserStatus::parse);
 
-    let role = query
-        .role
-        .as_deref()
-        .and_then(PrimaryRole::parse);
+    let role = query.role.as_deref().and_then(PrimaryRole::parse);
 
     let filter = MemberListQuery {
         q: query.q,
@@ -111,15 +129,10 @@ pub async fn create(
     if req.display_name.trim().is_empty() {
         return Err(ConductorError::msg("display_name is required").into());
     }
-    if state
-        .db
-        .users()
-        .find_by_email(&req.email)
-        .await?
-        .is_some()
-    {
+    if state.db.users().find_by_email(&req.email).await?.is_some() {
         return Err(ConductorError::Conflict("email already registered".into()).into());
     }
+    validate_access_ids(&state, &req.sub_role_ids, &req.tag_ids).await?;
 
     let temp = generate_temp_password();
     let hash = hash_password(&temp)?;
@@ -144,19 +157,51 @@ pub async fn update(
     if !actor.primary_role.can_manage_members() {
         return Err(ConductorError::Forbidden.into());
     }
-    let _ = state
+    let existing = state
         .db
         .users()
         .find_by_id(id)
         .await?
         .ok_or_else(|| ConductorError::NotFound("member".into()))?;
 
+    if req
+        .display_name
+        .as_ref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err(ConductorError::msg("display_name cannot be empty").into());
+    }
+    if req
+        .primary_role
+        .is_some_and(|role| role != existing.primary_role)
+    {
+        if actor.id == id {
+            return Err(
+                ConductorError::Conflict("you cannot change your own primary role".into()).into(),
+            );
+        }
+        if existing.primary_role == PrimaryRole::Admin
+            && state.db.users().active_admin_count().await? <= 1
+        {
+            return Err(ConductorError::Conflict(
+                "the project must keep at least one active admin".into(),
+            )
+            .into());
+        }
+    }
+    validate_access_ids(
+        &state,
+        req.sub_role_ids.as_deref().unwrap_or_default(),
+        req.tag_ids.as_deref().unwrap_or_default(),
+    )
+    .await?;
+
     let user = state
         .db
         .users()
         .update_member(
             id,
-            req.display_name.as_deref(),
+            req.display_name.as_deref().map(str::trim),
             req.primary_role,
             req.sub_role_ids.as_deref(),
             req.tag_ids.as_deref(),
@@ -183,6 +228,12 @@ pub async fn approve(
     if existing.status != UserStatus::Pending && existing.status != UserStatus::Invited {
         return Err(ConductorError::msg("member is not pending approval").into());
     }
+    validate_access_ids(
+        &state,
+        req.sub_role_ids.as_deref().unwrap_or_default(),
+        req.tag_ids.as_deref().unwrap_or_default(),
+    )
+    .await?;
 
     let user = state
         .db
@@ -209,6 +260,21 @@ pub async fn disable(
     if actor.id == id {
         return Err(ConductorError::msg("cannot disable yourself").into());
     }
+    let existing = state
+        .db
+        .users()
+        .find_by_id(id)
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("member".into()))?;
+    if existing.primary_role == PrimaryRole::Admin
+        && existing.status == UserStatus::Active
+        && state.db.users().active_admin_count().await? <= 1
+    {
+        return Err(ConductorError::Conflict(
+            "the project must keep at least one active admin".into(),
+        )
+        .into());
+    }
     Ok(Json(
         state
             .db
@@ -226,6 +292,12 @@ pub async fn enable(
     if !actor.primary_role.can_manage_members() {
         return Err(ConductorError::Forbidden.into());
     }
+    let _ = state
+        .db
+        .users()
+        .find_by_id(id)
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("member".into()))?;
     Ok(Json(
         state.db.users().set_status(id, UserStatus::Active).await?,
     ))

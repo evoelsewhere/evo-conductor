@@ -34,6 +34,27 @@ impl RoleRepo {
             .collect())
     }
 
+    pub async fn sub_role_slug_exists(&self, slug: &str) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sub_roles WHERE slug = ?")
+            .bind(slug.trim().to_lowercase())
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count > 0)
+    }
+
+    pub async fn all_sub_roles_exist(&self, ids: &[String]) -> Result<bool, sqlx::Error> {
+        for id in ids {
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sub_roles WHERE id = ?")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await?;
+            if count == 0 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     pub async fn create_sub_role(
         &self,
         req: &CreateSubRoleRequest,
@@ -47,8 +68,8 @@ impl RoleRepo {
             "#,
         )
         .bind(id.to_string())
-        .bind(req.slug.to_lowercase())
-        .bind(&req.name)
+        .bind(req.slug.trim().to_lowercase())
+        .bind(req.name.trim())
         .bind(&req.description)
         .bind(&req.color)
         .bind(now.to_rfc3339())
@@ -57,8 +78,8 @@ impl RoleRepo {
 
         Ok(SubRole {
             id: id.to_string(),
-            slug: req.slug.to_lowercase(),
-            name: req.name.clone(),
+            slug: req.slug.trim().to_lowercase(),
+            name: req.name.trim().to_string(),
             description: req.description.clone(),
             color: req.color.clone(),
         })
@@ -69,18 +90,21 @@ impl RoleRepo {
         id: &str,
         req: &UpdateSubRoleRequest,
     ) -> Result<Option<SubRole>, sqlx::Error> {
-        let existing = sqlx::query(
-            "SELECT id, slug, name, description, color FROM sub_roles WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let existing =
+            sqlx::query("SELECT id, slug, name, description, color FROM sub_roles WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
 
         let Some(r) = existing else {
             return Ok(None);
         };
 
-        let name: String = req.name.clone().unwrap_or_else(|| r.get("name"));
+        let name: String = req
+            .name
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .unwrap_or_else(|| r.get("name"));
         let description: Option<String> = if req.description.is_some() {
             req.description.clone()
         } else {
@@ -93,15 +117,13 @@ impl RoleRepo {
         };
         let slug: String = r.get("slug");
 
-        sqlx::query(
-            "UPDATE sub_roles SET name = ?, description = ?, color = ? WHERE id = ?",
-        )
-        .bind(&name)
-        .bind(&description)
-        .bind(&color)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE sub_roles SET name = ?, description = ?, color = ? WHERE id = ?")
+            .bind(&name)
+            .bind(&description)
+            .bind(&color)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(Some(SubRole {
             id: id.to_string(),
@@ -113,14 +135,16 @@ impl RoleRepo {
     }
 
     pub async fn delete_sub_role(&self, id: &str) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM user_sub_roles WHERE sub_role_id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         let res = sqlx::query("DELETE FROM sub_roles WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -142,6 +166,27 @@ impl RoleRepo {
             .collect())
     }
 
+    pub async fn tag_slug_exists(&self, slug: &str) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE slug = ?")
+            .bind(slug.trim().to_lowercase())
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count > 0)
+    }
+
+    pub async fn all_tags_exist(&self, ids: &[String]) -> Result<bool, sqlx::Error> {
+        for id in ids {
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE id = ?")
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await?;
+            if count == 0 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     pub async fn create_tag(&self, req: &CreateTagRequest) -> Result<Tag, sqlx::Error> {
         let id = Uuid::new_v4();
         let now = Utc::now();
@@ -152,8 +197,8 @@ impl RoleRepo {
             "#,
         )
         .bind(id.to_string())
-        .bind(req.slug.to_lowercase())
-        .bind(&req.name)
+        .bind(req.slug.trim().to_lowercase())
+        .bind(req.name.trim())
         .bind(&req.description)
         .bind(&req.color)
         .bind(now.to_rfc3339())
@@ -162,8 +207,8 @@ impl RoleRepo {
 
         Ok(Tag {
             id: id.to_string(),
-            slug: req.slug.to_lowercase(),
-            name: req.name.clone(),
+            slug: req.slug.trim().to_lowercase(),
+            name: req.name.trim().to_string(),
             description: req.description.clone(),
             color: req.color.clone(),
         })
@@ -184,7 +229,11 @@ impl RoleRepo {
             return Ok(None);
         };
 
-        let name: String = req.name.clone().unwrap_or_else(|| r.get("name"));
+        let name: String = req
+            .name
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .unwrap_or_else(|| r.get("name"));
         let description: Option<String> = if req.description.is_some() {
             req.description.clone()
         } else {
@@ -215,18 +264,20 @@ impl RoleRepo {
     }
 
     pub async fn delete_tag(&self, id: &str) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM tag_assignments WHERE tag_id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM user_tags WHERE tag_id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         let res = sqlx::query("DELETE FROM tags WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(res.rows_affected() > 0)
     }
 
@@ -252,13 +303,12 @@ impl RoleRepo {
         entity_id: &str,
         tag_ids: &[String],
     ) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query(
-            "DELETE FROM tag_assignments WHERE entity_type = ? AND entity_id = ?",
-        )
-        .bind(entity_type)
-        .bind(entity_id)
-        .execute(&self.pool)
-        .await?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM tag_assignments WHERE entity_type = ? AND entity_id = ?")
+            .bind(entity_type)
+            .bind(entity_id)
+            .execute(&mut *tx)
+            .await?;
 
         let now = Utc::now().to_rfc3339();
         for tag_id in tag_ids {
@@ -270,9 +320,10 @@ impl RoleRepo {
             .bind(entity_type)
             .bind(entity_id)
             .bind(&now)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
         }
+        tx.commit().await?;
         self.tag_ids_for_entity(entity_type, entity_id).await
     }
 }

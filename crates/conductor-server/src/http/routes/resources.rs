@@ -1,6 +1,6 @@
 use axum::{extract::State, http::HeaderMap, Json};
 use conductor_auth::hash_token;
-use conductor_domain::{ConductorError, ManagedResource, SecretScope};
+use conductor_domain::{ConductorError, ManagedResource, SecretScope, UserStatus};
 
 use crate::http::error::ApiResult;
 use crate::http::extractors::AuthUser;
@@ -8,9 +8,9 @@ use crate::http::state::AppState;
 
 pub async fn list(
     State(state): State<AppState>,
-    AuthUser(_user): AuthUser,
+    AuthUser(user): AuthUser,
 ) -> ApiResult<Json<Vec<ManagedResource>>> {
-    Ok(Json(state.db.resources().list().await?))
+    Ok(Json(state.db.resources().list_visible_to(user.id).await?))
 }
 
 /// EvoFlux subscribe endpoint — `Authorization: Bearer evc_...`.
@@ -42,13 +42,27 @@ pub async fn subscribe(
         }
     }
 
-    if !secret
-        .scopes
-        .iter()
-        .any(|s| *s == SecretScope::SubscribeResources)
-    {
+    if !secret.scopes.contains(&SecretScope::SubscribeResources) {
         return Err(ConductorError::Forbidden.into());
     }
 
-    Ok(Json(state.db.resources().list().await?))
+    let owner = state
+        .db
+        .users()
+        .find_by_id(secret.owner_user_id)
+        .await?
+        .ok_or(ConductorError::Unauthorized)?;
+    if owner.status != UserStatus::Active {
+        return Err(ConductorError::Unauthorized.into());
+    }
+
+    state.db.secrets().mark_used(secret.id).await?;
+
+    Ok(Json(
+        state
+            .db
+            .resources()
+            .list_visible_to(secret.owner_user_id)
+            .await?,
+    ))
 }
