@@ -105,3 +105,91 @@ pub struct UpdateTagRequest {
     pub description: Option<String>,
     pub color: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [PrimaryRole; 3] = [
+        PrimaryRole::Admin,
+        PrimaryRole::Contribute,
+        PrimaryRole::User,
+    ];
+
+    #[test]
+    fn as_str_and_parse_round_trip() {
+        for role in ALL {
+            assert_eq!(PrimaryRole::parse(role.as_str()), Some(role));
+        }
+    }
+
+    #[test]
+    fn parse_rejects_unknown_values() {
+        for value in ["", "administrator", "Admin", "owner", "contribute "] {
+            assert_eq!(PrimaryRole::parse(value), None, "accepted {value:?}");
+        }
+    }
+
+    /// The capability matrix, stated once so a change to any predicate has to be
+    /// deliberate. Columns are admin, contribute, user.
+    #[test]
+    fn capability_matrix() {
+        let cases: [(&str, fn(PrimaryRole) -> bool, [bool; 3]); 6] = [
+            (
+                "manage_members",
+                PrimaryRole::can_manage_members,
+                [true, false, false],
+            ),
+            (
+                "list_members",
+                PrimaryRole::can_list_members,
+                [true, true, false],
+            ),
+            (
+                "manage_resources",
+                PrimaryRole::can_manage_resources,
+                [true, true, false],
+            ),
+            (
+                "manage_tags",
+                PrimaryRole::can_manage_tags,
+                [true, true, false],
+            ),
+            (
+                "view_telemetry",
+                PrimaryRole::can_view_telemetry,
+                [true, true, false],
+            ),
+            (
+                "manage_settings",
+                PrimaryRole::can_manage_settings,
+                [true, false, false],
+            ),
+        ];
+
+        for (name, predicate, expected) in cases {
+            for (role, want) in ALL.into_iter().zip(expected) {
+                assert_eq!(
+                    predicate(role),
+                    want,
+                    "{name} for {} should be {want}",
+                    role.as_str()
+                );
+            }
+        }
+    }
+
+    /// A plain user must not hold any project-wide capability. Stated separately
+    /// from the matrix because it is the property that matters, and a future
+    /// predicate added without a matrix row would still be caught here.
+    #[test]
+    fn plain_user_holds_no_project_wide_capability() {
+        let user = PrimaryRole::User;
+        assert!(!user.can_manage_members());
+        assert!(!user.can_list_members());
+        assert!(!user.can_manage_resources());
+        assert!(!user.can_manage_tags());
+        assert!(!user.can_view_telemetry());
+        assert!(!user.can_manage_settings());
+    }
+}
