@@ -7,10 +7,11 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 5 of 23 |
 | Spec section | [requirements.md section 13](../requirements.md) |
 | Source | Baseline specification section 13 |
 | Depends on | REQ-001 |
-| Blocks | REQ-005, REQ-007, REQ-010, V1 acceptance criterion 12 |
+| Blocks | REQ-005, REQ-007, REQ-010, V1 acceptance criterion 16 |
 | Repositories | `evo-conductor` |
 | Design | Not created; requires acceptance |
 
@@ -57,7 +58,7 @@ identifier. Secrets shall never appear in the log.
 ## 5. Out of scope
 
 - Usage auditing, meaning who used which model for what, which is a different concern covered by
-  [REQ-016](REQ-016-usage-aggregation-dashboards.md) and [REQ-015](REQ-015-privacy-controls.md).
+  [REQ-016](17-REQ-016-usage-aggregation-dashboards.md) and [REQ-015](11-REQ-015-privacy-controls.md).
 - Forwarding to an external SIEM. Reconsider at P2.
 - Cryptographic tamper-evidence. Reconsider at P2.
 
@@ -75,7 +76,7 @@ identifier. Secrets shall never appear in the log.
 - Should the source IP address be recorded? Recommended: yes. It is administrative metadata rather than
   work content, and it is the field most often needed during an investigation.
 - What retention applies to audit records? These are usually kept longer than telemetry; see
-  [REQ-019](REQ-019-data-retention.md).
+  [REQ-019](21-REQ-019-data-retention.md).
 
 ## History
 

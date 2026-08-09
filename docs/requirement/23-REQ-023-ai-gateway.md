@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft, recorded as Deferred by the baseline |
 | Priority | Deferred |
+| Build order | Step 23 of 23 |
 | Spec section | [requirements.md section 10](../requirements.md) defers this explicitly |
 | Source | Raised 2026-08-09; the baseline specification then placed it out of scope |
 | Depends on | REQ-002, REQ-004, REQ-014 |
@@ -28,7 +29,7 @@ an internal model deployment, or a shared AI portal.
 
 There are exactly two ways to measure model usage, and they differ in kind rather than in degree.
 
-| | Client-reported, [REQ-014](REQ-014-telemetry-ingestion.md) | Gateway-measured, this requirement |
+| | Client-reported, [REQ-014](15-REQ-014-telemetry-ingestion.md) | Gateway-measured, this requirement |
 |---|---|---|
 | Source of figures | EvoFlux reports its own activity | The request itself, passing through Conductor |
 | Trust level | As trustworthy as the client | Non-repudiable |
@@ -60,8 +61,8 @@ much higher availability obligation, and it would sit in the path of every promp
 | AC-5 | Usage is recorded from the provider's own response rather than estimated client-side |
 | AC-6 | Streaming is supported without breaking usage capture |
 | AC-7 | Disabling a member or revoking a token blocks the next request immediately |
-| AC-8 | A model outside the policy in [REQ-022](REQ-022-model-access-policy.md) is refused with a stated reason |
-| AC-9 | Request and response content is not stored, unless a collection level that permits it is explicitly enabled per [REQ-015](REQ-015-privacy-controls.md) |
+| AC-8 | A model outside the policy in [REQ-022](22-REQ-022-model-access-policy.md) is refused with a stated reason |
+| AC-9 | Request and response content is not stored, unless a collection level that permits it is explicitly enabled per [REQ-015](11-REQ-015-privacy-controls.md) |
 | AC-10 | When the gateway is unreachable, EvoFlux reports a clear error and does not hang |
 | AC-11 | Gateway-measured usage is distinguishable at the storage layer from client-reported usage |
 
@@ -71,19 +72,19 @@ much higher availability obligation, and it would sit in the path of every promp
   credentials.
 - Usage or cost figures must be non-repudiable rather than self-reported, for example for chargeback.
 - Model access policy must be enforced rather than advisory; see
-  [REQ-022](REQ-022-model-access-policy.md) AC-5.
+  [REQ-022](22-REQ-022-model-access-policy.md) AC-5.
 - The encrypted secret-management system anticipated by specification section 10 exists; see
-  [REQ-002](REQ-002-configuration-secret-protection.md).
+  [REQ-002](04-REQ-002-configuration-secret-protection.md).
 
 ## 6. Risks if implemented
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | 1 | The gateway becomes a single point of failure for the whole team | High | Permit fallback to personal credentials; state an availability commitment |
-| 2 | The gateway sees every prompt written in the project | High | AC-9; storage disabled by default and governed by [REQ-015](REQ-015-privacy-controls.md) |
+| 2 | The gateway sees every prompt written in the project | High | AC-9; storage disabled by default and governed by [REQ-015](11-REQ-015-privacy-controls.md) |
 | 3 | Added latency on every model call | Medium | Measure and publish; stream without buffering |
 | 4 | Conductor becomes critical infrastructure with a much higher operational bar | Medium | Run the gateway as a separate process from the console |
-| 5 | Centralized organization keys become a concentrated target | High | Requires [REQ-002](REQ-002-configuration-secret-protection.md) to be complete first |
+| 5 | Centralized organization keys become a concentrated target | High | Requires [REQ-002](04-REQ-002-configuration-secret-protection.md) to be complete first |
 
 ## 7. Open questions, if reopened
 

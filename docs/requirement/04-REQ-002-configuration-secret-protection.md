@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 4 of 23 |
 | Spec section | [requirements.md section 15](../requirements.md) |
 | Source | Code review 2026-08-09 |
 | Depends on | REQ-001 if the column is renamed or re-typed |
@@ -58,7 +59,7 @@ applicable. Symmetric encryption is required.
 - Integration with an external secret store such as Vault or a cloud KMS. Reconsider at P2.
 - Encrypting other columns. No other column currently holds a recoverable secret.
 - Holding LLM provider credentials, which section 10 of the specification places outside scope until a
-  dedicated secret-management system exists. See [REQ-023](REQ-023-ai-gateway.md).
+  dedicated secret-management system exists. See [REQ-023](23-REQ-023-ai-gateway.md).
 
 ## 6. Risks
 

@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P2 |
+| Build order | Step 22 of 23 |
 | Spec section | Addition, not present in the baseline |
 | Source | Proposed 2026-08-09 |
 | Depends on | REQ-007, REQ-012, REQ-016 |
@@ -41,11 +42,11 @@ server.
 | ID | Criterion |
 |---|---|
 | AC-1 | An Admin can declare permitted providers and models for the project |
-| AC-2 | The policy is distributed to EvoFlux through the existing synchronization path ([REQ-008](REQ-008-resource-access-policy.md), [REQ-012](REQ-012-resource-sync-client.md)) |
+| AC-2 | The policy is distributed to EvoFlux through the existing synchronization path ([REQ-008](10-REQ-008-resource-access-policy.md), [REQ-012](13-REQ-012-resource-sync-client.md)) |
 | AC-3 | EvoFlux hides or marks models outside the policy in its model selector |
-| AC-4 | Where a gateway exists ([REQ-023](REQ-023-ai-gateway.md)), a request for a model outside the policy is refused server-side with a stated reason |
+| AC-4 | Where a gateway exists ([REQ-023](23-REQ-023-ai-gateway.md)), a request for a model outside the policy is refused server-side with a stated reason |
 | AC-5 | Where no gateway exists, the documentation states plainly that the policy is advisory and not enforced, and the console does not claim otherwise |
-| AC-6 | Policy changes are recorded in the audit log ([REQ-018](REQ-018-audit-logging.md)) |
+| AC-6 | Policy changes are recorded in the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
 | AC-7 | The dashboard reports usage of models outside the policy |
 
 ## 5. Out of scope

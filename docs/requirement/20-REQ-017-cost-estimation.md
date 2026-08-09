@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P1 |
+| Build order | Step 20 of 23 |
 | Spec section | [requirements.md section 11](../requirements.md), addition |
 | Source | Baseline specification section 11 lists estimated cost as a metric; the pricing source is added here |
 | Depends on | REQ-014, REQ-016 |
@@ -32,7 +33,7 @@ break cost down by member and group, and shall support threshold alerts.
 
 | Implemented | Missing |
 |---|---|
-| Token counts will be available once [REQ-014](REQ-014-telemetry-ingestion.md) lands | `model_pricing` table |
+| Token counts will be available once [REQ-014](15-REQ-014-telemetry-ingestion.md) lands | `model_pricing` table |
 | | Cost computation, display and breakdown |
 | | Thresholds and alerting |
 
@@ -46,14 +47,14 @@ break cost down by member and group, and shall support threshold alerts.
 | AC-4 | Cost breaks down by member, sub-role, tag, model and date |
 | AC-5 | A model with no price is displayed as unpriced; it is never silently treated as zero |
 | AC-6 | Thresholds can be set per member or per group, and exceeding one raises an alert to Admin |
-| AC-7 | Members can see their own cost, per [REQ-015](REQ-015-privacy-controls.md) AC-7 |
+| AC-7 | Members can see their own cost, per [REQ-015](11-REQ-015-privacy-controls.md) AC-7 |
 | AC-8 | Every figure is labelled as an estimate and shows the date the price table was last updated |
-| AC-9 | Changes to the price table are recorded in the audit log ([REQ-018](REQ-018-audit-logging.md)) |
+| AC-9 | Changes to the price table are recorded in the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
 
 ## 5. Out of scope
 
 - Blocking work when a budget is exceeded. Enforcement requires a request path Conductor does not control;
-  see [REQ-023](REQ-023-ai-gateway.md). Alerting only at this level.
+  see [REQ-023](23-REQ-023-ai-gateway.md). Alerting only at this level.
 - Reconciliation against a provider's actual invoice.
 - Multiple currencies and exchange-rate conversion.
 

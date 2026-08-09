@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 9 of 23 |
 | Spec section | [requirements.md section 6](../requirements.md) |
 | Source | Baseline specification section 6 |
 | Depends on | REQ-001, REQ-004, REQ-018 |
@@ -59,13 +60,13 @@ and reusable prompt template.
 | AC-10 | A content checksum is computed and stored, and is exposed to clients for change detection |
 | AC-11 | `ResourceCounts` counts every resource type, including `command` and any type added later |
 | AC-12 | Only `published` versions are returned by the distribution endpoints |
-| AC-13 | Publish, update, deprecate, archive and rollback are all recorded in the audit log ([REQ-018](REQ-018-audit-logging.md)) |
+| AC-13 | Publish, update, deprecate, archive and rollback are all recorded in the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
 
 ## 5. Out of scope
 
-- MCP publication constraints, which are stricter; see [REQ-010](REQ-010-mcp-distribution-safety.md).
-- Documents, which have their own model; see [REQ-009](REQ-009-document-management.md).
-- Access targeting; see [REQ-008](REQ-008-resource-access-policy.md).
+- MCP publication constraints, which are stricter; see [REQ-010](19-REQ-010-mcp-distribution-safety.md).
+- Documents, which have their own model; see [REQ-009](18-REQ-009-document-management.md).
+- Access targeting; see [REQ-008](10-REQ-008-resource-access-policy.md).
 - Staged or canary rollout. Reconsider at P2.
 - Authoring resources inside the console. Upload and preview are sufficient for V1.
 

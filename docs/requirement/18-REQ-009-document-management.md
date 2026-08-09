@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P1 |
+| Build order | Step 18 of 23 |
 | Spec section | [requirements.md section 12](../requirements.md) |
 | Source | Baseline specification section 12 |
 | Depends on | REQ-001, REQ-006, REQ-007, REQ-008 |
@@ -66,13 +67,13 @@ Note that `extra_workspace_paths` is also a sandbox root
 | AC-2 | Documents support Markdown bodies and file attachments |
 | AC-3 | Documents follow the same lifecycle as resources: `draft`, `published`, `deprecated`, `archived` |
 | AC-4 | Every publish creates an immutable version; history is viewable and rollback is supported |
-| AC-5 | Access is governed by the same policy model as [REQ-008](REQ-008-resource-access-policy.md) |
+| AC-5 | Access is governed by the same policy model as [REQ-008](10-REQ-008-resource-access-policy.md) |
 | AC-6 | Document endpoints require the `read_documents` scope for token-authenticated callers |
 | AC-7 | Only `published` documents are distributed |
 | AC-8 | A checksum is exposed so clients can detect change without downloading the body |
-| AC-9 | Documents intended for agent consumption are size-validated against the EvoFlux limits stated in [REQ-007](REQ-007-resource-lifecycle.md) AC-8 |
+| AC-9 | Documents intended for agent consumption are size-validated against the EvoFlux limits stated in [REQ-007](09-REQ-007-resource-lifecycle.md) AC-8 |
 | AC-10 | The console can preview a document as rendered Markdown before publication |
-| AC-11 | Publication and retirement are recorded in the audit log ([REQ-018](REQ-018-audit-logging.md)) |
+| AC-11 | Publication and retirement are recorded in the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
 
 ## 5. Out of scope
 
@@ -85,7 +86,7 @@ Note that `extra_workspace_paths` is also a sandbox root
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | Writing `AGENTS.override.md` because the name appears correct, discarding project instructions | High | Stated in section 3; [REQ-012](REQ-012-resource-sync-client.md) requires a test asserting the file is never created |
+| 1 | Writing `AGENTS.override.md` because the name appears correct, discarding project instructions | High | Stated in section 3; [REQ-012](13-REQ-012-resource-sync-client.md) requires a test asserting the file is never created |
 | 2 | Scope grows into a full wiki | Medium | Section 5 is binding |
 | 3 | Attachment storage introduces a new class of operational concern such as size limits and backups | Medium | Consider deferring attachments to a second phase and shipping Markdown first |
 

@@ -7,10 +7,11 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 13 of 23 |
 | Spec section | [requirements.md sections 6 and 12](../requirements.md) |
 | Source | Baseline specification sections 6, 12 and 14 |
 | Depends on | REQ-007, REQ-008, REQ-011 |
-| Blocks | V1 acceptance criteria 5 and 9 |
+| Blocks | V1 acceptance criteria 6 and 12 |
 | Repositories | `evoflux` primarily, `evo-conductor` for the change endpoint |
 | Design | Not created; requires acceptance |
 
@@ -48,18 +49,19 @@ the user has edited.
 | AC-4 | EvoFlux never writes `AGENTS.override.md`, verified by an explicit test asserting the file is not created |
 | AC-5 | EvoFlux never writes inside the user's repository working tree |
 | AC-6 | A file modified locally is not overwritten; the conflict is reported naming the file and the nature of the difference |
-| AC-7 | Only published versions permitted by the access policy are written, satisfying V1 acceptance criterion 5 |
+| AC-7 | Only published versions permitted by the access policy are written, satisfying V1 acceptance criterion 6 |
 | AC-8 | Checksums are used to skip unchanged content instead of rewriting files on every cycle |
 | AC-9 | `GET /api/v1/resources/changes?cursor=` returns only changes since the cursor, and the client persists the cursor |
 | AC-10 | When Conductor is unreachable, EvoFlux continues to operate using the previously synchronized content |
-| AC-11 | A revoked token stops synchronization on the next cycle and informs the user, satisfying V1 acceptance criterion 9 |
+| AC-11 | A revoked token stops synchronization on the next cycle and informs the user, satisfying V1 acceptance criterion 12 |
 | AC-12 | A synchronization status view shows last run time, resources received, changes applied and any errors |
 | AC-13 | Resources removed from the member's permitted set are removed locally, and the removal is reported |
+| AC-14 | When a new version of an already-synchronized resource is published, the installation converges on that version within one synchronization cycle and reports the version it holds |
 
 ## 5. Out of scope
 
-- MCP activation, which requires confirmation; see [REQ-010](REQ-010-mcp-distribution-safety.md).
-- Uploading local inventory, covered by [REQ-013](REQ-013-inventory-synchronization.md).
+- MCP activation, which requires confirmation; see [REQ-010](19-REQ-010-mcp-distribution-safety.md).
+- Uploading local inventory, covered by [REQ-013](14-REQ-013-inventory-synchronization.md).
 - Per-member version pinning. Reconsider at P2.
 
 ## 6. Risks

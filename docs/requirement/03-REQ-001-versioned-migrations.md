@@ -7,9 +7,10 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 3 of 23 |
 | Spec section | [requirements.md section 15](../requirements.md) |
 | Source | Baseline specification section 15, plus code review 2026-08-09 |
-| Depends on | none |
+| Depends on | REQ-020 — AC-5 requires the CI pipeline that REQ-020 builds |
 | Blocks | REQ-003, REQ-007, REQ-009, REQ-013, REQ-014, REQ-016, REQ-018 |
 | Repositories | `evo-conductor` |
 | Design | Not created; requires acceptance |

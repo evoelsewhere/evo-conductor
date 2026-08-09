@@ -7,10 +7,11 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 10 of 23 |
 | Spec section | [requirements.md section 7](../requirements.md) |
 | Source | Baseline specification section 7 |
 | Depends on | REQ-004, REQ-007 |
-| Blocks | REQ-012, V1 acceptance criterion 5 |
+| Blocks | REQ-012, V1 acceptance criterion 6 |
 | Repositories | `evo-conductor` |
 | Design | Not created; requires acceptance |
 
@@ -48,8 +49,8 @@ only the published resources permitted for the token owner. Enforcement shall oc
 | AC-2 | A policy may exclude specific members, and exclusion takes precedence over every inclusion rule |
 | AC-3 | A resource with no policy is visible to all project members |
 | AC-4 | A `private` resource is returned only to its owner regardless of other rules |
-| AC-5 | Only `published` versions are returned; drafts, deprecated-then-archived and archived resources are excluded per [REQ-007](REQ-007-resource-lifecycle.md) |
-| AC-6 | Resources belonging to another project are never returned, once [REQ-003](REQ-003-server-project-separation.md) lands |
+| AC-5 | Only `published` versions are returned; drafts, deprecated-then-archived and archived resources are excluded per [REQ-007](09-REQ-007-resource-lifecycle.md) |
+| AC-6 | Resources belonging to another project are never returned, once [REQ-003](06-REQ-003-server-project-separation.md) lands |
 | AC-7 | Enforcement occurs in the API; a test calls the endpoint directly, bypassing the console, and confirms filtering |
 | AC-8 | An administrator can preview, for a given resource, exactly which members currently receive it |
 | AC-9 | An administrator can preview, for a given member, exactly which resources they currently receive |
@@ -58,7 +59,7 @@ only the published resources permitted for the token owner. Enforcement shall oc
 ## 5. Out of scope
 
 - Incremental or cursor-based synchronization; that is part of
-  [REQ-012](REQ-012-resource-sync-client.md).
+  [REQ-012](13-REQ-012-resource-sync-client.md).
 - Version pinning per member. Reconsider at P2.
 - Time-bounded access grants.
 

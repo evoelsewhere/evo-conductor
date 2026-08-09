@@ -7,10 +7,11 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 14 of 23 |
 | Spec section | [requirements.md section 8](../requirements.md) |
 | Source | Baseline specification section 8 |
 | Depends on | REQ-001, REQ-011 |
-| Blocks | REQ-016, V1 acceptance criteria 6 and 8 |
+| Blocks | REQ-016, V1 acceptance criteria 7, 8 and 10 |
 | Repositories | `evo-conductor` and `evoflux` |
 | Design | Not created; requires acceptance |
 
@@ -43,12 +44,12 @@ idempotently and surface installation health to authorized users.
 | AC-1 | `PUT /api/v1/client/inventory` accepts EvoFlux version, operating system, installation identifier, active workspace identifier, synchronized agents, skills, MCP servers, workflow versions and synchronization errors |
 | AC-2 | Repeated reports for the same installation update the existing record and never create duplicates |
 | AC-3 | Heartbeats are recorded so that online and offline state can be derived from a configurable staleness threshold |
-| AC-4 | `members_online` and every related figure reflect real reported state, satisfying V1 acceptance criterion 8 |
+| AC-4 | `members_online` and every related figure reflect real reported state, satisfying V1 acceptance criterion 10 |
 | AC-5 | Authorized users can list installations filtered by online state, EvoFlux version and member |
 | AC-6 | Authorized users can identify installations running an outdated EvoFlux version |
 | AC-7 | Authorized users can identify installations missing a required resource, or holding a version other than the current published one |
 | AC-8 | Synchronization failures reported by a client are visible with their error category |
-| AC-9 | Workspace identifiers are normalized, never absolute local file paths, per [REQ-015](REQ-015-privacy-controls.md) |
+| AC-9 | Workspace identifiers are normalized, never absolute local file paths, per [REQ-015](11-REQ-015-privacy-controls.md) |
 | AC-10 | Inventory reporting requires the `sync_inventory` scope |
 
 ## 5. Out of scope
@@ -61,7 +62,7 @@ idempotently and surface installation health to authorized users.
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | Inventory reveals private repository names or local paths | Medium | AC-9 and the collection level in [REQ-015](REQ-015-privacy-controls.md) |
+| 1 | Inventory reveals private repository names or local paths | Medium | AC-9 and the collection level in [REQ-015](11-REQ-015-privacy-controls.md) |
 | 2 | Heartbeat frequency generates excessive write load | Low | Separate low-frequency inventory from lightweight heartbeats |
 | 3 | Online state flaps when a laptop sleeps | Low | AC-3 uses a configurable staleness threshold rather than an instantaneous flag |
 | 4 | The existing `member_inventory` table is extended rather than replaced, preserving the one-machine assumption | Medium | Design must supersede it with `client_installations` |

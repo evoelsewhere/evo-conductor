@@ -64,7 +64,7 @@ production data, the following should be done now even though V1 remains single-
 - Add `project_id` to the business tables while they are still empty.
 - Do not build multi-project navigation or UI.
 
-See [REQ-003](requirement/REQ-003-server-project-separation.md).
+See [REQ-003](requirement/06-REQ-003-server-project-separation.md).
 
 ---
 
@@ -165,8 +165,8 @@ Two gaps contradict the requirement text:
 - Sub-roles and tags are currently display-only, exactly as the requirement warns against. No query
   anywhere joins them to resource visibility.
 
-See [REQ-004](requirement/REQ-004-api-authorization.md) and
-[REQ-008](requirement/REQ-008-resource-access-policy.md).
+See [REQ-004](requirement/02-REQ-004-api-authorization.md) and
+[REQ-008](requirement/10-REQ-008-resource-access-policy.md).
 
 ---
 
@@ -211,7 +211,7 @@ owner's status ([resources.rs:31-51](../crates/conductor-server/src/http/routes/
 disabled member's EvoFlux installation keeps synchronizing indefinitely. This is the classic offboarding
 hole and it is present today.
 
-See [REQ-005](requirement/REQ-005-member-lifecycle.md).
+See [REQ-005](requirement/07-REQ-005-member-lifecycle.md).
 
 ---
 
@@ -264,8 +264,8 @@ Two defects:
 
 The `read_documents` scope does not exist yet. The client side of this section does not exist at all.
 
-See [REQ-006](requirement/REQ-006-connection-tokens.md) and
-[REQ-011](requirement/REQ-011-client-registration.md).
+See [REQ-006](requirement/08-REQ-006-connection-tokens.md) and
+[REQ-011](requirement/12-REQ-011-client-registration.md).
 
 ---
 
@@ -329,8 +329,8 @@ machines is remote code execution by configuration. A bad prompt degrades answer
 starts an unknown process on every machine in the project. These two cases must not share a trust level
 even though they share a table.
 
-See [REQ-007](requirement/REQ-007-resource-lifecycle.md) and
-[REQ-010](requirement/REQ-010-mcp-distribution-safety.md).
+See [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) and
+[REQ-010](requirement/19-REQ-010-mcp-distribution-safety.md).
 
 ---
 
@@ -360,7 +360,7 @@ The raw material is already present: `visibility` is stored per resource, `tag_a
 arbitrary entity types, and `user_sub_roles` exists. Only the joining query and the policy table are
 missing.
 
-See [REQ-008](requirement/REQ-008-resource-access-policy.md).
+See [REQ-008](requirement/10-REQ-008-resource-access-policy.md).
 
 ---
 
@@ -392,7 +392,7 @@ The existing table is also keyed by `user_id` alone, which cannot represent one 
 The requirement calls for an installation identifier, so this needs a `client_installations` table keyed
 by installation rather than by user.
 
-See [REQ-013](requirement/REQ-013-inventory-synchronization.md).
+See [REQ-013](requirement/14-REQ-013-inventory-synchronization.md).
 
 ---
 
@@ -433,8 +433,8 @@ Charts must read from a `usage_aggregates` table rather than scanning raw events
 across a team, the raw table reaches millions of rows within weeks. Building the aggregate later means
 rewriting every query that was written against the raw table first.
 
-See [REQ-014](requirement/REQ-014-telemetry-ingestion.md) and
-[REQ-016](requirement/REQ-016-usage-aggregation-dashboards.md).
+See [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) and
+[REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md).
 
 ---
 
@@ -480,8 +480,8 @@ are possible, and one must be chosen deliberately rather than drifted into:
 L1 is recommended as the default. L2 must satisfy the four conditions the baseline already states in this
 section, and must never become a configuration flag that can be flipped without process.
 
-See [REQ-015](requirement/REQ-015-privacy-controls.md) and
-[REQ-019](requirement/REQ-019-data-retention.md).
+See [REQ-015](requirement/11-REQ-015-privacy-controls.md) and
+[REQ-019](requirement/21-REQ-019-data-retention.md).
 
 ---
 
@@ -524,8 +524,8 @@ An empty monitoring screen must state why it is empty: nobody has connected yet,
 the selected range. A dashboard that shows zero forever is worse than no dashboard, and the current code
 already demonstrates that failure.
 
-See [REQ-016](requirement/REQ-016-usage-aggregation-dashboards.md) and
-[REQ-017](requirement/REQ-017-cost-estimation.md).
+See [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) and
+[REQ-017](requirement/20-REQ-017-cost-estimation.md).
 
 ---
 
@@ -568,8 +568,8 @@ one is correct:
 Note that `extra_workspace_paths` is also a sandbox root
 ([sandbox.py:120-123](../../evoflux/app/agent/sandbox.py)), so agents will be able to read that directory.
 
-See [REQ-009](requirement/REQ-009-document-management.md) and
-[REQ-012](requirement/REQ-012-resource-sync-client.md).
+See [REQ-009](requirement/18-REQ-009-document-management.md) and
+[REQ-012](requirement/13-REQ-012-resource-sync-client.md).
 
 ---
 
@@ -604,7 +604,7 @@ Two events belong in the log that the baseline does not list:
 - Viewing another member's individual usage data. If per-member audit exists, reading it is itself an
   action that should be attributable.
 
-See [REQ-018](requirement/REQ-018-audit-logging.md).
+See [REQ-018](requirement/05-REQ-018-audit-logging.md).
 
 ---
 
@@ -719,27 +719,61 @@ column must at minimum be renamed so it stops misleading future readers.
 `model_pricing`, versioned by effective date, is required by section 11. It is absent from the target
 list.
 
-See [REQ-001](requirement/REQ-001-versioned-migrations.md) and
-[REQ-002](requirement/REQ-002-configuration-secret-protection.md).
+See [REQ-001](requirement/03-REQ-001-versioned-migrations.md) and
+[REQ-002](requirement/04-REQ-002-configuration-secret-protection.md).
 
 ---
 
 ## 16. V1 acceptance criteria
 
-The first complete integration shall be considered successful when:
+Revised by the project owner on 2026-08-09, expanding the original twelve criteria to sixteen. The
+owner's revision numbers this section 17; it is kept as section 16 here to preserve the numbering of the
+sections above, which have not changed.
 
-1. Admin can create or approve a member.
-2. The member can sign in and create an `evc_` token.
-3. The member can connect EvoFlux to the project.
-4. EvoFlux displays the connected project identity.
-5. EvoFlux downloads only resources assigned to that member.
-6. EvoFlux periodically sends a heartbeat and inventory.
-7. A completed EvoFlux session sends privacy-safe usage telemetry.
-8. Admin can see the member online and view usage totals.
-9. Revoking the token immediately blocks further synchronization.
-10. Disabling the member invalidates browser and EvoFlux access.
-11. No prompt, source code, tool argument, or credential is uploaded by default.
-12. All administrative changes appear in the audit log.
+The V1 integration shall be considered complete when:
+
+| # | Criterion | Covered by |
+|---|---|---|
+| 1 | Admin can create or approve a member | [REQ-005](requirement/07-REQ-005-member-lifecycle.md) |
+| 2 | The member can sign in and create an `evc_` token | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-1, AC-3 |
+| 3 | The member can connect EvoFlux to the project | [REQ-011](requirement/12-REQ-011-client-registration.md) AC-1, AC-2 |
+| 4 | EvoFlux displays the correct project name and logo | [REQ-011](requirement/12-REQ-011-client-registration.md) AC-6 |
+| 5 | EvoFlux retrieves the member's correct role and policy | [REQ-011](requirement/12-REQ-011-client-registration.md) AC-4, AC-5 |
+| 6 | EvoFlux downloads only the resources the member may use | [REQ-008](requirement/10-REQ-008-resource-access-policy.md), [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-7 |
+| 7 | EvoFlux sends a heartbeat on a regular interval | [REQ-011](requirement/12-REQ-011-client-registration.md) AC-8, AC-12 |
+| 8 | EvoFlux sends inventory without creating duplicate records | [REQ-013](requirement/14-REQ-013-inventory-synchronization.md) AC-2 |
+| 9 | After a session, EvoFlux sends privacy-safe usage telemetry | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md), [REQ-015](requirement/11-REQ-015-privacy-controls.md) AC-3 |
+| 10 | Admin sees the member online on the dashboard | [REQ-013](requirement/14-REQ-013-inventory-synchronization.md) AC-4, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-4 |
+| 11 | Admin can view a member's tokens, tool usage and MCP usage | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-8, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-5, AC-6, AC-12 |
+| 12 | Revoking a token removes EvoFlux access immediately | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-6, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-11 |
+| 13 | Disabling a member blocks both browser session and EvoFlux connection | [REQ-005](requirement/07-REQ-005-member-lifecycle.md) AC-1, AC-2, AC-3 |
+| 14 | A newly published resource is synchronized by EvoFlux at the correct version | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-4, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-8, AC-9, AC-14 |
+| 15 | Source code, prompts, tool arguments and credentials are not uploaded by default | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) AC-9, [REQ-015](requirement/11-REQ-015-privacy-controls.md) AC-3, AC-10 |
+| 16 | Every administrative change appears in the audit log | [REQ-018](requirement/05-REQ-018-audit-logging.md) AC-3 |
+
+### What the revision settles
+
+Two criteria resolve questions that were previously left open in the requirement documents:
+
+- Criterion 11 states that **Admin** views an individual member's usage. This answers the open question
+  in [REQ-004](requirement/02-REQ-004-api-authorization.md) and
+  [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) for Admin. Whether Contributor also has
+  per-member drill-down, or only project totals, is still unstated.
+- Criterion 15 states that prompts are not uploaded by default, which confirms the collection level is
+  not L2. This is consistent with the recommended default of L1 in
+  [REQ-015](requirement/11-REQ-015-privacy-controls.md), since L1 carries an agent-generated session title
+  rather than prompt content.
+
+### Criteria that required a sharper acceptance criterion
+
+Every criterion above was already within the scope of an existing requirement, but three were covered
+only indirectly. Acceptance criteria were added so each has something concrete to test against:
+
+| # | Gap | Added |
+|---|---|---|
+| 7 | The heartbeat endpoint and its idempotency were specified, but no criterion required the client to send on an interval | [REQ-011](requirement/12-REQ-011-client-registration.md) AC-12 |
+| 11 | Tokens, tool usage and MCP usage were each covered separately, but no criterion required a single per-member view | [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-12 |
+| 14 | Checksums and cursor-based change retrieval were specified, but no criterion required convergence on a newly published version | [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-14 |
 
 The current codebase has largely implemented the member, role, tag, project-settings, and
 connection-token foundations. Resource publishing, EvoFlux client integration, inventory
@@ -748,23 +782,23 @@ implementation work.
 
 ### Addition — foundation work that must precede the acceptance run
 
-Four items are not visible in the acceptance list but block it. Criterion 12 cannot pass without an audit
-table; criteria 5 and 10 cannot pass without API-enforced authorization; and none of the seven new tables
+Four items are not visible in the acceptance list but block it. Criterion 16 cannot pass without an audit
+table; criteria 6 and 13 cannot pass without API-enforced authorization; and none of the seven new tables
 can be added safely on the current migration mechanism.
 
 | Prerequisite | Requirement | Reason |
 |---|---|---|
-| Versioned migrations | [REQ-001](requirement/REQ-001-versioned-migrations.md) | Seven new tables are required by section 15 |
-| Configuration secret protection | [REQ-002](requirement/REQ-002-configuration-secret-protection.md) | Plaintext OIDC secret under a misleading column name |
-| API-enforced authorization | [REQ-004](requirement/REQ-004-api-authorization.md) | Criteria 5 and 10; section 7 states this explicitly |
-| Audit logging | [REQ-018](requirement/REQ-018-audit-logging.md) | Criterion 12 |
+| Versioned migrations | [REQ-001](requirement/03-REQ-001-versioned-migrations.md) | Seven new tables are required by section 15 |
+| Configuration secret protection | [REQ-002](requirement/04-REQ-002-configuration-secret-protection.md) | Plaintext OIDC secret under a misleading column name |
+| API-enforced authorization | [REQ-004](requirement/02-REQ-004-api-authorization.md) | Criteria 6 and 13; section 7 states this explicitly |
+| Audit logging | [REQ-018](requirement/05-REQ-018-audit-logging.md) | Criterion 16 |
 
 ### Addition — no automated test currently protects any of these criteria
 
 The Rust workspace contains zero tests (`#[test]` and `#[tokio::test]` both return no matches across
-`crates/`), and `apps/web/package.json` declares no test tooling and no lint script. Twelve acceptance
+`crates/`), and `apps/web/package.json` declares no test tooling and no lint script. Sixteen acceptance
 criteria that are verified only by hand will not stay verified. See
-[REQ-020](requirement/REQ-020-automated-testing-ci.md).
+[REQ-020](requirement/01-REQ-020-automated-testing-ci.md).
 
 ---
 

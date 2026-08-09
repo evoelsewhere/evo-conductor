@@ -11,7 +11,25 @@ Change a convention here, not in individual documents.
 | Design | `DES-NNN` | `DES-007` | Same number as the requirement it designs |
 | Task | `TSK-NNN-MM` | `TSK-007-02` | `NNN` is the requirement, `MM` is the task sequence |
 
-File name: `<ID>-<short-slug>.md`, for example `REQ-007-resource-lifecycle.md`.
+File names carry the **build step** as a prefix so the directory listing reads as the implementation plan:
+
+```
+requirement/<step>-<REQ-ID>-<slug>.md            01-REQ-020-automated-testing-ci.md
+design/<step>-<DES-ID>-<slug>.md                 01-DES-020-automated-testing-ci.md
+task/<step>-<REQ-ID>-<slug>/<TSK-ID>-<slug>.md   01-REQ-020-automated-testing-ci/
+                                                   TSK-020-01-backend-test-harness.md
+```
+
+The step is a **position**, the ID is an **identity**. They are deliberately separate: the step changes
+when the plan is resequenced, the ID never does. Cross-references always use the ID
+(`REQ-007`), never the step, so reordering the plan never invalidates a reference.
+
+A requirement has one design, so `design/` stays flat. A requirement has several tasks, so each gets its
+own directory under `task/` named after the requirement it implements. The step prefix lives on the
+directory, not on the files inside it.
+
+When the plan is resequenced, rename the files and directories and update the `Build order` row in each
+document. Do not renumber IDs.
 
 ## 2. Lifecycle
 
@@ -80,7 +98,7 @@ references. Dates use `YYYY-MM-DD`.
 
 Commands and report formats are specified in [TEMPLATE-TASK.md](TEMPLATE-TASK.md). None of the tooling
 below is currently installed in this repository;
-[REQ-020](../requirement/REQ-020-automated-testing-ci.md) covers setting it up.
+[REQ-020](../requirement/01-REQ-020-automated-testing-ci.md) covers setting it up.
 
 | Layer | Test type | Tool |
 |---|---|---|
@@ -112,7 +130,7 @@ that states the exception explicitly and has been accepted.
   See [requirements.md section 10](../requirements.md).
 - **Members can see their own record.** Anything an administrator can see about a member, that member can
   see about themselves. This is enforced as an automated test, not as a written promise. See
-  [REQ-015](../requirement/REQ-015-privacy-controls.md).
+  [REQ-015](../requirement/11-REQ-015-privacy-controls.md).
 
 ## 11. Terminology
 
@@ -123,4 +141,4 @@ that states the exception explicitly and has been accepted.
 | Resource | A distributable unit: agent, skill, MCP configuration, workflow, command, prompt template |
 | Document | A published project document, distinct from a resource and from a session artifact |
 | Connection token | An `evc_` prefixed scoped token used by EvoFlux, not a browser session |
-| Collection level | L0, L1 or L2 as defined in [REQ-015](../requirement/REQ-015-privacy-controls.md) |
+| Collection level | L0, L1 or L2 as defined in [REQ-015](../requirement/11-REQ-015-privacy-controls.md) |

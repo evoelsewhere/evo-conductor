@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P2 |
+| Build order | Step 16 of 23 |
 | Spec section | Addition, not present in the baseline |
 | Source | Proposed 2026-08-09 |
 | Depends on | none |

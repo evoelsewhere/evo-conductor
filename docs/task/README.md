@@ -1,6 +1,6 @@
 # Task
 
-This directory stays empty until a design is approved.
+DES-020 is approved and its tasks are below.
 
 ## When to create a task
 
@@ -35,10 +35,16 @@ HTML report with screenshots. Commands are listed in
 [../base/TEMPLATE-TASK.md section 5](../base/TEMPLATE-TASK.md).
 
 None of this tooling is installed yet. See
-[REQ-020](../requirement/REQ-020-automated-testing-ci.md).
+[REQ-020](../requirement/01-REQ-020-automated-testing-ci.md).
 
 ## Register
 
-| ID | Design | Layer | Title | Created | Status |
+| ID | Design | Layer | Title | Depends on | Status |
 |---|---|---|---|---|---|
-| None yet | | | | | |
+| [TSK-020-01](01-REQ-020-automated-testing-ci/TSK-020-01-backend-test-harness.md) | DES-020 | BE | Build the backend test harness | none | Todo |
+| [TSK-020-02](01-REQ-020-automated-testing-ci/TSK-020-02-authorization-suite.md) | DES-020 | BE | Write the authorization regression suite | 020-01 | Todo |
+| [TSK-020-03](01-REQ-020-automated-testing-ci/TSK-020-03-frontend-unit-testing.md) | DES-020 | FE | Set up frontend unit testing and linting | none | Todo |
+| [TSK-020-04](01-REQ-020-automated-testing-ci/TSK-020-04-frontend-e2e.md) | DES-020 | FE | Set up Playwright and one end-to-end flow | 020-03 | Todo |
+| [TSK-020-05](01-REQ-020-automated-testing-ci/TSK-020-05-ci-pipeline.md) | DES-020 | Infra | Build the CI pipeline | 01, 02, 03, 04 | Todo |
+
+Start with **TSK-020-01**. TSK-020-01 and TSK-020-03 are independent and can run in parallel.

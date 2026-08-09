@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P1 |
+| Build order | Step 19 of 23 |
 | Spec section | [requirements.md section 6](../requirements.md), addition |
 | Source | Risk analysis 2026-08-09 |
 | Depends on | REQ-007, REQ-012 |
@@ -52,7 +53,7 @@ received MCP server without explicit user confirmation.
 | AC-5 | Declining is remembered; the user is not prompted again on every synchronization |
 | AC-6 | A change to an already-accepted MCP definition triggers a new prompt, detected by checksum |
 | AC-7 | When an Admin archives an MCP resource, EvoFlux stops that server on the next synchronization |
-| AC-8 | Publication, modification and retirement of MCP resources are recorded in the audit log ([REQ-018](REQ-018-audit-logging.md)) |
+| AC-8 | Publication, modification and retirement of MCP resources are recorded in the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
 
 ## 5. Out of scope
 

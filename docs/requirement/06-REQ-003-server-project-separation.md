@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 6 of 23 |
 | Spec section | [requirements.md section 1](../requirements.md) |
 | Source | Baseline specification section 1, plus code review 2026-08-09 |
 | Depends on | REQ-001 |
@@ -69,7 +70,7 @@ block that.
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | Touching the authentication layer breaks sign-in | High | AC-8; land [REQ-020](REQ-020-automated-testing-ci.md) authentication tests first |
+| 1 | Touching the authentication layer breaks sign-in | High | AC-8; land [REQ-020](01-REQ-020-automated-testing-ci.md) authentication tests first |
 | 2 | Scope expands into building full multi-project support | Medium | Section 5 is binding: schema only, no UI |
 | 3 | Deferred, then performed later with live tokens and real data in place | High | This is precisely why the requirement is P0 |
 

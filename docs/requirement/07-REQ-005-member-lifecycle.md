@@ -7,10 +7,11 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 7 of 23 |
 | Spec section | [requirements.md section 4](../requirements.md) |
 | Source | Baseline specification section 4 |
 | Depends on | REQ-004, REQ-018 |
-| Blocks | V1 acceptance criterion 10 |
+| Blocks | V1 acceptance criterion 13 |
 | Repositories | `evo-conductor` |
 | Design | Not created; requires acceptance |
 
@@ -46,9 +47,9 @@ administrator shall be able to see what was terminated.
 | AC-2 | Token validation checks that the owner is `active`; a token whose owner is disabled returns `401` immediately, even if the token itself was not marked revoked |
 | AC-3 | Existing browser sessions belonging to a disabled member are rejected on their next request |
 | AC-4 | Re-enabling a member does not restore previously revoked tokens; new tokens must be issued |
-| AC-5 | Historical telemetry and audit records for a disabled member remain queryable, subject to [REQ-019](REQ-019-data-retention.md) |
+| AC-5 | Historical telemetry and audit records for a disabled member remain queryable, subject to [REQ-019](21-REQ-019-data-retention.md) |
 | AC-6 | Resources owned or published by a disabled member are not deleted or unpublished automatically |
-| AC-7 | Every lifecycle transition is written to the audit log ([REQ-018](REQ-018-audit-logging.md)) |
+| AC-7 | Every lifecycle transition is written to the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
 | AC-8 | An administrator can see, for any member, the state of each access path: sessions, tokens, and connected installations |
 
 ## 5. Out of scope

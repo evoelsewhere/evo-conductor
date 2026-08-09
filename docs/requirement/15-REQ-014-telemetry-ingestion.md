@@ -7,10 +7,11 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 15 of 23 |
 | Spec section | [requirements.md section 9](../requirements.md) |
 | Source | Baseline specification section 9 |
 | Depends on | REQ-001, REQ-011, REQ-015 |
-| Blocks | REQ-016, REQ-017, V1 acceptance criterion 7 |
+| Blocks | REQ-016, REQ-017, V1 acceptance criterion 9 |
 | Repositories | `evo-conductor` and `evoflux` |
 | Design | Not created; requires acceptance |
 
@@ -46,24 +47,24 @@ replay after network interruption, and shall record both client-reported and ser
 | AC-4 | EvoFlux buffers events locally while offline and replays them on reconnection with no loss and no duplication |
 | AC-5 | The local buffer has a bounded size; when exceeded, the oldest events are dropped and the number dropped is reported |
 | AC-6 | Events carry user, installation, session, model provider and model, token counts, tool name and category, MCP server and tool name, tool status and duration, active agents, session start and end, error category and EvoFlux version |
-| AC-7 | Indexes exist for the query patterns used by [REQ-016](REQ-016-usage-aggregation-dashboards.md), at minimum on installation, user and server timestamp |
+| AC-7 | Indexes exist for the query patterns used by [REQ-016](17-REQ-016-usage-aggregation-dashboards.md), at minimum on installation, user and server timestamp |
 | AC-8 | The endpoint sustains a large replay burst when a whole team reconnects after an outage, without failing |
 | AC-9 | No field in the payload can carry conversation content, file content or credentials, asserted by a schema test |
 | AC-10 | A rejected or malformed batch returns a specific error, and the client does not retry indefinitely on a permanent error |
 
 ## 5. Out of scope
 
-- Aggregation and dashboards, covered by [REQ-016](REQ-016-usage-aggregation-dashboards.md).
-- Cost calculation, covered by [REQ-017](REQ-017-cost-estimation.md).
-- Retention, covered by [REQ-019](REQ-019-data-retention.md).
-- Gateway-measured usage, deferred in [REQ-023](REQ-023-ai-gateway.md).
+- Aggregation and dashboards, covered by [REQ-016](17-REQ-016-usage-aggregation-dashboards.md).
+- Cost calculation, covered by [REQ-017](20-REQ-017-cost-estimation.md).
+- Retention, covered by [REQ-019](21-REQ-019-data-retention.md).
+- Gateway-measured usage, deferred in [REQ-023](23-REQ-023-ai-gateway.md).
 
 ## 6. Risks
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | 1 | Replay after an outage double-counts usage | High | AC-2 |
-| 2 | Client-reported figures can be inaccurate or disabled by the client | Medium | Document this limitation explicitly; only a gateway can make usage non-repudiable, see [REQ-023](REQ-023-ai-gateway.md) |
+| 2 | Client-reported figures can be inaccurate or disabled by the client | Medium | Document this limitation explicitly; only a gateway can make usage non-repudiable, see [REQ-023](23-REQ-023-ai-gateway.md) |
 | 3 | Client clock skew corrupts daily charts | Medium | AC-3 |
 | 4 | The raw table grows quickly and queries degrade | Medium | AC-7 plus aggregation and retention |
 | 5 | A future field addition quietly introduces content | High | AC-9 as a permanent schema test |

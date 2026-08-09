@@ -1,6 +1,6 @@
 # Design
 
-This directory stays empty until a requirement is accepted.
+REQ-020 was accepted on 2026-08-09 and its design is below.
 
 ## When to create a design
 
@@ -20,6 +20,6 @@ Tasks are created in [../task/](../task/) only after the design is approved.
 
 ## Register
 
-| ID | Requirement | Title | Created | Status |
-|---|---|---|---|---|
-| None yet | | | | |
+| Step | ID | Requirement | Title | Created | Status |
+|---|---|---|---|---|---|
+| 01 | [DES-020](01-DES-020-automated-testing-ci.md) | REQ-020 | Automated testing and CI | 2026-08-09 | Draft |

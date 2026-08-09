@@ -7,6 +7,7 @@
 | Updated | 2026-08-09 |
 | Status | Draft |
 | Priority | P0 |
+| Build order | Step 8 of 23 |
 | Spec section | [requirements.md section 5](../requirements.md) |
 | Source | Baseline specification section 5 |
 | Depends on | REQ-004, REQ-005 |
@@ -38,7 +39,7 @@ Supported scopes shall include `subscribe_resources`, `report_telemetry`, `sync_
 |---|---|---|
 | Token generation with `evc_` prefix, one-time display, SHA-256 hash at rest ([secret_token.rs](../../crates/conductor-auth/src/secret_token.rs), [secrets.rs](../../crates/conductor-server/src/http/routes/secrets.rs)) | `read_documents` scope | `POST /api/secrets` performs no role check |
 | Scope list, expiry column, revocation endpoint | Default expiry policy | Omitting `scopes` grants all three existing scopes by default ([secrets.rs:31-38](../../crates/conductor-server/src/http/routes/secrets.rs)) |
-| Expiry checked during validation ([resources.rs:39-44](../../crates/conductor-server/src/http/routes/resources.rs)) | Expiry warning | Owner status not checked during validation, see [REQ-005](REQ-005-member-lifecycle.md) |
+| Expiry checked during validation ([resources.rs:39-44](../../crates/conductor-server/src/http/routes/resources.rs)) | Expiry warning | Owner status not checked during validation, see [REQ-005](07-REQ-005-member-lifecycle.md) |
 | `last_used_at` column | Client-side secure storage | `last_used_at` is never updated |
 
 ## 4. Acceptance criteria
@@ -46,7 +47,7 @@ Supported scopes shall include `subscribe_resources`, `report_telemetry`, `sync_
 | ID | Criterion |
 |---|---|
 | AC-1 | Token creation requires an explicit non-empty scope list; omitting it returns `400` |
-| AC-2 | The `read_documents` scope exists and gates the document endpoints in [REQ-009](REQ-009-document-management.md) |
+| AC-2 | The `read_documents` scope exists and gates the document endpoints in [REQ-009](18-REQ-009-document-management.md) |
 | AC-3 | A token is displayed exactly once at creation and is never retrievable afterwards |
 | AC-4 | Tokens carry a default expiry, configurable by an Admin; the default is applied when the caller does not specify one |
 | AC-5 | A token whose owner is disabled is rejected with `401` |
@@ -60,13 +61,13 @@ Supported scopes shall include `subscribe_resources`, `report_telemetry`, `sync_
 
 - Automatic token rotation. Reconsider at P2.
 - Machine-bound tokens tied to a specific installation. Installation identity is handled separately in
-  [REQ-013](REQ-013-inventory-synchronization.md).
+  [REQ-013](14-REQ-013-inventory-synchronization.md).
 
 ## 6. Risks
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| 1 | An ordinary User mints a fully privileged token | High | AC-1 plus the role constraint in [REQ-004](REQ-004-api-authorization.md) |
+| 1 | An ordinary User mints a fully privileged token | High | AC-1 plus the role constraint in [REQ-004](02-REQ-004-api-authorization.md) |
 | 2 | Tokens expiring together interrupt the whole team | Medium | AC-10 |
 | 3 | Token written to a configuration file and then committed to a repository | High | AC-9 |
 

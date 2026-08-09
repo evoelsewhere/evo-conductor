@@ -5,14 +5,15 @@
 | ID | REQ-020 |
 | Created | 2026-08-09 |
 | Updated | 2026-08-09 |
-| Status | Draft |
+| Status | Accepted (2026-08-09) |
 | Priority | P0 |
+| Build order | Step 1 of 23 |
 | Spec section | [requirements.md section 16](../requirements.md), addition |
 | Source | Code review 2026-08-09 |
 | Depends on | none |
 | Blocks | the definition of done of every task |
 | Repositories | `evo-conductor` |
-| Design | Not created; requires acceptance |
+| Design | [DES-020](../design/01-DES-020-automated-testing-ci.md) |
 
 ## 1. Context
 
@@ -20,7 +21,7 @@ The Rust workspace contains zero tests: searching `crates/` for `#[test]` and `#
 matches. `apps/web/package.json` declares no test tooling and no lint script.
 
 Meanwhile the system holds passwords, JWT signing material and connection tokens for an entire team, and
-is about to distribute configuration onto member machines. Section 16 of the specification lists twelve
+is about to distribute configuration onto member machines. Section 16 of the specification lists sixteen
 acceptance criteria; verified only by hand, they will not stay verified.
 
 Every task template in [base/TEMPLATE-TASK.md](../base/TEMPLATE-TASK.md) requires tests to run. This
@@ -50,7 +51,7 @@ that runs it on every change, and a regression suite covering authentication and
 | AC-4 | Frontend has `playwright` with a `test:e2e` script producing an HTML report and screenshots on failure |
 | AC-5 | Frontend has `eslint` with a `lint` script |
 | AC-6 | CI runs on every push and pull request: `cargo fmt --check`, `cargo clippy -- -D warnings`, backend tests, frontend typecheck, lint and unit tests |
-| AC-7 | CI applies the migration sequence against PostgreSQL and SQLite, satisfying [REQ-001](REQ-001-versioned-migrations.md) AC-5 |
+| AC-7 | CI applies the migration sequence against PostgreSQL and SQLite, satisfying [REQ-001](03-REQ-001-versioned-migrations.md) AC-5 |
 | AC-8 | An authorization regression suite covers every endpoint against all three primary roles |
 | AC-9 | A failing test makes CI red and blocks merge |
 | AC-10 | `make test` runs the full suite locally in one command |
@@ -75,7 +76,7 @@ that runs it on every change, and a regression suite covering authentication and
 
 - Is CI hosted on GitHub Actions? The repository currently has no workflow directory, so the platform is
   unconfirmed.
-- Should the EvoFlux-side work in [REQ-012](REQ-012-resource-sync-client.md) be tested in that
+- Should the EvoFlux-side work in [REQ-012](13-REQ-012-resource-sync-client.md) be tested in that
   repository's existing pipeline rather than here? Recommended: yes, each repository runs its own suite.
 
 ## History
