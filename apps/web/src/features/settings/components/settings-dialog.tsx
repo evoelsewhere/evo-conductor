@@ -13,8 +13,8 @@ export function SettingsDialog({
       open={open}
       onClose={onClose}
       title="Project settings"
-      description="Update project identity and SSO after initial setup."
-      className="sm:max-w-lg"
+      description="Manage project identity, network, and SSO."
+      className="sm:max-w-3xl"
     >
       {/* Remount when opened so form state resets from the latest API payload. */}
       {open && <SettingsForm />}

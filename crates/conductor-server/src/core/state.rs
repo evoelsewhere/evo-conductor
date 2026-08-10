@@ -36,6 +36,10 @@ impl AppState {
             *jwt.write().await = Some(JwtService::new(secret, DEFAULT_JWT_TTL_HOURS));
         }
 
+        // Limits saved via the network settings override the environment config.
+        let overrides = db.instance().network_overrides().await?;
+        let realtime_config = realtime_config.with_overrides(&overrides);
+
         Ok(Self {
             db,
             jwt,

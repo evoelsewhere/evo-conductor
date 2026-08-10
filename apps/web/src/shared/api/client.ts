@@ -141,6 +141,12 @@ export interface ProjectBranding {
   logo_url: string | null
 }
 
+export interface RealtimeSettings {
+  max_connections: number
+  max_connections_per_secret: number
+  heartbeat_seconds: number
+}
+
 export interface ProjectSettings {
   project_name: string
   display_name: string | null
@@ -148,6 +154,7 @@ export interface ProjectSettings {
   bind_port: number
   public_url: string | null
   logo_url: string | null
+  realtime: RealtimeSettings
   sso: SsoConfig
 }
 
@@ -395,6 +402,16 @@ export const api = {
   }) =>
     request<ProjectSettings>("/settings", {
       method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  updateNetwork: (body: {
+    bind_host: string
+    bind_port: number
+    public_url?: string
+    realtime: RealtimeSettings
+  }) =>
+    request<ProjectSettings>("/settings/network", {
+      method: "PUT",
       body: JSON.stringify(body),
     }),
   getSso: () => request<SsoConfig>("/sso"),

@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, Utc};
 use conductor_domain::{ManagedResource, PrimaryRole, ResourceAccessPolicy, User};
@@ -92,7 +92,7 @@ pub struct RealtimeHub {
     concurrent_handshakes: Arc<Semaphore>,
     per_secret_connections: Arc<DashMap<Uuid, Arc<Semaphore>>>,
     owner_connections: Arc<DashMap<Uuid, usize>>,
-    config: RealtimeConfig,
+    config: Arc<RwLock<RealtimeConfig>>,
 }
 
 impl RealtimeHub {
@@ -105,7 +105,7 @@ impl RealtimeHub {
             concurrent_handshakes: Arc::new(Semaphore::new(config.max_concurrent_handshakes)),
             per_secret_connections: Arc::new(DashMap::new()),
             owner_connections: Arc::new(DashMap::new()),
-            config,
+            config: Arc::new(RwLock::new(config)),
         }
     }
 
@@ -157,7 +157,14 @@ impl RealtimeHub {
         let secret_semaphore = self
             .per_secret_connections
             .entry(secret_id)
-            .or_insert_with(|| Arc::new(Semaphore::new(self.config.max_connections_per_secret)))
+            .or_insert_with(|| {
+                Arc::new(Semaphore::new(
+                    self.config
+                        .read()
+                        .expect("realtime config poisoned")
+                        .max_connections_per_secret,
+                ))
+            })
             .clone();
         let secret = secret_semaphore
             .try_acquire_owned()
@@ -181,7 +188,11 @@ impl RealtimeHub {
     }
 
     pub fn active_connections(&self) -> usize {
-        self.config.max_connections - self.global_connections.available_permits()
+        self.config
+            .read()
+            .expect("realtime config poisoned")
+            .max_connections
+            - self.global_connections.available_permits()
     }
 
     pub fn active_owners(&self) -> usize {
@@ -189,7 +200,33 @@ impl RealtimeHub {
     }
 
     pub fn heartbeat_seconds(&self) -> u64 {
-        self.config.heartbeat_seconds
+        self.config
+            .read()
+            .expect("realtime config poisoned")
+            .heartbeat_seconds
+    }
+
+    pub fn config(&self) -> RealtimeConfig {
+        self.config
+            .read()
+            .expect("realtime config poisoned")
+            .clone()
+    }
+
+    /// Applies operator-tunable limits from the network settings. Raising the
+    /// global connection cap takes effect immediately; lowering it fully
+    /// applies after restart. Heartbeat and per-secret limits affect new
+    /// connections right away. Handshake and broadcast-capacity changes always
+    /// require a restart.
+    pub fn update_config(&self, next: RealtimeConfig) {
+        let mut config = self.config.write().expect("realtime config poisoned");
+        if next.max_connections > config.max_connections {
+            self.global_connections
+                .add_permits(next.max_connections - config.max_connections);
+            config.max_connections = next.max_connections;
+        }
+        config.max_connections_per_secret = next.max_connections_per_secret;
+        config.heartbeat_seconds = next.heartbeat_seconds;
     }
 }
 

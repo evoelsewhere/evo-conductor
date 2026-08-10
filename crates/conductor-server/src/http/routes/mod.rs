@@ -10,7 +10,7 @@ mod setup;
 mod sso;
 mod users;
 
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use axum::Router;
 
 use crate::core::state::AppState;
@@ -31,6 +31,7 @@ pub fn router() -> Router<AppState> {
             "/settings",
             get(settings::get_settings).patch(settings::update_settings),
         )
+        .route("/settings/network", put(settings::update_network))
         .route("/dashboard", get(dashboard::summary))
         .route("/members", get(users::list).post(users::create))
         .route("/members/pending/count", get(users::pending_count))

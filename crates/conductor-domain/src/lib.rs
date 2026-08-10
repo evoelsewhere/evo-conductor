@@ -21,8 +21,9 @@ pub mod user;
 
 pub use core::error::{ConductorError, Result};
 pub use instance::{
-    InstanceConfig, ProjectBranding, ProjectSettings, SetupRequest, SetupSsoRequest, SetupStatus,
-    SsoConfig, SsoProvider, UpdateInstanceRequest, UpdateSsoRequest,
+    InstanceConfig, ProjectBranding, ProjectSettings, RealtimeSettings, SetupRequest,
+    SetupSsoRequest, SetupStatus, SsoConfig, SsoProvider, UpdateInstanceRequest,
+    UpdateNetworkRequest, UpdateSsoRequest,
 };
 pub use resource::{
     CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary, ManagedResource,

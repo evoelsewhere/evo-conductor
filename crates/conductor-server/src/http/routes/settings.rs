@@ -1,8 +1,8 @@
 use axum::{extract::State, Json};
 use conductor_auth::{validate_oidc_redirect_uri, validate_oidc_url};
 use conductor_domain::{
-    ConductorError, ProjectBranding, ProjectSettings, SsoProvider, UpdateInstanceRequest,
-    UpdateSsoRequest,
+    ConductorError, ProjectBranding, ProjectSettings, RealtimeSettings, SsoProvider,
+    UpdateInstanceRequest, UpdateNetworkRequest, UpdateSsoRequest,
 };
 use conductor_storage::repos::SsoConfigUpdate;
 
@@ -42,6 +42,7 @@ pub async fn get_settings(
         .await?
         .ok_or(ConductorError::SetupRequired)?;
     let sso = state.db.instance().sso_config().await?;
+    let realtime_config = state.realtime.config();
     Ok(Json(ProjectSettings {
         project_name: instance.project_name,
         display_name: instance.display_name,
@@ -49,6 +50,11 @@ pub async fn get_settings(
         bind_port: instance.bind_port,
         public_url: instance.public_url,
         logo_url: instance.logo_url,
+        realtime: RealtimeSettings {
+            max_connections: realtime_config.max_connections as u32,
+            max_connections_per_secret: realtime_config.max_connections_per_secret as u32,
+            heartbeat_seconds: realtime_config.heartbeat_seconds as u32,
+        },
         sso,
     }))
 }
@@ -85,6 +91,56 @@ pub async fn update_settings(
         )
         .await?
         .ok_or(ConductorError::SetupRequired)?;
+
+    get_settings(State(state), AuthUser(user)).await
+}
+
+pub async fn update_network(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(req): Json<UpdateNetworkRequest>,
+) -> ApiResult<Json<ProjectSettings>> {
+    if !user.primary_role.can_manage_settings() {
+        return Err(ConductorError::Forbidden.into());
+    }
+    let bind_host = req.bind_host.trim();
+    if bind_host.is_empty() {
+        return Err(ConductorError::msg("bind_host cannot be empty").into());
+    }
+    if req.bind_port == 0 {
+        return Err(ConductorError::msg("bind_port must be between 1 and 65535").into());
+    }
+    if req.realtime.max_connections == 0 || req.realtime.max_connections_per_secret == 0 {
+        return Err(ConductorError::msg("realtime connection limits must be at least 1").into());
+    }
+    if !(5..=300).contains(&req.realtime.heartbeat_seconds) {
+        return Err(ConductorError::msg("heartbeat must be between 5 and 300 seconds").into());
+    }
+    if let Some(public_url) = req
+        .public_url
+        .as_deref()
+        .filter(|url| !url.trim().is_empty())
+    {
+        validate_oidc_url(public_url, "public URL")?;
+    }
+
+    state
+        .db
+        .instance()
+        .update_network(
+            bind_host,
+            req.bind_port,
+            req.public_url.as_deref(),
+            &req.realtime,
+        )
+        .await?;
+
+    // Apply what can change live; the rest takes effect on the next start.
+    let mut realtime = state.realtime.config();
+    realtime.max_connections = req.realtime.max_connections as usize;
+    realtime.max_connections_per_secret = req.realtime.max_connections_per_secret as usize;
+    realtime.heartbeat_seconds = u64::from(req.realtime.heartbeat_seconds);
+    state.realtime.update_config(realtime);
 
     get_settings(State(state), AuthUser(user)).await
 }

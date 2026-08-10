@@ -114,7 +114,17 @@ pub struct ProjectSettings {
     pub bind_port: u16,
     pub public_url: Option<String>,
     pub logo_url: Option<String>,
+    pub realtime: RealtimeSettings,
     pub sso: SsoConfig,
+}
+
+/// Operator-tunable realtime (SSE) limits. Values unset in the database fall
+/// back to the environment configuration the server was started with.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct RealtimeSettings {
+    pub max_connections: u32,
+    pub max_connections_per_secret: u32,
+    pub heartbeat_seconds: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +133,14 @@ pub struct UpdateInstanceRequest {
     pub display_name: Option<String>,
     pub public_url: Option<String>,
     pub logo_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateNetworkRequest {
+    pub bind_host: String,
+    pub bind_port: u16,
+    pub public_url: Option<String>,
+    pub realtime: RealtimeSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

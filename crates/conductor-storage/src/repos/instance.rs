@@ -1,7 +1,7 @@
 use chrono::Utc;
 use conductor_domain::{
-    InstanceConfig, PrimaryRole, SetupRequest, SetupStatus, SsoConfig, SsoProvider, User,
-    UserStatus,
+    InstanceConfig, PrimaryRole, RealtimeSettings, SetupRequest, SetupStatus, SsoConfig,
+    SsoProvider, User, UserStatus,
 };
 use sqlx::Row;
 use sqlx::{Any, Pool};
@@ -22,6 +22,15 @@ pub struct SsoConfigUpdate<'a> {
     pub client_secret: Option<&'a str>,
     pub redirect_uri: Option<&'a str>,
     pub scopes: Option<&'a [String]>,
+}
+
+/// Realtime limits stored on the instance row. `None` means the server falls
+/// back to the environment configuration it was started with.
+#[derive(Debug, Clone, Default)]
+pub struct NetworkOverrides {
+    pub realtime_max_connections: Option<u32>,
+    pub realtime_max_per_secret: Option<u32>,
+    pub realtime_heartbeat_seconds: Option<u32>,
 }
 
 impl InstanceRepo {
@@ -454,6 +463,62 @@ impl InstanceRepo {
         }
 
         self.sso_config().await
+    }
+
+    pub async fn network_overrides(&self) -> Result<NetworkOverrides, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT realtime_max_connections, realtime_max_per_secret, realtime_heartbeat_seconds
+            FROM instance LIMIT 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row
+            .map(|r| NetworkOverrides {
+                realtime_max_connections: r.get::<Option<i64>, _>("realtime_max_connections")
+                    .map(|v| v as u32),
+                realtime_max_per_secret: r.get::<Option<i64>, _>("realtime_max_per_secret")
+                    .map(|v| v as u32),
+                realtime_heartbeat_seconds: r.get::<Option<i64>, _>("realtime_heartbeat_seconds")
+                    .map(|v| v as u32),
+            })
+            .unwrap_or_default())
+    }
+
+    pub async fn update_network(
+        &self,
+        bind_host: &str,
+        bind_port: u16,
+        public_url: Option<&str>,
+        realtime: &RealtimeSettings,
+    ) -> Result<(), sqlx::Error> {
+        let public_url = public_url.and_then(|s| {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        sqlx::query(
+            r#"
+            UPDATE instance SET bind_host = ?, bind_port = ?, public_url = ?,
+                realtime_max_connections = ?, realtime_max_per_secret = ?,
+                realtime_heartbeat_seconds = ?, updated_at = ?
+            "#,
+        )
+        .bind(bind_host)
+        .bind(i64::from(bind_port))
+        .bind(public_url)
+        .bind(i64::from(realtime.max_connections))
+        .bind(i64::from(realtime.max_connections_per_secret))
+        .bind(i64::from(realtime.heartbeat_seconds))
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }
 

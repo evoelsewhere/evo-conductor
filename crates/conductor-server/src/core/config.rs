@@ -26,6 +26,22 @@ impl Default for RealtimeConfig {
     }
 }
 
+impl RealtimeConfig {
+    /// Applies limits saved in the database over the environment baseline.
+    pub fn with_overrides(mut self, overrides: &conductor_storage::repos::NetworkOverrides) -> Self {
+        if let Some(v) = overrides.realtime_max_connections {
+            self.max_connections = v as usize;
+        }
+        if let Some(v) = overrides.realtime_max_per_secret {
+            self.max_connections_per_secret = v as usize;
+        }
+        if let Some(v) = overrides.realtime_heartbeat_seconds {
+            self.heartbeat_seconds = u64::from(v);
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,

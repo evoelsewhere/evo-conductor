@@ -227,6 +227,9 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE users ADD COLUMN approved_at TEXT",
         "ALTER TABLE users ADD COLUMN approved_by TEXT",
         "ALTER TABLE instance ADD COLUMN logo_url TEXT",
+        "ALTER TABLE instance ADD COLUMN realtime_max_connections INTEGER",
+        "ALTER TABLE instance ADD COLUMN realtime_max_per_secret INTEGER",
+        "ALTER TABLE instance ADD COLUMN realtime_heartbeat_seconds INTEGER",
         "ALTER TABLE resources ADD COLUMN status TEXT NOT NULL DEFAULT 'published'",
         "ALTER TABLE resources ADD COLUMN published_at TEXT",
     ];
