@@ -1,5 +1,6 @@
 mod access;
 mod auth;
+mod client;
 mod dashboard;
 mod health;
 mod realtime;
@@ -8,6 +9,7 @@ mod secrets;
 mod settings;
 mod setup;
 mod sso;
+mod telemetry;
 mod users;
 
 use axum::routing::{get, patch, post, put};
@@ -36,6 +38,18 @@ pub fn router() -> Router<AppState> {
         .route("/members", get(users::list).post(users::create))
         .route("/members/pending/count", get(users::pending_count))
         .route("/members/{id}", get(users::get).patch(users::update))
+        .route(
+            "/members/{id}/installations",
+            get(client::list_member_installations),
+        )
+        .route(
+            "/members/{id}/secrets",
+            get(secrets::list_for_member).post(secrets::create_for_member),
+        )
+        .route(
+            "/members/{id}/secrets/{secret_id}/revoke",
+            post(secrets::revoke_for_member),
+        )
         .route("/members/{id}/approve", post(users::approve))
         .route("/members/{id}/disable", post(users::disable))
         .route("/members/{id}/enable", post(users::enable))
@@ -80,6 +94,16 @@ pub fn router() -> Router<AppState> {
             get(resources::feedback).put(resources::upsert_feedback),
         )
         .route("/v1/subscribe/resources", get(resources::subscribe))
+        .route("/v1/client/register", post(client::register))
+        .route("/v1/client/heartbeat", post(client::heartbeat))
+        .route("/v1/telemetry/batch", post(telemetry::ingest))
         .route("/v1/usage/resources", post(resources::ingest_usage))
+        .route("/members/{id}/usage/summary", get(telemetry::usage_summary))
+        .route("/members/{id}/activity", get(telemetry::activity))
+        .route(
+            "/members/{id}/activity/{request_id}",
+            get(telemetry::request_detail),
+        )
+        .route("/members/{id}/tools", get(telemetry::tools_summary))
         .route("/v1/realtime/events", get(realtime::events))
 }

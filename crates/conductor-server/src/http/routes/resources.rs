@@ -16,9 +16,9 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::core::error::{ApiError, ApiResult};
+use crate::core::state::AppState;
 use crate::http::extractors::{authenticate_connection_secret, AuthUser};
 use crate::http::realtime::{RealtimeAudience, RealtimeSignal};
-use crate::core::state::AppState;
 
 pub async fn list(
     State(state): State<AppState>,

@@ -8,6 +8,10 @@ import {
   type SecretScope,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import {
+  SECRET_SCOPE,
+  SECRET_SCOPE_OPTIONS,
+} from "@/shared/constants/secret"
 import { Badge } from "@/shared/ui/badge"
 import { BadgeList } from "@/shared/ui/badge-list"
 import { Button } from "@/shared/ui/button"
@@ -26,28 +30,6 @@ import {
   TableTh,
   TableWrap,
 } from "@/shared/ui/table"
-
-const scopeOptions: Array<{
-  value: SecretScope
-  label: string
-  description: string
-}> = [
-  {
-    value: "subscribe_resources",
-    label: "Subscribe resources",
-    description: "Pull shared agents, skills, MCP servers, and workflows.",
-  },
-  {
-    value: "report_telemetry",
-    label: "Report telemetry",
-    description: "Send usage and performance events to Conductor.",
-  },
-  {
-    value: "sync_inventory",
-    label: "Sync inventory",
-    description: "Synchronize the member's local EvoFlux inventory.",
-  },
-]
 
 const expirationOptions = [
   { value: "30", label: "30 days" },
@@ -242,7 +224,9 @@ function CreateSecretDialog({
   onCreated: (token: string) => void
 }) {
   const [name, setName] = useState("EvoFlux laptop")
-  const [scopes, setScopes] = useState<SecretScope[]>(["subscribe_resources"])
+  const [scopes, setScopes] = useState<SecretScope[]>([
+    SECRET_SCOPE.SUBSCRIBE_RESOURCES,
+  ])
   const [expiresIn, setExpiresIn] = useState("90")
 
   const create = useMutation({
@@ -303,7 +287,7 @@ function CreateSecretDialog({
           <legend className="text-[0.8rem] font-medium text-(--color-text-2)">
             Scopes
           </legend>
-          {scopeOptions.map((option) => {
+          {SECRET_SCOPE_OPTIONS.map((option) => {
             const checked = scopes.includes(option.value)
             return (
               <label

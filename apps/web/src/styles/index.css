@@ -90,6 +90,13 @@
   --accent-purple: #a78bfa;
   --accent-red: #f87171;
 
+  --chart-series-1: #7c8cf8;
+  --chart-series-2: #a879f7;
+  --chart-series-3: #38bdf8;
+  --chart-series-4: #34d399;
+  --chart-series-5: #f59e0b;
+  --chart-series-6: #fb7185;
+
   --color-success: var(--accent-green);
   --color-warning: var(--accent-orange);
   --color-error: #f87171;
@@ -166,6 +173,13 @@
   --accent-orange: #c2410c;
   --accent-purple: #7c3aed;
   --accent-red: #dc2626;
+
+  --chart-series-1: #6578df;
+  --chart-series-2: #8f60d8;
+  --chart-series-3: #0284c7;
+  --chart-series-4: #059669;
+  --chart-series-5: #d97706;
+  --chart-series-6: #e11d48;
 
   --color-success: var(--accent-green);
   --color-warning: var(--accent-orange);

@@ -14,6 +14,10 @@ import { LoginPage } from "@/features/auth/pages/login-page"
 import { PendingPage } from "@/features/auth/pages/pending-page"
 import { SsoCallbackPage } from "@/features/auth/pages/sso-callback-page"
 import { MembersPage } from "@/features/members/pages/members-page"
+import { MemberActivityPage } from "@/features/members/pages/member-activity-page"
+import { MemberDetailPage } from "@/features/members/pages/member-detail-page"
+import { MemberRequestDetailPage } from "@/features/members/pages/member-request-detail-page"
+import { MemberToolsPage } from "@/features/members/pages/member-tools-page"
 import { OverviewPage } from "@/features/dashboard/pages/overview-page"
 import { ResourcesPage } from "@/features/resources/pages/resources-page"
 import { RolesPage } from "@/features/roles/pages/roles-page"
@@ -22,6 +26,7 @@ import { SetupPage } from "@/features/setup/pages/setup-page"
 import { TagsPage } from "@/features/tags/pages/tags-page"
 import { useAuthStore } from "@/shared/stores/auth"
 import { authSession } from "@/shared/lib/auth-session"
+import { PRIMARY_ROLE, type PrimaryRole } from "@/shared/constants/member"
 
 function RootComponent() {
   return <Outlet />
@@ -132,10 +137,45 @@ const membersRoute = createRoute({
   component: MembersPage,
   beforeLoad: () => {
     const role = storedPrimaryRole()
-    if (role !== "admin" && role !== "contribute") {
+    if (role !== PRIMARY_ROLE.ADMIN && role !== PRIMARY_ROLE.CONTRIBUTE) {
       throw redirect({ to: "/app" })
     }
   },
+})
+
+function requireTelemetryAccess() {
+  const role = storedPrimaryRole()
+  if (role !== PRIMARY_ROLE.ADMIN && role !== PRIMARY_ROLE.CONTRIBUTE) {
+    throw redirect({ to: "/app" })
+  }
+}
+
+const memberDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/members/$userId",
+  component: MemberDetailPage,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const memberActivityRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/members/$userId/activity",
+  component: MemberActivityPage,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const memberRequestDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/members/$userId/activity/$requestId",
+  component: MemberRequestDetailPage,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const memberToolsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/members/$userId/tools",
+  component: MemberToolsPage,
+  beforeLoad: requireTelemetryAccess,
 })
 
 const resourcesRoute = createRoute({
@@ -168,7 +208,7 @@ const secretsRoute = createRoute({
   component: SecretsPage,
 })
 
-function storedPrimaryRole(): string | null {
+function storedPrimaryRole(): PrimaryRole | null {
   return useAuthStore.getState().user?.primary_role ?? null
 }
 
@@ -177,7 +217,7 @@ const rolesRoute = createRoute({
   path: "/roles",
   component: RolesPage,
   beforeLoad: () => {
-    if (storedPrimaryRole() !== "admin") throw redirect({ to: "/app" })
+    if (storedPrimaryRole() !== PRIMARY_ROLE.ADMIN) throw redirect({ to: "/app" })
   },
 })
 
@@ -187,7 +227,7 @@ const tagsRoute = createRoute({
   component: TagsPage,
   beforeLoad: () => {
     const role = storedPrimaryRole()
-    if (role !== "admin" && role !== "contribute") {
+    if (role !== PRIMARY_ROLE.ADMIN && role !== PRIMARY_ROLE.CONTRIBUTE) {
       throw redirect({ to: "/app" })
     }
   },
@@ -212,6 +252,10 @@ const routeTree = rootRoute.addChildren([
   appRoute.addChildren([
     overviewRoute,
     membersRoute,
+    memberDetailRoute,
+    memberActivityRoute,
+    memberRequestDetailRoute,
+    memberToolsRoute,
     resourcesRoute,
     resourcesPluginsRoute,
     resourcesSkillsRoute,

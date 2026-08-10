@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate } from "@tanstack/react-router"
 import {
   Check,
+  ChevronRight,
   Copy,
   Plus,
   RotateCcw,
@@ -19,10 +21,18 @@ import {
   type UserStatus,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import {
+  MEMBER_LIST_PAGE_SIZE,
+  MEMBER_STATUS_TONES,
+  PRIMARY_ROLE,
+  PRIMARY_ROLE_OPTIONS,
+  USER_STATUS,
+  USER_STATUS_FILTER_OPTIONS,
+} from "@/shared/constants/member"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { BadgeList } from "@/shared/ui/badge-list"
-import { Button } from "@/shared/ui/button"
+import { Button, buttonVariants } from "@/shared/ui/button"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
 import { Input } from "@/shared/ui/input"
@@ -43,37 +53,11 @@ import {
   TableWrap,
 } from "@/shared/ui/table"
 
-const statusFilters = [
-  { value: "", label: "All" },
-  { value: "pending", label: "Pending" },
-  { value: "invited", label: "Invited" },
-  { value: "active", label: "Active" },
-  { value: "disabled", label: "Disabled" },
-] as const
-
-const roleOptions = [
-  { value: "admin", label: "Admin" },
-  { value: "contribute", label: "Contribute" },
-  { value: "user", label: "User" },
-] as const
-
-function statusTone(status: UserStatus): "success" | "warning" | "danger" | "accent" | "neutral" {
-  switch (status) {
-    case "active":
-      return "success"
-    case "pending":
-      return "warning"
-    case "invited":
-      return "accent"
-    case "disabled":
-      return "danger"
-  }
-}
-
 export function MembersPage() {
   const actor = useAuthStore((s) => s.user)
-  const isAdmin = actor?.primary_role === "admin"
+  const isAdmin = actor?.primary_role === PRIMARY_ROLE.ADMIN
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   const [q, setQ] = useState("")
   const [status, setStatus] = useState<UserStatus | "">("")
@@ -81,7 +65,7 @@ export function MembersPage() {
   const [tag, setTag] = useState("")
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [page, setPage] = useState(1)
-  const limit = 50
+  const limit = MEMBER_LIST_PAGE_SIZE
 
   const [showAdd, setShowAdd] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
@@ -95,7 +79,8 @@ export function MembersPage() {
     queryKey: ["tags"],
     queryFn: () => api.tags(),
     enabled:
-      actor?.primary_role === "admin" || actor?.primary_role === "contribute",
+      actor?.primary_role === PRIMARY_ROLE.ADMIN ||
+      actor?.primary_role === PRIMARY_ROLE.CONTRIBUTE,
   })
   const { data: subRoles = [] } = useQuery({
     queryKey: ["sub-roles"],
@@ -235,7 +220,7 @@ export function MembersPage() {
                     }}
                     options={[
                       { value: "__any__", label: "Any status" },
-                      ...statusFilters
+                      ...USER_STATUS_FILTER_OPTIONS
                         .filter((item) => item.value)
                         .map((item) => ({
                           value: item.value,
@@ -254,7 +239,7 @@ export function MembersPage() {
                   }}
                   options={[
                     { value: "__any__", label: "Any role" },
-                    ...roleOptions,
+                    ...PRIMARY_ROLE_OPTIONS,
                   ]}
                 />
               </FilterField>
@@ -330,9 +315,36 @@ export function MembersPage() {
               </TableHead>
               <TableBody>
                 {items.map((m) => (
-                  <TableRow key={m.id}>
+                  <TableRow
+                    key={m.id}
+                    tabIndex={0}
+                    aria-label={`View ${m.display_name} details`}
+                    className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-(--focus-ring)/40"
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest("a, button")) return
+                      void navigate({
+                        to: "/app/members/$userId",
+                        params: { userId: m.id },
+                      })
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      event.preventDefault()
+                      void navigate({
+                        to: "/app/members/$userId",
+                        params: { userId: m.id },
+                      })
+                    }}
+                  >
                     <TableTd>
-                      <div className="font-medium">{m.display_name}</div>
+                      <Link
+                        to="/app/members/$userId"
+                        params={{ userId: m.id }}
+                        className="font-medium hover:text-(--color-accent) hover:underline"
+                      >
+                        {m.display_name}
+                      </Link>
                       <div className="text-xs text-(--color-text-subtle)">
                         {m.email}
                       </div>
@@ -358,14 +370,25 @@ export function MembersPage() {
                     </TableTd>
                     <TableTd>
                       <span className="inline-flex items-center gap-1.5 capitalize text-(--color-text-muted)">
-                        <StatusDot tone={statusTone(m.status)} />
+                        <StatusDot tone={MEMBER_STATUS_TONES[m.status]} />
                         {m.status}
                       </span>
                     </TableTd>
                     {isAdmin && (
                       <TableTd>
                         <div className="flex justify-end gap-1">
-                          {(m.status === "pending" || m.status === "invited") && (
+                          <Link
+                            to="/app/members/$userId"
+                            params={{ userId: m.id }}
+                            className={buttonVariants({ variant: "ghost", size: "sm" })}
+                            title="View details"
+                            aria-label={`View ${m.display_name} details`}
+                          >
+                            View
+                            <ChevronRight className="size-3.5" />
+                          </Link>
+                          {(m.status === USER_STATUS.PENDING ||
+                            m.status === USER_STATUS.INVITED) && (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -383,7 +406,7 @@ export function MembersPage() {
                           >
                             Edit
                           </Button>
-                          {m.status === "disabled" ? (
+                          {m.status === USER_STATUS.DISABLED ? (
                             <Button
                               size="sm"
                               variant="ghost"
@@ -548,7 +571,7 @@ function MemberDialog({
 }) {
   const [email, setEmail] = useState("")
   const [displayName, setDisplayName] = useState("")
-  const [primaryRole, setPrimaryRole] = useState<PrimaryRole>("user")
+  const [primaryRole, setPrimaryRole] = useState<PrimaryRole>(PRIMARY_ROLE.USER)
   const [subRoleIds, setSubRoleIds] = useState<string[]>([])
   const [tagIds, setTagIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -582,7 +605,7 @@ function MemberDialog({
           <Select
             value={primaryRole}
             onValueChange={(v) => setPrimaryRole(v as PrimaryRole)}
-            options={[...roleOptions]}
+            options={[...PRIMARY_ROLE_OPTIONS]}
           />
         </Field>
         <Field label="Sub-roles" hint="Job function within the project.">
@@ -670,7 +693,7 @@ function EditMemberDialog({
           <Select
             value={primaryRole}
             onValueChange={(v) => setPrimaryRole(v as PrimaryRole)}
-            options={[...roleOptions]}
+            options={[...PRIMARY_ROLE_OPTIONS]}
             disabled={editingSelf}
           />
         </Field>

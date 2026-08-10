@@ -11,6 +11,7 @@
 //! telemetry   usage and presence reporting
 //! ```
 
+pub mod client_installation;
 pub mod core;
 pub mod instance;
 pub mod resource;
@@ -19,6 +20,11 @@ pub mod secret;
 pub mod telemetry;
 pub mod user;
 
+pub use client_installation::{
+    ClientHeartbeatRequest, ClientHeartbeatResponse, ClientInstallation, ClientInstallationSummary,
+    ClientMember, ClientPlatform, ClientPolicy, ClientProject, ClientTelemetryPolicy,
+    CollectionLevel, RegisterClientRequest, RegisterClientResponse, RegisteredInstallation,
+};
 pub use core::error::{ConductorError, Result};
 pub use instance::{
     InstanceConfig, ProjectBranding, ProjectSettings, RealtimeSettings, SetupRequest,
@@ -38,7 +44,13 @@ pub use role::{
     UpdateTagRequest,
 };
 pub use secret::{ConnectionSecret, CreateSecretRequest, CreatedSecret, SecretScope};
-pub use telemetry::{MemberPresence, TelemetrySnapshot};
+pub use telemetry::{
+    DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberPresence,
+    MemberRequestDetail, MemberToolUsage, MemberToolsSummary, MemberUsageSummary,
+    ModelUsageBreakdown, TelemetryBatchRequest, TelemetryBatchResponse, TelemetryEventDetail,
+    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType, TelemetrySnapshot,
+    TelemetryToolCategory, UNKNOWN_TELEMETRY_LABEL,
+};
 pub use user::{
     ApproveMemberRequest, AuthSession, ChangePasswordRequest, CreateMemberRequest, CreatedMember,
     MemberListQuery, MemberListResponse, ResetPasswordResponse, UpdateMemberRequest, User,

@@ -1,9 +1,19 @@
+import type {
+  ClientPlatform,
+  PrimaryRole,
+  UserStatus,
+} from "@/shared/constants/member"
+import type { SecretScope } from "@/shared/constants/secret"
+import type {
+  TelemetryEventStatus,
+  TelemetryEventType,
+  TelemetryToolCategory,
+} from "@/shared/constants/telemetry"
 import { authSession } from "@/shared/lib/auth-session"
 
-export type PrimaryRole = "admin" | "contribute" | "user"
-export type UserStatus = "pending" | "invited" | "active" | "disabled"
+export type { PrimaryRole, UserStatus } from "@/shared/constants/member"
+export type { SecretScope } from "@/shared/constants/secret"
 export type SsoProvider = "oidc" | "github" | "azure_ad" | "google" | "custom"
-export type SecretScope = "subscribe_resources" | "report_telemetry" | "sync_inventory"
 
 export interface SetupStatus {
   configured: boolean
@@ -45,6 +55,120 @@ export interface User {
   must_change_password: boolean
   last_seen_at: string | null
   created_at: string
+}
+
+export interface ClientInstallationSummary {
+  id: string
+  display_name: string
+  platform: ClientPlatform
+  evoflux_version: string
+  connected_at: string
+  last_seen_at: string
+}
+
+export interface ModelUsageBreakdown {
+  provider: string
+  model: string
+  calls: number
+  tokens_in: number
+  tokens_out: number
+  total_tokens: number
+}
+
+export interface DailyTokenUsage {
+  date: string
+  requests: number
+  tokens_in: number
+  tokens_out: number
+  total_tokens: number
+}
+
+export interface MemberUsageSummary {
+  from: string
+  to: string
+  total_requests: number
+  model_calls: number
+  tool_calls: number
+  error_count: number
+  tokens_in: number
+  tokens_out: number
+  total_tokens: number
+  cache_read_tokens: number
+  reasoning_tokens: number
+  models: ModelUsageBreakdown[]
+  daily: DailyTokenUsage[]
+}
+
+export interface MemberActivityItem {
+  request_id: string
+  session_id: string | null
+  started_at: string
+  finished_at: string
+  provider: string | null
+  model: string | null
+  model_calls: number
+  tool_calls: number
+  tokens_in: number
+  tokens_out: number
+  total_tokens: number
+  duration_ms: number
+  status: TelemetryEventStatus
+}
+
+export interface MemberActivityResponse {
+  items: MemberActivityItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface TelemetryEventDetail {
+  event_id: string
+  event_type: TelemetryEventType
+  sequence: number
+  agent_name: string | null
+  provider: string | null
+  model: string | null
+  tokens_in: number
+  tokens_out: number
+  cache_read_tokens: number
+  reasoning_tokens: number
+  tool_use_tokens: number
+  duration_ms: number
+  tool_name: string | null
+  tool_category: TelemetryToolCategory | null
+  status: TelemetryEventStatus
+  error_category: string | null
+  reported_at: string
+}
+
+export interface MemberRequestDetail {
+  request: MemberActivityItem
+  events: TelemetryEventDetail[]
+}
+
+export interface MemberToolUsage {
+  tool_name: string
+  category: TelemetryToolCategory
+  calls: number
+  successes: number
+  errors: number
+  average_duration_ms: number
+  last_used_at: string
+}
+
+export interface MemberToolsSummary {
+  from: string
+  to: string
+  total_calls: number
+  successful_calls: number
+  failed_calls: number
+  tools: MemberToolUsage[]
+}
+
+export interface DateRangeParams {
+  from?: string
+  to?: string
 }
 
 export interface AuthSession {
@@ -333,6 +457,46 @@ export const api = {
     ),
   pendingCount: () => request<{ count: number }>("/members/pending/count"),
   getMember: (id: string) => request<User>(`/members/${id}`),
+  memberInstallations: (id: string) =>
+    request<ClientInstallationSummary[]>(`/members/${id}/installations`),
+  memberSecrets: (id: string) =>
+    request<ConnectionSecret[]>(`/members/${id}/secrets`),
+  createMemberSecret: (
+    id: string,
+    body: { name: string; scopes: SecretScope[]; expires_at?: string },
+  ) =>
+    request<CreatedSecret>(`/members/${id}/secrets`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  revokeMemberSecret: (memberId: string, secretId: string) =>
+    request<{ revoked: boolean }>(`/members/${memberId}/secrets/${secretId}/revoke`, {
+      method: "POST",
+    }),
+  memberUsageSummary: (id: string, params: DateRangeParams = {}) =>
+    request<MemberUsageSummary>(
+      `/members/${id}/usage/summary${qs({ from: params.from, to: params.to })}`,
+    ),
+  memberActivity: (
+    id: string,
+    params: DateRangeParams & { limit?: number; offset?: number } = {},
+  ) =>
+    request<MemberActivityResponse>(
+      `/members/${id}/activity${qs({
+        from: params.from,
+        to: params.to,
+        limit: params.limit,
+        offset: params.offset,
+      })}`,
+    ),
+  memberRequestDetail: (id: string, requestId: string) =>
+    request<MemberRequestDetail>(
+      `/members/${id}/activity/${encodeURIComponent(requestId)}`,
+    ),
+  memberTools: (id: string, params: DateRangeParams = {}) =>
+    request<MemberToolsSummary>(
+      `/members/${id}/tools${qs({ from: params.from, to: params.to })}`,
+    ),
   createMember: (body: CreateMemberBody) =>
     request<CreatedMember>("/members", { method: "POST", body: JSON.stringify(body) }),
   updateMember: (id: string, body: UpdateMemberBody) =>

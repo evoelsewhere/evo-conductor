@@ -7,7 +7,10 @@ use crate::core::constants::database::{
 use crate::core::dialect::DatabaseKind;
 use crate::core::url::sqlite_path;
 use crate::migrate;
-use crate::repos::{DashboardRepo, InstanceRepo, ResourceRepo, RoleRepo, SecretRepo, UserRepo};
+use crate::repos::{
+    ClientInstallationRepo, DashboardRepo, InstanceRepo, ResourceRepo, RoleRepo, SecretRepo,
+    TelemetryRepo, UserRepo,
+};
 
 /// Database handle. Cheap to clone (shares the connection pool).
 ///
@@ -80,8 +83,16 @@ impl Db {
         ResourceRepo::new(self.pool.clone())
     }
 
+    pub fn client_installations(&self) -> ClientInstallationRepo {
+        ClientInstallationRepo::new(self.pool.clone())
+    }
+
     pub fn dashboard(&self) -> DashboardRepo {
         DashboardRepo::new(self.pool.clone())
+    }
+
+    pub fn telemetry(&self) -> TelemetryRepo {
+        TelemetryRepo::new(self.pool.clone())
     }
 }
 

@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react"
 import type { LucideIcon } from "lucide-react"
 
 import { Skeleton } from "@/shared/ui/skeleton"
@@ -69,5 +70,30 @@ export function StatCardSkeleton() {
       <Skeleton className="h-6 w-12" />
       <Skeleton className="mt-2 h-3 w-28" />
     </div>
+  )
+}
+
+export function StatCardGrid({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-4", className)}
+      {...props}
+    />
+  )
+}
+
+export function StatCardGridSkeleton({
+  count,
+  className,
+}: {
+  count: number
+  className?: string
+}) {
+  return (
+    <StatCardGrid className={className}>
+      {Array.from({ length: count }, (_, index) => (
+        <StatCardSkeleton key={index} />
+      ))}
+    </StatCardGrid>
   )
 }

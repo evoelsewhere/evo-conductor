@@ -240,6 +240,15 @@ impl InstanceRepo {
         }))
     }
 
+    pub async fn collection_level(&self) -> Result<String, sqlx::Error> {
+        Ok(
+            sqlx::query_scalar("SELECT collection_level FROM instance LIMIT 1")
+                .fetch_optional(&self.pool)
+                .await?
+                .unwrap_or_else(|| "L1".to_string()),
+        )
+    }
+
     pub async fn sso_config(&self) -> Result<SsoConfig, sqlx::Error> {
         let row = sqlx::query(
             r#"
@@ -477,11 +486,14 @@ impl InstanceRepo {
 
         Ok(row
             .map(|r| NetworkOverrides {
-                realtime_max_connections: r.get::<Option<i64>, _>("realtime_max_connections")
+                realtime_max_connections: r
+                    .get::<Option<i64>, _>("realtime_max_connections")
                     .map(|v| v as u32),
-                realtime_max_per_secret: r.get::<Option<i64>, _>("realtime_max_per_secret")
+                realtime_max_per_secret: r
+                    .get::<Option<i64>, _>("realtime_max_per_secret")
                     .map(|v| v as u32),
-                realtime_heartbeat_seconds: r.get::<Option<i64>, _>("realtime_heartbeat_seconds")
+                realtime_heartbeat_seconds: r
+                    .get::<Option<i64>, _>("realtime_heartbeat_seconds")
                     .map(|v| v as u32),
             })
             .unwrap_or_default())
