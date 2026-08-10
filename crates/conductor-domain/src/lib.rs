@@ -44,7 +44,13 @@ pub use role::{
     UpdateTagRequest,
 };
 pub use secret::{ConnectionSecret, CreateSecretRequest, CreatedSecret, SecretScope};
-pub use telemetry::{MemberPresence, TelemetrySnapshot};
+pub use telemetry::{
+    DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberPresence,
+    MemberRequestDetail, MemberToolUsage, MemberToolsSummary, MemberUsageSummary,
+    ModelUsageBreakdown, TelemetryBatchRequest, TelemetryBatchResponse, TelemetryEventDetail,
+    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType, TelemetrySnapshot,
+    TelemetryToolCategory, UNKNOWN_TELEMETRY_LABEL,
+};
 pub use user::{
     ApproveMemberRequest, AuthSession, ChangePasswordRequest, CreateMemberRequest, CreatedMember,
     MemberListQuery, MemberListResponse, ResetPasswordResponse, UpdateMemberRequest, User,
