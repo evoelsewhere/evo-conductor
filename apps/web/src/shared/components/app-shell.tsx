@@ -3,6 +3,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "framer-motion"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import {
+  Bot,
   Boxes,
   ChevronDown,
   ChevronsUpDown,
@@ -14,8 +15,10 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
   Settings,
   Shield,
+  Sparkles,
   Sun,
   Tags,
   Users,
@@ -53,6 +56,8 @@ type NavItemDef = {
   icon: LucideIcon
   end: boolean
   badge?: number
+  /** Nested sub-items shown under an expandable parent (e.g. Resources). */
+  children?: NavItemDef[]
 }
 
 type NavGroup = {
@@ -123,7 +128,12 @@ export function AppShell() {
       to: "/app/resources",
       label: "Resources",
       icon: Boxes,
-      end: false,
+      end: true,
+      children: [
+        { to: "/app/resources/plugins", label: "Plugins", icon: Plug, end: false },
+        { to: "/app/resources/skills", label: "Skills", icon: Sparkles, end: false },
+        { to: "/app/resources/agents", label: "Agents", icon: Bot, end: false },
+      ],
     })
 
     const accessItems: NavItemDef[] = [
@@ -160,10 +170,19 @@ export function AppShell() {
 
   // Keep the group that owns the active route open so deep links are not hidden.
   useEffect(() => {
-    const active = navGroups.find((group) =>
-      group.items.some((item) => isActivePath(pathname, item.to, item.end)),
-    )
+    const ownsActive = (item: NavItemDef) =>
+      isActivePath(pathname, item.to, item.end) ||
+      (item.children ?? []).some((child) => isActivePath(pathname, child.to, child.end))
+    const active = navGroups.find((group) => group.items.some(ownsActive))
     if (active) useUiStore.getState().expandNavGroup(active.id)
+    // Expand a parent item (e.g. Resources) when one of its sub-pages is active.
+    for (const group of navGroups) {
+      for (const item of group.items) {
+        if ((item.children ?? []).some((child) => isActivePath(pathname, child.to, child.end))) {
+          useUiStore.getState().expandNavGroup(item.to)
+        }
+      }
+    }
   }, [pathname, navGroups])
 
   useEffect(() => {
@@ -411,22 +430,26 @@ function NavGroupSection({
   const collapsedGroups = useUiStore((s) => s.collapsedNavGroups)
   const toggleNavGroup = useUiStore((s) => s.toggleNavGroup)
   const open = !collapsedGroups.includes(group.id)
-  const hasActive = group.items.some((item) =>
-    isActivePath(pathname, item.to, item.end),
+  const hasActive = group.items.some(
+    (item) =>
+      isActivePath(pathname, item.to, item.end) ||
+      (item.children ?? []).some((child) => isActivePath(pathname, child.to, child.end)),
   )
 
   // Icon rail has no room for headers; always show every item.
   if (railCollapsed) {
     return (
       <div className="flex flex-col gap-0.5">
-        {group.items.map((item) => (
-          <NavItem
-            key={item.to}
-            item={item}
-            active={isActivePath(pathname, item.to, item.end)}
-            collapsed
-          />
-        ))}
+        {group.items
+          .flatMap((item) => [item, ...(item.children ?? [])])
+          .map((item) => (
+            <NavItem
+              key={item.to}
+              item={item}
+              active={isActivePath(pathname, item.to, item.end)}
+              collapsed
+            />
+          ))}
       </div>
     )
   }
@@ -472,6 +495,7 @@ function NavGroupSection({
                   item={item}
                   active={isActivePath(pathname, item.to, item.end)}
                   collapsed={false}
+                  pathname={pathname}
                 />
               ))}
             </div>
@@ -486,13 +510,21 @@ function NavItem({
   item,
   active,
   collapsed,
+  pathname,
 }: {
   item: NavItemDef
   active: boolean
   collapsed: boolean
+  pathname?: string
 }) {
   const count = item.badge ?? 0
   const hasBadge = count > 0
+
+  if (!collapsed && item.children && pathname !== undefined) {
+    return (
+      <NavItemWithChildren item={item} active={active} pathname={pathname} />
+    )
+  }
 
   const link = (
     <Link
@@ -528,6 +560,88 @@ function NavItem({
     <Tooltip content={label} side="right" disabled={!collapsed}>
       {link}
     </Tooltip>
+  )
+}
+
+/** Parent nav item with an expandable set of nested sub-pages (e.g. Resources). */
+function NavItemWithChildren({
+  item,
+  active,
+  pathname,
+}: {
+  item: NavItemDef
+  active: boolean
+  pathname: string
+}) {
+  const collapsedGroups = useUiStore((s) => s.collapsedNavGroups)
+  const toggleNavGroup = useUiStore((s) => s.toggleNavGroup)
+  const open = !collapsedGroups.includes(item.to)
+  const children = item.children ?? []
+
+  return (
+    <div>
+      <div className="relative">
+        <Link
+          to={item.to}
+          aria-current={active ? "page" : undefined}
+          className={cn(
+            "relative flex items-center gap-2.5 rounded-md py-2 pr-8 pl-2.5 text-sm text-(--color-text-muted) transition-colors hover:bg-(--bg-key) hover:text-(--color-text)",
+            active && "arc-active-indicator bg-(--bg-key) font-medium text-(--color-text)",
+          )}
+        >
+          <item.icon className="size-4 shrink-0 opacity-85" strokeWidth={1.65} />
+          <span className="truncate">{item.label}</span>
+        </Link>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`Toggle ${item.label} submenu`}
+          onClick={() => toggleNavGroup(item.to)}
+          className="absolute top-1/2 right-1 grid size-6 -translate-y-1/2 place-items-center rounded text-(--color-text-subtle) transition-colors hover:bg-(--bg-key) hover:text-(--color-text)"
+        >
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform duration-(--motion-fast)",
+              !open && "-rotate-90",
+            )}
+            aria-hidden
+          />
+        </button>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="sub-items"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mt-0.5 ml-[1.15rem] flex flex-col gap-0.5 border-l border-(--border-soft) pl-2">
+              {children.map((child) => {
+                const childActive = isActivePath(pathname, child.to, child.end)
+                return (
+                  <Link
+                    key={child.to}
+                    to={child.to}
+                    aria-current={childActive ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[0.8rem] text-(--color-text-muted) transition-colors hover:bg-(--bg-key) hover:text-(--color-text)",
+                      childActive && "bg-(--bg-key) font-medium text-(--color-text)",
+                    )}
+                  >
+                    <child.icon className="size-3.5 shrink-0 opacity-85" strokeWidth={1.65} />
+                    <span className="truncate">{child.label}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 

@@ -144,6 +144,24 @@ const resourcesRoute = createRoute({
   component: ResourcesPage,
 })
 
+const resourcesPluginsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/plugins",
+  component: () => <ResourcesPage fixedKind="mcp" />,
+})
+
+const resourcesSkillsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/skills",
+  component: () => <ResourcesPage fixedKind="skill" />,
+})
+
+const resourcesAgentsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/agents",
+  component: () => <ResourcesPage fixedKind="agent" />,
+})
+
 const secretsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/secrets",
@@ -195,6 +213,9 @@ const routeTree = rootRoute.addChildren([
     overviewRoute,
     membersRoute,
     resourcesRoute,
+    resourcesPluginsRoute,
+    resourcesSkillsRoute,
+    resourcesAgentsRoute,
     secretsRoute,
     rolesRoute,
     tagsRoute,

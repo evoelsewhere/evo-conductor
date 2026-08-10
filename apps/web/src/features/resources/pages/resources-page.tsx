@@ -54,10 +54,33 @@ const kindOptions = [
   { value: "all", label: "All types" },
   { value: "agent", label: "Agents" },
   { value: "skill", label: "Skills" },
-  { value: "mcp", label: "MCP servers" },
+  { value: "mcp", label: "Plugins" },
   { value: "workflow", label: "Workflows" },
   { value: "command", label: "Commands" },
 ] as const
+
+const kindLabels: Record<ResourceKind, string> = {
+  agent: "Agent",
+  skill: "Skill",
+  mcp: "Plugin",
+  workflow: "Workflow",
+  command: "Command",
+}
+
+const kindPageMeta: Partial<Record<ResourceKind, { title: string; subtitle: string }>> = {
+  mcp: {
+    title: "Plugins",
+    subtitle: "MCP servers published to EvoFlux clients, from draft to measurable outcomes.",
+  },
+  skill: {
+    title: "Skills",
+    subtitle: "Govern reusable skills from draft to measurable outcomes.",
+  },
+  agent: {
+    title: "Agents",
+    subtitle: "Govern agent definitions from draft to measurable outcomes.",
+  },
+}
 
 const statusOptions = [
   { value: "all", label: "All status" },
@@ -71,7 +94,7 @@ const resourceKindOptions = kindOptions.slice(1) as ReadonlyArray<{
   label: string
 }>
 
-export function ResourcesPage() {
+export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
   const qc = useQueryClient()
   const user = useAuthStore((state) => state.user)
   const canCreate = user?.primary_role === "admin" || user?.primary_role === "contribute"
@@ -80,7 +103,7 @@ export function ResourcesPage() {
     queryFn: () => api.resources(),
   })
   const [query, setQuery] = useState("")
-  const [kind, setKind] = useState<(typeof kindOptions)[number]["value"]>("all")
+  const [kind, setKind] = useState<(typeof kindOptions)[number]["value"]>(fixedKind ?? "all")
   const [status, setStatus] = useState<(typeof statusOptions)[number]["value"]>("all")
   const [showCreate, setShowCreate] = useState(false)
   const [selected, setSelected] = useState<ManagedResource | null>(null)
@@ -120,10 +143,16 @@ export function ResourcesPage() {
     )
   }
 
+  const meta = (fixedKind && kindPageMeta[fixedKind]) || {
+    title: "Resource catalog",
+    subtitle:
+      "Govern agents, skills, plugins and reusable workflows from draft to measurable outcomes.",
+  }
+
   return (
     <PageFrame
-      title="Resource catalog"
-      subtitle="Govern agents, skills, MCP servers and reusable workflows from draft to measurable outcomes."
+      title={meta.title}
+      subtitle={meta.subtitle}
       action={
         canCreate ? (
           <Button variant="gradient" onClick={() => setShowCreate(true)}>
@@ -151,7 +180,9 @@ export function ResourcesPage() {
             className="pl-8"
           />
         </div>
-        <Select value={kind} onValueChange={setKind} options={kindOptions} className="sm:w-40" />
+        {fixedKind === undefined && (
+          <Select value={kind} onValueChange={setKind} options={kindOptions} className="sm:w-40" />
+        )}
         <Select
           value={status}
           onValueChange={setStatus}
@@ -218,7 +249,7 @@ export function ResourcesPage() {
                     </div>
                   </TableTd>
                   <TableTd>
-                    <Badge className="capitalize">{resource.kind}</Badge>
+                    <Badge>{kindLabels[resource.kind]}</Badge>
                   </TableTd>
                   <TableTd>
                     <StatusBadge status={resource.status} />
@@ -253,6 +284,7 @@ export function ResourcesPage() {
 
       <CreateResourceDialog
         open={showCreate}
+        defaultKind={fixedKind}
         onClose={() => setShowCreate(false)}
         onCreated={(resource) => {
           setShowCreate(false)
@@ -318,14 +350,16 @@ function CatalogMetric({
 
 function CreateResourceDialog({
   open,
+  defaultKind,
   onClose,
   onCreated,
 }: {
   open: boolean
+  defaultKind?: ResourceKind
   onClose: () => void
   onCreated: (resource: ManagedResource) => void
 }) {
-  const [kind, setKind] = useState<ResourceKind>("agent")
+  const [kind, setKind] = useState<ResourceKind>(defaultKind ?? "agent")
   const [slug, setSlug] = useState("")
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -475,7 +509,7 @@ function ResourceWorkspace({
     <Dialog
       open
       title={resource.name}
-      description={`${resource.kind} · ${resource.slug} · v${resource.version}`}
+      description={`${kindLabels[resource.kind]} · ${resource.slug} · v${resource.version}`}
       onClose={onClose}
       className="sm:max-w-4xl"
     >
