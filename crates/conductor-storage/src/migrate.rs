@@ -1,8 +1,41 @@
+use conductor_domain::{TelemetryEventStatus, TelemetryEventType};
 use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
 
 /// Portable schema (TEXT ids, INTEGER flags) — works on SQLite, Postgres, MySQL.
 pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
+    let telemetry_table = format!(
+        r#"
+        CREATE TABLE IF NOT EXISTS telemetry_events (
+            id TEXT PRIMARY KEY NOT NULL,
+            user_id TEXT NOT NULL,
+            installation_id TEXT,
+            request_id TEXT,
+            session_id TEXT,
+            event_type TEXT NOT NULL DEFAULT '{}',
+            sequence INTEGER NOT NULL DEFAULT 0,
+            agent_name TEXT,
+            provider TEXT,
+            model TEXT,
+            tokens_in INTEGER NOT NULL DEFAULT 0,
+            tokens_out INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+            tool_use_tokens INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            tool_name TEXT,
+            tool_category TEXT,
+            status TEXT NOT NULL DEFAULT '{}',
+            error_category TEXT,
+            tool_calls INTEGER NOT NULL DEFAULT 0,
+            active_agents INTEGER NOT NULL DEFAULT 0,
+            reported_at TEXT NOT NULL,
+            received_at TEXT
+        )
+        "#,
+        TelemetryEventType::ModelCall.as_str(),
+        TelemetryEventStatus::Success.as_str(),
+    );
     let statements = [
         r#"
         CREATE TABLE IF NOT EXISTS instance (
@@ -222,18 +255,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             mcp_count INTEGER NOT NULL DEFAULT 0
         )
         "#,
-        r#"
-        CREATE TABLE IF NOT EXISTS telemetry_events (
-            id TEXT PRIMARY KEY NOT NULL,
-            user_id TEXT NOT NULL,
-            session_id TEXT,
-            tokens_in INTEGER NOT NULL DEFAULT 0,
-            tokens_out INTEGER NOT NULL DEFAULT 0,
-            tool_calls INTEGER NOT NULL DEFAULT 0,
-            active_agents INTEGER NOT NULL DEFAULT 0,
-            reported_at TEXT NOT NULL
-        )
-        "#,
+        telemetry_table.as_str(),
         "CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)",
         "CREATE INDEX IF NOT EXISTS idx_users_primary_role ON users(primary_role)",
         "CREATE INDEX IF NOT EXISTS idx_user_tags_tag ON user_tags(tag_id)",
@@ -255,6 +277,14 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
     }
 
     // Best-effort column upgrades for databases created before this revision.
+    let telemetry_event_type_alter = format!(
+        "ALTER TABLE telemetry_events ADD COLUMN event_type TEXT NOT NULL DEFAULT '{}'",
+        TelemetryEventType::ModelCall.as_str(),
+    );
+    let telemetry_status_alter = format!(
+        "ALTER TABLE telemetry_events ADD COLUMN status TEXT NOT NULL DEFAULT '{}'",
+        TelemetryEventStatus::Success.as_str(),
+    );
     let alters = [
         "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
@@ -270,9 +300,33 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE instance ADD COLUMN realtime_heartbeat_seconds INTEGER",
         "ALTER TABLE resources ADD COLUMN status TEXT NOT NULL DEFAULT 'published'",
         "ALTER TABLE resources ADD COLUMN published_at TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN installation_id TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN request_id TEXT",
+        telemetry_event_type_alter.as_str(),
+        "ALTER TABLE telemetry_events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE telemetry_events ADD COLUMN agent_name TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN provider TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN model TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE telemetry_events ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE telemetry_events ADD COLUMN tool_use_tokens INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE telemetry_events ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE telemetry_events ADD COLUMN tool_name TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN tool_category TEXT",
+        telemetry_status_alter.as_str(),
+        "ALTER TABLE telemetry_events ADD COLUMN error_category TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN received_at TEXT",
     ];
     for sql in alters {
         let _ = sqlx::query(sql).execute(pool).await;
+    }
+
+    for sql in [
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_user_time ON telemetry_events(user_id, reported_at)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_request ON telemetry_events(user_id, request_id)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_installation_time ON telemetry_events(installation_id, reported_at)",
+    ] {
+        sqlx::query(sql).execute(pool).await?;
     }
 
     // The columns may have been added just above for an older database.

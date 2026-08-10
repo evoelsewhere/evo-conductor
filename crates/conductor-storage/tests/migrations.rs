@@ -11,14 +11,9 @@ use conductor_storage::Db;
 use sqlx::Row;
 use support::test_database_url;
 
-/// The table REQ-014 must index. It currently has none.
-const UNINDEXED_TABLE: &str = "telemetry_events";
-
 const LIST_TABLES: &str = "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name";
 const LIST_INDEXES: &str =
     "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%' ORDER BY name";
-const COUNT_INDEXES_ON_TABLE: &str = "SELECT COUNT(*) FROM sqlite_master \
-     WHERE type = 'index' AND tbl_name = ? AND name LIKE 'idx_%'";
 
 async fn names(db: &Db, query: &str) -> Vec<String> {
     sqlx::query(query)
@@ -67,23 +62,4 @@ async fn migrations_create_the_declared_indexes() {
             "index `{expected}` missing; found {indexes:?}"
         );
     }
-}
-
-/// Records that `telemetry_events` has no index, so the gap REQ-014 must close
-/// is visible rather than assumed. Fails once the gap closes, which is the
-/// signal to delete this reminder.
-#[tokio::test]
-async fn telemetry_events_currently_has_no_index() {
-    let db = Db::connect(&test_database_url()).await.expect("connect");
-
-    let count: i64 = sqlx::query_scalar(COUNT_INDEXES_ON_TABLE)
-        .bind(UNINDEXED_TABLE)
-        .fetch_one(db.pool())
-        .await
-        .expect("count telemetry indexes");
-
-    assert_eq!(
-        count, 0,
-        "{UNINDEXED_TABLE} gained an index — REQ-014 is done, remove this reminder"
-    );
 }

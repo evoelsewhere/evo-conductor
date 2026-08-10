@@ -31,4 +31,7 @@ pub const INDEXES: &[&str] = &[
     "idx_client_installations_user_seen",
     "idx_client_installations_instance_seen",
     "idx_client_registration_replay_window",
+    "idx_telemetry_user_time",
+    "idx_telemetry_request",
+    "idx_telemetry_installation_time",
 ];
