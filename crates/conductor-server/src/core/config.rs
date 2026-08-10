@@ -28,7 +28,10 @@ impl Default for RealtimeConfig {
 
 impl RealtimeConfig {
     /// Applies limits saved in the database over the environment baseline.
-    pub fn with_overrides(mut self, overrides: &conductor_storage::repos::NetworkOverrides) -> Self {
+    pub fn with_overrides(
+        mut self,
+        overrides: &conductor_storage::repos::NetworkOverrides,
+    ) -> Self {
         if let Some(v) = overrides.realtime_max_connections {
             self.max_connections = v as usize;
         }

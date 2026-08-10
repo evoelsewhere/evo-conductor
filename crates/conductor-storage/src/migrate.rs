@@ -13,6 +13,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             bind_port INTEGER NOT NULL,
             public_url TEXT,
             logo_url TEXT,
+            collection_level TEXT NOT NULL DEFAULT 'L1',
             setup_completed INTEGER NOT NULL DEFAULT 0,
             jwt_secret TEXT NOT NULL,
             created_at TEXT NOT NULL,
@@ -107,6 +108,39 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             expires_at TEXT,
             revoked_at TEXT,
             created_at TEXT NOT NULL
+        )
+        "#,
+        r#"
+        CREATE TABLE IF NOT EXISTS client_installations (
+            id TEXT PRIMARY KEY NOT NULL,
+            instance_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            installation_key TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            evoflux_version TEXT NOT NULL,
+            workspace_association TEXT,
+            connected_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(instance_id, installation_key),
+            FOREIGN KEY(instance_id) REFERENCES instance(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        "#,
+        r#"
+        CREATE TABLE IF NOT EXISTS client_registration_idempotency (
+            instance_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            installation_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(instance_id, user_id, idempotency_key),
+            FOREIGN KEY(instance_id) REFERENCES instance(id),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(installation_id) REFERENCES client_installations(id)
         )
         "#,
         r#"
@@ -206,6 +240,9 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "CREATE INDEX IF NOT EXISTS idx_tag_assignments_entity ON tag_assignments(entity_type, entity_id)",
         "CREATE INDEX IF NOT EXISTS idx_tag_assignments_tag ON tag_assignments(tag_id)",
         "CREATE INDEX IF NOT EXISTS idx_user_sub_roles_role ON user_sub_roles(sub_role_id)",
+        "CREATE INDEX IF NOT EXISTS idx_client_installations_user_seen ON client_installations(user_id, last_seen_at)",
+        "CREATE INDEX IF NOT EXISTS idx_client_installations_instance_seen ON client_installations(instance_id, last_seen_at)",
+        "CREATE INDEX IF NOT EXISTS idx_client_registration_replay_window ON client_registration_idempotency(instance_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_resource_versions_resource ON resource_versions(resource_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_resource_access_subject ON resource_access_rules(subject_type, subject_id)",
         "CREATE INDEX IF NOT EXISTS idx_resource_usage_resource_time ON resource_usage_events(resource_id, occurred_at)",
@@ -227,6 +264,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE users ADD COLUMN approved_at TEXT",
         "ALTER TABLE users ADD COLUMN approved_by TEXT",
         "ALTER TABLE instance ADD COLUMN logo_url TEXT",
+        "ALTER TABLE instance ADD COLUMN collection_level TEXT NOT NULL DEFAULT 'L1'",
         "ALTER TABLE instance ADD COLUMN realtime_max_connections INTEGER",
         "ALTER TABLE instance ADD COLUMN realtime_max_per_secret INTEGER",
         "ALTER TABLE instance ADD COLUMN realtime_heartbeat_seconds INTEGER",

@@ -1,5 +1,6 @@
 mod access;
 mod auth;
+mod client;
 mod dashboard;
 mod health;
 mod realtime;
@@ -36,6 +37,10 @@ pub fn router() -> Router<AppState> {
         .route("/members", get(users::list).post(users::create))
         .route("/members/pending/count", get(users::pending_count))
         .route("/members/{id}", get(users::get).patch(users::update))
+        .route(
+            "/members/{id}/installations",
+            get(client::list_member_installations),
+        )
         .route("/members/{id}/approve", post(users::approve))
         .route("/members/{id}/disable", post(users::disable))
         .route("/members/{id}/enable", post(users::enable))
@@ -80,6 +85,8 @@ pub fn router() -> Router<AppState> {
             get(resources::feedback).put(resources::upsert_feedback),
         )
         .route("/v1/subscribe/resources", get(resources::subscribe))
+        .route("/v1/client/register", post(client::register))
+        .route("/v1/client/heartbeat", post(client::heartbeat))
         .route("/v1/usage/resources", post(resources::ingest_usage))
         .route("/v1/realtime/events", get(realtime::events))
 }

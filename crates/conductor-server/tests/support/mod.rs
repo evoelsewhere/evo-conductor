@@ -17,7 +17,7 @@
 #![allow(dead_code)]
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderMap, Request, StatusCode};
 use axum::Router;
 use conductor_auth::JwtService;
 use conductor_domain::core::constants::auth::{AUTH_SCHEME_BEARER, DEFAULT_JWT_TTL_HOURS};
@@ -151,6 +151,22 @@ impl TestApp {
             Some(body),
         )
         .await
+    }
+
+    pub async fn post_with_headers(
+        &self,
+        path: &str,
+        token: Option<&str>,
+        headers: HeaderMap,
+        body: Value,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder().method("POST").uri(path);
+        for (name, value) in headers {
+            if let Some(name) = name {
+                builder = builder.header(name, value);
+            }
+        }
+        self.send(builder, token, Some(body)).await
     }
 
     async fn send(

@@ -110,6 +110,8 @@ pub struct UpdateTagRequest {
 mod tests {
     use super::*;
 
+    type CapabilityCase = (&'static str, fn(PrimaryRole) -> bool, [bool; 3]);
+
     const ALL: [PrimaryRole; 3] = [
         PrimaryRole::Admin,
         PrimaryRole::Contribute,
@@ -134,7 +136,7 @@ mod tests {
     /// deliberate. Columns are admin, contribute, user.
     #[test]
     fn capability_matrix() {
-        let cases: [(&str, fn(PrimaryRole) -> bool, [bool; 3]); 6] = [
+        let cases: [CapabilityCase; 6] = [
             (
                 "manage_members",
                 PrimaryRole::can_manage_members,

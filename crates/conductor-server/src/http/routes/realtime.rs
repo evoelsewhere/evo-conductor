@@ -13,9 +13,9 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::time::{interval_at, Instant, MissedTickBehavior};
 use uuid::Uuid;
 
+use crate::core::state::AppState;
 use crate::http::extractors::authenticate_connection_secret;
 use crate::http::realtime::{RealtimeCapacityError, RealtimeSignal, PROTOCOL_NAME};
-use crate::core::state::AppState;
 
 pub async fn events(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let handshake = match state.realtime.try_begin_handshake() {
