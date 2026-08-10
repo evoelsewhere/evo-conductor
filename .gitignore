@@ -7,6 +7,8 @@ Cargo.lock
 node_modules/
 dist/
 apps/web/.vite/
+apps/web/test-results/
+apps/web/playwright-report/
 *.tsbuildinfo
 
 # Data / runtime
