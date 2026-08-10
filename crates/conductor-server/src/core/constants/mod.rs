@@ -3,3 +3,4 @@
 pub mod http;
 pub mod oidc;
 pub mod server;
+pub mod telemetry;
