@@ -4,7 +4,7 @@
 |---|---|
 | ID | REQ-015 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
+| Updated | 2026-08-11 |
 | Status | Draft |
 | Priority | P0 |
 | Build order | Step 11 of 23 |
@@ -72,6 +72,7 @@ using AI for, without turning Conductor into a system that reads people's work.
 | AC-8 | An automated test asserts that the field set visible to an administrator about a member is a subset of the field set visible to that member about themselves |
 | AC-9 | A plain-language explanation of what is and is not collected is available in the console to all members |
 | AC-10 | A schema test asserts that no telemetry or inventory field can carry conversation content, file content or credentials at L0 or L1 |
+| AC-11 | The personal transparency view shows the same Agent/Skill/Plugin attribution, timestamps, recorded role, request/model/tool outcomes, separated token counts, estimated-cost source and sanitized errors that an Admin can see about that member, while excluding prompt/response/reasoning and tool argument/result content |
 
 ## 6. Out of scope
 
@@ -88,6 +89,7 @@ using AI for, without turning Conductor into a system that reads people's work.
 | 2 | Gradual drift from L1 to L2 without an explicit decision | High | AC-5 makes L2 a governed action rather than a configuration flag |
 | 3 | Session titles unintentionally contain sensitive context | Medium | Allow members to edit or suppress a title before it is transmitted |
 | 4 | The personal view falls behind the administrator view and becomes an empty promise | Medium | AC-8 turns the principle into a test |
+| 5 | Detailed resource/request audit quietly expands into collection of work content | High | AC-10 and AC-11 define a metadata allowlist and symmetric view without payloads |
 
 ## 8. Open questions
 
@@ -103,3 +105,4 @@ using AI for, without turning Conductor into a system that reads people's work.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-11 | Extended personal transparency to the member/resource usage-audit fields required by REQ-016 | Codex |

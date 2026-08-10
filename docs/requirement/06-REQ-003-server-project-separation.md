@@ -39,7 +39,7 @@ present multi-project navigation.
 | Implemented | Missing | Incorrect |
 |---|---|---|
 | Project identity, branding and setup wizard ([setup.rs](../../crates/conductor-server/src/http/routes/setup.rs)) | `server_config` table | `bind_host` and `bind_port` are stored in the `instance` table ([migrate.rs:11-12](../../crates/conductor-storage/src/migrate.rs)) |
-| Single-project behaviour matching the V1 constraint | `projects` and `project_members` tables | `jwt_secret` is stored on the same row and read once at startup ([instance.rs:193](../../crates/conductor-storage/src/repos/instance.rs), [state.rs:27](../../crates/conductor-server/src/http/state.rs)) |
+| Single-project behaviour matching the V1 constraint | `projects` and `project_members` tables | `jwt_secret` is stored on the same row and read once at startup ([instance.rs:193](../../crates/conductor-storage/src/repos/instance.rs), [state.rs:35](../../crates/conductor-server/src/core/state.rs#L35)) |
 | | `project_id` on business tables | `UPDATE instance SET ...` is issued with no `WHERE` clause ([instance.rs:352](../../crates/conductor-storage/src/repos/instance.rs)) |
 | | | `sso_config` is a singleton addressed by `WHERE id = 1` |
 | | | `users.email`, `sub_roles.slug`, `tags.slug` and `resources(kind, slug)` are globally unique |
@@ -56,6 +56,7 @@ present multi-project navigation.
 | AC-6 | No write query executes without a determinate `WHERE` clause |
 | AC-7 | Observable behaviour is unchanged: one project, identical console, identical API responses |
 | AC-8 | Authentication regression tests for password sign-in and SSO sign-in pass unchanged |
+| AC-9 | Every resource, version, release-channel binding, access assignment, client installation, synchronization state and inventory row has a database-enforced project association; a cross-project foreign-key or lookup attempt is rejected rather than falling back to a global slug |
 
 ## 5. Out of scope
 
@@ -73,6 +74,7 @@ block that.
 | 1 | Touching the authentication layer breaks sign-in | High | AC-8; land [REQ-020](01-REQ-020-automated-testing-ci.md) authentication tests first |
 | 2 | Scope expands into building full multi-project support | Medium | Section 5 is binding: schema only, no UI |
 | 3 | Deferred, then performed later with live tokens and real data in place | High | This is precisely why the requirement is P0 |
+| 4 | A resource or client row is attached to the wrong project and becomes visible or installable across project boundaries | High | AC-4, AC-5 and AC-9 make project scope part of storage identity and authorization |
 
 ## 7. Open questions
 
@@ -85,3 +87,4 @@ block that.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-11 | Required database-enforced project ownership for resources, client synchronization state and inventory | Codex |

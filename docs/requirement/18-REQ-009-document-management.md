@@ -18,7 +18,7 @@
 ## 1. Context
 
 Projects need to distribute coding standards, architecture guidelines, security policies, migration
-rulebooks, onboarding instructions and MCP usage policies. These are the instructions that make an agent
+rulebooks, onboarding instructions and Plugin usage policies. These are the instructions that make an agent
 behave according to project conventions rather than generic defaults.
 
 EvoFlux already consumes this class of file, so the work is distribution and governance, not consumption.

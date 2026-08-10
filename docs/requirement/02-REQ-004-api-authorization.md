@@ -4,12 +4,12 @@
 |---|---|
 | ID | REQ-004 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
+| Updated | 2026-08-11 |
 | Status | Draft |
 | Priority | P0 |
 | Build order | Step 2 of 23 |
 | Spec section | [requirements.md sections 3 and 7](../requirements.md) |
-| Source | Baseline specification sections 3 and 7, plus code review 2026-08-09 |
+| Source | Baseline specification sections 3 and 7, code review 2026-08-09, project-owner usage-audit extension 2026-08-11 |
 | Depends on | none |
 | Blocks | REQ-008, REQ-016, V1 acceptance criteria 6 and 13 |
 | Repositories | `evo-conductor` |
@@ -50,6 +50,7 @@ explicitly rather than defaulted.
 | AC-6 | An authorization regression test exists for every endpoint against all three primary roles |
 | AC-7 | The console hides navigation entries and actions the current role cannot use, as a usability measure layered on top of server enforcement and never as a substitute for it |
 | AC-8 | Rejections caused by insufficient permission are recorded in the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
+| AC-9 | Admin can access another member's privacy-safe resource/request usage drill-down defined by [REQ-016](17-REQ-016-usage-aggregation-dashboards.md); a regular User receives `403` for another member and can retrieve the same fields only for themselves |
 
 ## 5. Out of scope
 
@@ -68,12 +69,14 @@ explicitly rather than defaulted.
 ## 7. Open questions
 
 - **Partly settled.** Acceptance criterion 11 in [requirements.md section 16](../requirements.md) states
-  that Admin views an individual member's tokens, tool usage and MCP usage, so Admin drill-down is
-  confirmed. What remains open is whether a Contributor also gets per-member drill-down or only
-  project-level totals. Recommendation: project totals only for Contributor.
+  that Admin audits an individual member's Agent/Skill/Plugin use, outcomes, model calls, tokens,
+  estimated cost and recorded role, so Admin drill-down is confirmed. What remains open is whether a
+  Contributor also gets per-member drill-down or only project-level totals. Recommendation: project
+  totals only for Contributor.
 
 ## History
 
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-11 | Required Admin member/resource usage drill-down while preserving self-only access for regular Users | Codex |

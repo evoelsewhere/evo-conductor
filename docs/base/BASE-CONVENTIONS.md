@@ -138,7 +138,12 @@ that states the exception explicitly and has been accepted.
 |---|---|
 | Project workspace | The single project served by one Conductor deployment in V1 |
 | Installation | One EvoFlux desktop install, identified independently of the member using it |
-| Resource | A distributable unit: agent, skill, MCP configuration, workflow, command, prompt template |
+| Resource | A distributable unit: agent, standalone skill, portable Agent Plugin package, workflow, command, prompt template |
+| Managed resource identity | The immutable tuple `(project_id, resource_id)` used by Conductor and EvoFlux; kind, slug, display name and local path are not identity |
+| Draft workspace | A mutable, server-owned source tree for one resource; Save updates this workspace but never changes a released artifact |
+| Resource version | An immutable snapshot built from a validated draft workspace and identified by a server-issued version ID, server-allocated or strictly validated SemVer, and SHA-256 digest |
+| Release channel | The audience of an immutable resource version: `beta` for explicitly selected members or `published` for all members allowed by the resource access policy |
+| Portable Agent Plugin | An Agent Plugins 1.0 package (`plugin.json`, optional `skills/*` and `mcp.json`) distributed as a `.evoplugin`/ZIP artifact; it is distinct from EvoFlux legacy Python hooks |
 | Document | A published project document, distinct from a resource and from a session artifact |
 | Connection token | An `evc_` prefixed scoped token used by EvoFlux, not a browser session |
 | Collection level | L0, L1 or L2 as defined in [REQ-015](../requirement/11-REQ-015-privacy-controls.md) |

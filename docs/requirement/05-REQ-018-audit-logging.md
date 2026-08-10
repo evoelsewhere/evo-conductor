@@ -4,7 +4,7 @@
 |---|---|
 | ID | REQ-018 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
+| Updated | 2026-08-11 |
 | Status | Draft |
 | Priority | P0 |
 | Build order | Step 5 of 23 |
@@ -45,20 +45,23 @@ identifier. Secrets shall never appear in the log.
 |---|---|
 | AC-1 | An `audit_events` table stores id, project, actor, action, target type, target id, timestamp, result, safe change summary, request correlation id and source address |
 | AC-2 | The log is append-only; no API path updates or deletes a record, including for Admin |
-| AC-3 | Coverage includes member created, approved, updated, enabled and disabled; role and tag assignment changes; token created and revoked; project settings changed; SSO configuration changed; resource published, updated, deprecated and archived; retention and telemetry policy changed |
+| AC-3 | Coverage includes member created, approved, updated, enabled and disabled; role and tag assignment changes; token created and revoked; project settings changed; SSO configuration changed; resource draft imported/saved, validation warnings acknowledged, Beta released/retargeted/promoted/retired, Published, updated, deprecated and archived; retention and telemetry policy changed |
 | AC-4 | Update actions record a before and after summary |
 | AC-5 | Secrets and raw passwords never appear; a redaction field list is enforced and tested |
 | AC-6 | Admin can view and filter by actor, action type, target and date range |
 | AC-7 | Records can be exported as CSV |
 | AC-8 | Actions rejected for insufficient permission are recorded, since repeated rejections indicate permission probing |
-| AC-9 | Viewing another member's individual usage data is itself recorded, once per-member drill-down exists |
+| AC-9 | Viewing another member's individual usage data or request detail is itself recorded with viewer, target member, timestamp, route and safe filter summary; the audit record never copies the usage values or any work content |
 | AC-10 | A failure to write an audit record does not silently succeed: it raises a visible error and does not roll back the primary action |
 | AC-11 | The correlation identifier links an audit record to the originating request across log lines |
 
 ## 5. Out of scope
 
-- Usage auditing, meaning who used which model for what, which is a different concern covered by
-  [REQ-016](17-REQ-016-usage-aggregation-dashboards.md) and [REQ-015](11-REQ-015-privacy-controls.md).
+- Usage auditing, meaning which member used which Agent/Skill/Plugin/model/tool, when and how much, is a
+  different concern covered by [REQ-014](15-REQ-014-telemetry-ingestion.md),
+  [REQ-016](17-REQ-016-usage-aggregation-dashboards.md) and
+  [REQ-015](11-REQ-015-privacy-controls.md). This append-only log records access to that view, not a
+  duplicate copy of every usage event.
 - Forwarding to an external SIEM. Reconsider at P2.
 - Cryptographic tamper-evidence. Reconsider at P2.
 
@@ -83,3 +86,5 @@ identifier. Secrets shall never appear in the log.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-11 | Added Resource Studio import/validation and Beta-channel actions to mandatory audit coverage | Codex |
+| 2026-08-11 | Clarified usage analytics versus administrative audit and required privacy-safe logging of cross-member drill-down reads | Codex |

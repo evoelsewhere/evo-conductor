@@ -30,6 +30,7 @@ approved. No code is written without a task.
 | [base/TEMPLATE-TASK.md](base/TEMPLATE-TASK.md) | Template for every `TSK`, including the mandatory test matrix |
 | [requirements.md](requirements.md) | Source specification. Every `REQ` references back to a section of it |
 | [architecture.md](architecture.md) | Current layering of the codebase |
+| [resource-authoring-guide.md](resource-authoring-guide.md) | Normative Agent/Skill/Plugin structure, ZIP validation, editor and Draft/Beta/Publish behavior for Resource Studio |
 
 ## Requirement register — in build order
 
@@ -65,8 +66,8 @@ That test fails on `user`, which is the evidence for step 2. Step 2 is then a fo
 
 | Step | ID | Title | Priority | Depends on | Status |
 |---|---|---|---|---|---|
-| 9 | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) | Resource model, versioning and lifecycle | P0 | 001, 004, 018 | Draft |
-| 10 | [REQ-008](requirement/10-REQ-008-resource-access-policy.md) | Resource access policy | P0 | 004, 007 | Draft |
+| 9 | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) | Resource model, versioning and lifecycle | P0 | 001, 004, 018 | **Accepted · design draft** |
+| 10 | [REQ-008](requirement/10-REQ-008-resource-access-policy.md) | Resource access policy | P0 | 004, 007 | **Accepted · coordinated design draft** |
 
 ### Phase 3 — Client integration. This is the vertical slice that proves the whole thesis
 
@@ -74,11 +75,22 @@ That test fails on `user`, which is the evidence for step 2. Step 2 is then a fo
 |---|---|---|---|---|---|
 | 11 | [REQ-015](requirement/11-REQ-015-privacy-controls.md) | Privacy controls and collection levels | P0 | 004 | Draft |
 | 12 | [REQ-011](requirement/12-REQ-011-client-registration.md) | Client registration and connection | P0 | 001, 006, 015 | **Accepted · implementation in review** |
-| 13 | [REQ-012](requirement/13-REQ-012-resource-sync-client.md) | Resource synchronization client | P0 | 007, 008, 011 | Draft |
-| 14 | [REQ-013](requirement/14-REQ-013-inventory-synchronization.md) | Inventory synchronization | P0 | 001, 011 | Draft |
+| 13 | [REQ-012](requirement/13-REQ-012-resource-sync-client.md) | Resource synchronization client | P0 | 007, 008, 011 | **Accepted · coordinated design draft** |
+| 14 | [REQ-013](requirement/14-REQ-013-inventory-synchronization.md) | Inventory synchronization | P0 | 001, 011 | **Accepted · coordinated design draft** |
 
 REQ-015 precedes REQ-011 because registration must return the active collection level
 (REQ-011 AC-5), which cannot be returned before it is defined.
+
+### Owner-selected next epic — governed resource delivery
+
+On 2026-08-11 the project owner selected Conductor-to-EvoFlux delivery of agents, standalone Skills and
+Portable Agent Plugins as the next product slice. The governing requirements are REQ-007, REQ-008,
+REQ-012 and REQ-010. REQ-012 may deliver and stage an executable package, but REQ-010's local trust gate
+must be included before the package can be reported active. REQ-013 then records desired-versus-observed
+version and trust state. The slice now also includes EvoFlux-compatible Agent/Skill/Plugin guides,
+template or safe ZIP-to-Draft creation, Monaco editing, structured validation and an explicit-member Beta
+channel with Published fallback. This priority note does not bypass the requirement acceptance and design
+approval gates.
 
 ### Lifecycle exception and implementation reconciliation
 
@@ -109,7 +121,7 @@ sixteen criteria are achievable at that point.
 | Step | ID | Title | Priority | Depends on | Status |
 |---|---|---|---|---|---|
 | 18 | [REQ-009](requirement/18-REQ-009-document-management.md) | Project document management | P1 | 001, 006, 007, 008 | Draft |
-| 19 | [REQ-010](requirement/19-REQ-010-mcp-distribution-safety.md) | MCP distribution safety | P1 | 007, 012 | Draft |
+| 19 | [REQ-010](requirement/19-REQ-010-plugin-distribution-safety.md) | Plugin distribution safety | P0 | 007, 012 | **Accepted · coordinated design draft** |
 | 20 | [REQ-017](requirement/20-REQ-017-cost-estimation.md) | Cost estimation and budget alerts | P1 | 014, 016 | Draft |
 | 21 | [REQ-019](requirement/21-REQ-019-data-retention.md) | Data retention | P1 | 014, 016, 018 | Draft |
 | 22 | [REQ-022](requirement/22-REQ-022-model-access-policy.md) | Model access policy | P2 | 007, 012, 016 | Draft |
@@ -138,6 +150,7 @@ requirement it depends on still precedes it.
 | Step | ID | Requirement | Status |
 |---|---|---|---|
 | 01 | [DES-020](design/01-DES-020-automated-testing-ci.md) | REQ-020 | Draft · partial implementation reconciliation |
+| 09 | [DES-007](design/09-DES-007-governed-resource-delivery.md) | REQ-007 plus REQ-008/010/012/013 | **Approved · implementation authorized** |
 | 12 | [DES-011](design/12-DES-011-client-registration.md) | REQ-011 | Draft · as-built reconciliation |
 
 ## Task register
@@ -154,6 +167,18 @@ requirement it depends on still precedes it.
 | [TSK-011-03](task/12-REQ-011-client-registration/TSK-011-03-evoflux-connection-service.md) | EvoFlux | Implement EvoFlux connection service | In Review |
 | [TSK-011-04](task/12-REQ-011-client-registration/TSK-011-04-evoflux-connection-ui.md) | EvoFlux FE | Build the EvoFlux connection experience | In Review |
 | [TSK-011-05](task/12-REQ-011-client-registration/TSK-011-05-console-installations.md) | FE | Show installations in the Conductor console | In Review |
+| [TSK-007-01](task/09-REQ-007-governed-resource-delivery/TSK-007-01-project-resource-schema.md) | BE | Add project-scoped resource schema and domain | Todo |
+| [TSK-007-02](task/09-REQ-007-governed-resource-delivery/TSK-007-02-draft-import-validation.md) | BE | Build safe Draft import and validation | Todo |
+| [TSK-007-03](task/09-REQ-007-governed-resource-delivery/TSK-007-03-plugin-artifact-store.md) | BE | Add immutable Plugin artifact storage | Todo |
+| [TSK-007-04](task/09-REQ-007-governed-resource-delivery/TSK-007-04-release-versioning.md) | BE | Implement transactional release versioning | Todo |
+| [TSK-007-05](task/09-REQ-007-governed-resource-delivery/TSK-007-05-effective-audience.md) | BE | Resolve access and Beta audience | Todo |
+| [TSK-007-06](task/09-REQ-007-governed-resource-delivery/TSK-007-06-change-feed.md) | BE | Expose cursor changes and artifacts | Todo |
+| [TSK-007-07](task/09-REQ-007-governed-resource-delivery/TSK-007-07-resource-studio-ui.md) | FE | Build Resource Studio and release UI | Todo |
+| [TSK-007-08](task/09-REQ-007-governed-resource-delivery/TSK-007-08-evoflux-managed-state.md) | EvoFlux | Persist managed state and reconcile Agent/Skill | Todo |
+| [TSK-007-09](task/09-REQ-007-governed-resource-delivery/TSK-007-09-evoflux-plugin-trust.md) | EvoFlux | Integrate Plugin staging and trust | Todo |
+| [TSK-007-10](task/09-REQ-007-governed-resource-delivery/TSK-007-10-evoflux-sync-ui.md) | EvoFlux FE | Build sync, diff and trust UI | Todo |
+| [TSK-007-11](task/09-REQ-007-governed-resource-delivery/TSK-007-11-inventory-ingestion.md) | BE | Ingest desired-versus-observed inventory | Todo |
+| [TSK-007-12](task/09-REQ-007-governed-resource-delivery/TSK-007-12-cross-repo-proof.md) | Infra/QA | Prove cross-repo security and convergence | Todo |
 
 ## Implementation review snapshot — 2026-08-10
 
@@ -161,4 +186,4 @@ requirement it depends on still precedes it.
 |---|---|---|
 | REQ-011 | Registration, idempotency, heartbeat, OS credential vault, connection UI and member installations | Merge both PRs; PostgreSQL proof; connection Playwright coverage and DES-011 approval |
 | REQ-014 | Privacy-safe event schema, scoped/idempotent batch ingestion, durable bounded outbox, indexes and retry after transient failure | Complete the specified event dimensions, report dropped events, classify permanent batch failures and load-test replay bursts |
-| REQ-016 | Per-member overview, token/model charts, activity/request audit, tool analytics, date filters and member-token management | Add the aggregate table/job, project/team/tag/resource/MCP views, server-time aggregation and a measured performance target |
+| REQ-016 | Per-member overview, token/model charts, activity/request audit, tool analytics, date filters and member-token management | Add the aggregate table/job, project/team/tag/resource/Plugin views, server-time aggregation and a measured performance target |

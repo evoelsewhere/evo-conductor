@@ -2,11 +2,14 @@
 
 | | |
 |---|---|
-| Version | 2.0 |
+| Version | 2.6 |
 | Created | 2026-08-09 |
+| Updated | 2026-08-11 |
 | Status | Draft, pending acceptance |
 | Baseline | Product specification supplied by the project owner, 2026-08-09 |
-| Code reviewed | `evo-conductor` at `18d9fe1`, `evoflux` at branch `thangtq42` |
+| Baseline code reviewed | `evo-conductor` at `18d9fe1`, `evoflux` at branch `thangtq42` |
+| Plugin/sync extension reviewed | `evo-conductor` at `f2f7320`, `evoflux` at `919d8ede`, 2026-08-11 |
+| Authoring/ZIP/editor review | `evoflux` at `a671d344`: Agent, Skill, Plugin validator/installer/workspace and Monaco editor sources, 2026-08-11 |
 
 This document is the source specification. Every statement under "Implementation status" was verified by
 reading the referenced file and line; nothing in those subsections is inferred. Sections marked
@@ -23,7 +26,8 @@ Evo Conductor shall be the centralized control plane for a software project whos
 Each project shall have a shared Conductor workspace where authorized users can:
 
 - Manage project members and access.
-- Distribute approved agents, skills, MCP servers, workflows, commands, and documents.
+- Distribute approved Agents, standalone Skills, Portable Agent Plugins, workflows,
+  commands, and documents.
 - Monitor EvoFlux adoption, usage, tool activity, and connected installations.
 - Define project-wide policies and configuration.
 - Review audit history without automatically collecting sensitive source code or conversations.
@@ -46,7 +50,7 @@ ever serve one project:
   configuration are the same record.
 - `jwt_secret` is also stored on that row and read once at startup with `LIMIT 1`
   ([instance.rs:193](../crates/conductor-storage/src/repos/instance.rs),
-  [state.rs:27](../crates/conductor-server/src/http/state.rs)); there is one signing key per process.
+  [state.rs:35](../crates/conductor-server/src/core/state.rs#L35)); there is one signing key per process.
 - `sso_config` is a hardcoded singleton row addressed by `WHERE id = 1`.
 - `UPDATE instance SET ...` is issued with no `WHERE` clause
   ([instance.rs:352](../crates/conductor-storage/src/repos/instance.rs)).
@@ -62,6 +66,8 @@ production data, the following should be done now even though V1 remains single-
 - Move `jwt_secret`, `bind_host` and `bind_port` out of `instance` into a separate `server_config` table.
 - Keep user identity global, so one person can later belong to several projects with one account.
 - Add `project_id` to the business tables while they are still empty.
+- Treat `(project_id, resource_id)` as managed resource identity across Conductor manifests, EvoFlux
+  ownership state, local managed namespaces and inventory; never infer project ownership from slug.
 - Do not build multi-project navigation or UI.
 
 See [REQ-003](requirement/06-REQ-003-server-project-separation.md).
@@ -142,8 +148,8 @@ A User shall be able to:
 Sub-roles such as `developer`, `business-analyst`, and `tester` shall support project-specific
 classification.
 
-Tags shall support grouping entities such as members, agents, skills, MCP servers, documents, teams and
-environments.
+Tags shall support grouping entities such as members, Agents, Skills, Plugins,
+documents, teams and environments.
 
 Sub-roles and tags shall become usable in resource access policies, not remain display-only metadata.
 
@@ -275,62 +281,189 @@ Conductor shall support these resource types:
 
 - Agent
 - Skill
-- MCP configuration
+- Portable Agent Plugin package (`plugin.json`, optional `skills/*` and `mcp.json`)
 - Workflow
 - Command
 - Document or project policy
 - Optional reusable prompt/template
 
-Each resource shall contain a stable ID and slug, name and description, resource type, semantic version,
-payload or artifact reference, content checksum, owner and publisher, visibility, lifecycle status
-(`draft`, `published`, `deprecated`, `archived`), created and updated timestamps, access policy, tags,
-and change notes.
+Each resource shall contain an immutable server-issued project ID and resource ID plus a project-scoped
+slug, name and description, resource type, owner, visibility, lifecycle status (`draft`, `published`,
+`deprecated`, `archived`), created and updated timestamps, access policy and tags. Each resource shall
+also have one mutable source Draft. Each
+immutable version shall contain its own server-issued version ID, semantic version, payload or artifact
+reference, content checksum, publisher and change notes. Separate release-channel bindings select one
+active `beta` version and one active `published` version; a released version with no active binding is
+`deprecated` for distribution purposes.
 
-Admin and Contributor users shall be able to create a draft, validate its payload, publish a version,
-update or deprecate a resource, view version history, roll back to a previous version, and see which
-EvoFlux installations have synchronized it.
+Admin and Contributor users shall be able to create a draft, validate its payload, update or deprecate a
+resource, view version history, roll back to a previous version, and see which EvoFlux installations have
+synchronized it. Contributors may publish non-executable resources they own; only Admin may publish
+executable Plugin versions under [REQ-010](requirement/19-REQ-010-plugin-distribution-safety.md).
 
-EvoFlux shall only receive published resources that match the current user's access policy.
+EvoFlux shall receive only the server-resolved released version that matches the current user's access
+policy: active Beta for an explicitly selected eligible member, otherwise active Published. Beta may
+only narrow normal access and never grant it.
+
+A Portable Agent Plugin shall be the first-class `plugin` resource. Its
+immutable version shall reference a `.evoplugin`/ZIP artifact and record package name/version, Agent
+Plugins schema version, artifact size, SHA-256 digest and minimum compatible EvoFlux version. Conductor
+shall never store plugin credential values or mutable installation data in the published artifact.
+
+### Addition — EvoFlux-compatible authoring, ZIP import and Beta release
+
+Conductor shall provide a versioned, kind-specific guide and downloadable starter template for Agent,
+standalone Skill and Portable Agent Plugin resources. The guide shall follow the formats parsed by
+EvoFlux rather than inventing a Conductor-only shape:
+
+- Agent: one Markdown file with YAML frontmatter and system-prompt body. The supported fields mirror
+  EvoFlux `AgentConfig`; the frontmatter name matches the resource slug.
+- Skill: a bundle rooted at `SKILL.md` with portable `name` and `description` frontmatter, non-empty
+  instructions and optional `agents/`, `references/`, `scripts/`, `assets/` and `evals/` files.
+- Plugin: an Agent Plugins 1.0 directory rooted at `plugin.json`, optional immediate-child
+  `skills/<name>/SKILL.md` and optional root `mcp.json`; `.evoplugin` is a deterministic ZIP wrapper.
+
+An author shall be able to start from a template, upload a direct source supported for the kind, or
+upload ZIP; plugin also accepts `.evoplugin`. Conductor shall quarantine and safely inspect the archive,
+reject traversal/absolute paths, duplicate or case-fold collisions, symlinks, unsupported entries and
+archive bombs, normalize at most one wrapper directory, then extract regular files into a server-owned
+Draft workspace. It shall never extract into its source tree, accept an absolute editor root or execute
+package code during inspection.
+
+A safely extracted package that does not match the guide shall open in the editor with structured
+errors/warnings containing file, line/field where possible, fix guidance and guide links. Archive-safety
+errors reject the import entirely. Content errors allow Save but block Beta and Publish. Probable embedded
+credential values also block release and are masked in diagnostics and logs.
+
+Resource Studio shall follow EvoFlux's code-authoring behavior: Monaco, responsive file tree, syntax by
+file type, dirty/saved/error state, `Ctrl/Cmd+S`, create/rename/delete, unsaved-navigation protection,
+validation and jump-to-diagnostic. UTF-8 text is editable; binary assets remain visible but are not
+decoded. All paths and file/total sizes are bounded and enforced by the Rust API.
+
+Save only updates the mutable Draft. Beta and Publish build deterministic bytes from the last fully saved
+valid Draft, compute SHA-256, create immutable versions and bind them to a release channel. Editing a
+released version creates a new Draft. V1 supports at most one active Beta and one active Published
+version per resource. Beta targets a
+non-empty explicit set of active, policy-eligible member IDs. Selected members receive Beta; other
+eligible members receive Published. Removing a selection falls back to Published or produces a tombstone
+when no Published version exists. Promotion points Published at the same immutable version ID, retires
+the Beta binding, preserves bytes/digest and is audited.
+
+### Addition — server-owned automatic version increments
+
+Creating a new immutable Beta or direct Published version from a saved Draft shall allocate its semantic
+version on the server. The default is `auto`: first release `0.1.0`, then the next greater patch version
+from the highest SemVer precedence already allocated for that resource. Save, validation, Beta audience
+changes, deprecation and archive do not increment. Beta-to-Published promotion preserves the same version
+ID/version/bytes; publishing older content as rollback creates a new greater version.
+
+Resource Studio shows the highest and next version and offers `Auto` or `Manual`. Manual input must be
+strict SemVer 2.0, unique and greater in precedence than every allocated version; invalid prefixes,
+whitespace, missing components, leading zeroes, malformed identifiers and equal/lower versions are
+rejected with a field error. The server recalculates and allocates transactionally so failure consumes no
+number and concurrent/stale releases cannot duplicate or skip silently.
+
+For Plugin releases, `plugin.json.version`, the immutable resource version and the packaged artifact
+must match. Auto mode previews and atomically applies the manifest change before final validation and
+digesting; manual mode requires an exact match. A failed release leaves both Draft and version history
+unchanged.
+
+Guide templates and validation shall share cross-repository fixtures: every documented valid starter
+passes both Conductor and the corresponding EvoFlux parser/validator.
+
+### Addition — stable version discovery, diff and pull semantics
+
+Conductor shall expose authorized desired-state changes using an opaque cursor. The response envelope
+shall carry `schema_version`, authenticated `project_id`, `next_cursor`, `has_more` and ordered `changes`;
+the client follows pages until `has_more` is false. Every change shall repeat the matching project ID and
+carry stable server-issued resource ID, immutable version ID, resource kind and slug, semantic version,
+server-resolved release channel (`beta` or `published`),
+applicable content or artifact SHA-256 and size, minimum
+compatible EvoFlux version, trust requirement and tombstone state. Slug and semantic-version ordering
+are not reconciliation identity: Conductor may intentionally roll back by publishing prior content as a
+new immutable version.
+
+EvoFlux shall persist managed state by `(project_id, resource_id)`, including desired/applied version IDs, semantic
+version, release channel, last applied digest, ownership marker, managed local target, plugin installation
+ID when applicable, reconciliation state and committed cursor. It shall skip identical content, update
+metadata without rewriting when only version identity or channel changed, and download a complete changed payload/artifact
+into staging before digest verification, validation and atomic replacement. V1 does not use binary delta
+patches.
+
+Before replacement, EvoFlux shall compare the actual local digest with its last applied digest. A
+mismatch, or a same-kind/same-slug local object without matching ownership state, is an
+`ownership_conflict`; the user-owned object is neither adopted nor overwritten. Text resources shall
+offer canonical content/file diff. Plugin review shall show manifest, file inventory, contributed Skills,
+declared tool servers and executable trust-surface changes. Credentials, environment values and raw package
+bytes remain local and are not included in reports.
+
+The client shall commit the next cursor only after every returned change has been recorded durably as
+applied, pending trust/update, removed, conflict, declined or incompatible. Interrupted work is replayed
+idempotently. Archive, unassignment and loss of access are represented by tombstones that can remove or
+disable only the matching Conductor-owned object.
+
+### Addition — project-aware EvoFlux ownership and isolation
+
+Every Conductor-managed Agent, standalone Skill and Plugin in EvoFlux shall retain its delivering
+`project_id` in local ownership metadata, managed state, local namespace, Plugin installation mapping and
+inventory. The managed logical root is keyed by the immutable project ID, not project slug or resource
+name. The UI shows the connected project name and exposes the stable project ID in resource details or
+diagnostics.
+
+V1 still permits one active Conductor project per EvoFlux installation. If a member replaces the token
+with one for another project, EvoFlux shall register the new project first, disable or unmount the old
+project's managed resources, and reconcile into a separate project namespace. Cached old-project content
+may remain for rollback but cannot be discovered, activated, updated, removed or reported under the new
+project. A manifest, artifact or tombstone whose project ID does not match registration is rejected
+without advancing the cursor. Cross-repository tests shall use identical Agent, Skill and Plugin slugs in
+two projects and prove complete pull, runtime, inventory and removal isolation.
 
 ### Implementation status
 
-The domain types exist ([resource.rs](../crates/conductor-domain/src/resource.rs)) and `payload` is a
-free-form JSON value stored as `TEXT`, so it can already carry a Markdown agent definition with no schema
-change.
+The current Conductor source now implements resource/version write paths, publication, archive, access
+policy, monitoring and feedback operations
+([resource.rs](../crates/conductor-storage/src/repos/resource.rs),
+[resources.rs](../crates/conductor-server/src/http/routes/resources.rs)). EvoFlux also has a portable
+plugin validator, installer, atomic update path, registry and trust-review model
+([installer.py](../../evoflux/app/plugin_platform/installer.py),
+[trust.py](../../evoflux/app/plugin_platform/trust.py)).
 
-Everything else in this section is missing. `ResourceRepo` has exactly one method, `list()`
-([resource.rs](../crates/conductor-storage/src/repos/resource.rs)). There is no write path of any kind,
-so the `resources` table is permanently empty. The console already promises the opposite: the empty state
-reads "Contribute role can also publish shared packages"
-([resources-page.tsx:38](../apps/web/src/features/resources/pages/resources-page.tsx)).
+The remaining plugin-specific gap is cross-repo rather than a missing local runtime:
 
-Specific gaps against the requirement text:
+- Conductor `ResourceKind` has no `Plugin` variant
+  ([resource.rs:7-13](../crates/conductor-domain/src/resource.rs)).
+- The console currently maps a legacy technical `mcp` kind to the Plugins label instead of implementing
+  Portable Agent Plugin artifacts
+  ([resources-page.tsx:53-73](../apps/web/src/features/resources/pages/resources-page.tsx)).
+- Conductor has no immutable binary artifact storage/download contract or Agent Plugins package
+  validation.
+- EvoFlux's Conductor manifest still accepts a legacy technical `mcp` kind and does not hand `plugin`
+  artifacts to the existing Plugin installer ([models.py:11](../../evoflux/app/conductor/models.py)).
 
-- No lifecycle status column. Nothing distinguishes draft from published.
-- No checksum, no change notes, no publisher field.
-- `UNIQUE(kind, slug)` plus a single `version` column means an update **overwrites** the previous
-  content. There is no history and no rollback.
-- `ResourceKind::Command` exists in the enum but is not counted in `ResourceCounts`, which counts only
-  agents, skills, mcp and workflows. This is a small defect, but it is the exact failure mode to expect
-  when new resource types are added faster than the layers beneath them.
+Version allocation is also incomplete across all resource kinds. The console calculates `nextPatch`
+only in React and the API accepts a caller-supplied version after a partial `major.minor.patch` check;
+allocation is not server-owned, precedence-aware or concurrency-safe
+([resources-page.tsx:664](../apps/web/src/features/resources/pages/resources-page.tsx),
+[resources.rs:126](../crates/conductor-server/src/http/routes/resources.rs)).
 
 ### Addition — validate payload size at publish time
 
-EvoFlux truncates instruction content at 128 KB
-([workspace_instructions.py:25](../../evoflux/app/agent/hooks/workspace_instructions.py)) and at 64 KB for
-per-repository `AGENTS.md` ([multi_repo_context.py:16](../../evoflux/app/agent/hooks/multi_repo_context.py)).
-Truncation happens silently on the member's machine. If Conductor does not reject oversized payloads at
-publish time, an administrator will never learn that half of a published document is being discarded.
+EvoFlux truncates each injected `AGENTS.md`/instruction file at 128 KiB
+([workspace_instructions.py:25](../../evoflux/app/agent/hooks/workspace_instructions.py)); its Skill and
+Plugin validators apply their own file and package limits. Truncation happens on the member's machine. If
+Conductor does not reject kind-specific oversized payloads at release time, an administrator will never
+learn that part of a released resource is being discarded or that EvoFlux will reject its artifact.
 
-### Addition — MCP requires a stricter path than other resource types
+### Addition — Plugins require a stricter path
 
-An MCP server definition contains an executable command. Distributing MCP configuration to member
-machines is remote code execution by configuration. A bad prompt degrades answers; a bad MCP definition
-starts an unknown process on every machine in the project. These two cases must not share a trust level
-even though they share a table.
+A Portable Agent Plugin may include technical `mcp.json` declarations, scripts and remote hosts.
+Distributing it to member machines can become remote code execution by configuration. A bad prompt
+degrades answers; a bad executable Plugin starts an unknown process on every machine in the project.
+Plugins must not share the trust level of text resources. Delivery may stage a package, but activation
+requires EvoFlux's local static trust review and explicit member confirmation. Credentials stay local.
 
 See [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) and
-[REQ-010](requirement/19-REQ-010-mcp-distribution-safety.md).
+[REQ-010](requirement/19-REQ-010-plugin-distribution-safety.md).
 
 ---
 
@@ -342,7 +475,7 @@ members.
 Example:
 
 ```
-Resource: production-database-mcp
+Resource: production-database-plugin
 Allowed primary roles: admin, contribute
 Required tags: backend
 Excluded users: contractors
@@ -368,8 +501,9 @@ See [REQ-008](requirement/10-REQ-008-resource-access-policy.md).
 
 EvoFlux shall periodically report its local project inventory: EvoFlux version, operating system,
 installation or device identifier, last connection time, active local workspace identifier, installed or
-synchronized agents, installed skills, configured MCP servers, workflow versions, and resource sync
-errors.
+synchronized Agents, standalone Skills, Plugin resource/version/digest and non-sensitive trust state,
+workflow versions, and resource sync errors. The report and every managed resource row retain the
+authenticated project ID; idempotency and desired-versus-observed joins use project-scoped keys.
 
 The inventory endpoint shall support idempotent updates so repeated heartbeats do not create duplicate
 records.
@@ -399,20 +533,50 @@ See [REQ-013](requirement/14-REQ-013-inventory-synchronization.md).
 ## 9. Usage and telemetry
 
 EvoFlux shall send batched telemetry containing: user ID derived from the connection token, installation
-ID, session ID, local project or workspace ID, model provider and model identifier, input and output
-token counts, estimated or reported cost, tool name and category, MCP server and MCP tool name, tool-call
-status and duration, number of active agents, session start and end timestamps, error category, and
-EvoFlux version.
+ID, session/request/run/event correlation, local project or workspace ID, model provider and requested or
+response model identifier, input/output/cache/reasoning/tool-use token counts, estimated or reported cost
+with provenance, tool name and category, Agent/Skill/Plugin project/resource/version/relation identity,
+Plugin installation and contributed Skill/tool identity, request/model/tool status and duration, active
+agents, session start/end, sanitized error category, and EvoFlux version.
 
 Telemetry events shall support client-generated event IDs, idempotent ingestion, batch submission, retry
 after temporary network failure, configurable retention, and server-side aggregation.
+
+### Addition — auditable member/resource usage without work content
+
+One user request can activate an Agent and several Skills, execute Plugin-contributed tools, and make
+several model calls or retries. The wire and storage model shall preserve separate request, run, model
+call, tool call and resource-attribution grains. Requests count distinct terminal `request_id`; model
+calls and retries count their own events; token and estimated-cost totals sum model-call facts once;
+request success/error comes from the terminal request; tool success/error comes from each tool call.
+
+Every governed resource reference uses `(project_id, resource_id, version_id)` plus kind and attribution
+relation. Member/project identity and the primary-role/sub-role/tag snapshot are derived from authenticated
+server state, not client claims. An identical local or cross-project name is not attributed to a governed
+resource. Project totals count each request/model/tool fact once; per-resource attribution may overlap and
+must say so rather than adding Agent, Skill and Plugin totals together.
+
+This metadata shall answer who used which resource/version, when it was reported and received, from which
+installation, with which model/tool calls, tokens, estimate, duration and outcome. It shall not contain
+prompts, responses, reasoning text, tool arguments/results, file contents/paths or credentials.
 
 ### Implementation status
 
 A `telemetry_events` table exists but carries only `tokens_in`, `tokens_out`, `tool_calls`,
 `active_agents` and `reported_at` ([migrate.rs:133-143](../crates/conductor-storage/src/migrate.rs)).
-It has no tool name, no model, no installation, no session times and no error category. There is no
-ingestion endpoint, no aggregation, and no client.
+It has no tool name, no model, no installation, no session times and no error category.
+
+A separate catalog path now accepts `resource_usage_events` with resource ID, semantic-version string,
+member derived from token, session, outcome, duration, input/output tokens and reported/received times
+([resource.rs:427](../crates/conductor-storage/src/repos/resource.rs),
+[resources.rs:283](../crates/conductor-server/src/http/routes/resources.rs)). It has no immutable version
+ID, project identity, Agent/Skill/Plugin attribution relation, model/provider, call hierarchy, role
+snapshot, token categories or estimated cost. Meanwhile EvoFlux's telemetry hook emits privacy-safe
+model/tool events and richer token categories but no managed resource identity
+([conductor_telemetry.py](../../evoflux/app/agent/hooks/conductor_telemetry.py),
+[telemetry.py](../../evoflux/app/conductor/constants/telemetry.py)). The design must converge these partial
+paths into one correlated fact model or an explicit one-to-one linkage; it must not ingest both and count
+the same work twice.
 
 The table also has **no index of any kind**, while five indexes were created for `users` and `tags` in the
 same migration. Any query filtered by member or by date will perform a full table scan.
@@ -495,20 +659,37 @@ health; SSO status; and recent administrative activity.
 
 ### Usage dashboard
 
-Authorized users shall be able to filter by date range, member, team or tag or sub-role, model and
-provider, agent, tool, MCP server, and EvoFlux installation.
+Authorized users shall be able to filter by today/current week/current month/last 7/30/90 days or custom
+`from`/`to`; member; recorded primary role, sub-role or tag; Agent, Skill or Plugin resource and immutable
+version; provider/model; event type, request/tool outcome and sanitized error; tool; EvoFlux installation
+and client version. Filter state is encoded in the URL and shared by every KPI, chart, ranking and table.
 
-Metrics shall include input and output tokens, estimated cost, sessions, tool calls, tool success and
-failure rate, average tool duration, active agents, usage trend over time, and highest-usage members and
-resources.
+Metrics shall include distinct requests, attributed resource uses, model calls, tool calls, request and
+tool success/error/cancelled rates, separated input/output/cache/reasoning/tool-use tokens, estimated cost
+and unpriced calls, total and per-request averages, average and p95 duration, active agents, trend over
+time, and highest-usage members and resources. Metric denominators and cost provenance shall be visible.
+
+Reusable accessible charts shall cover stacked request outcome trend, stacked token trend, estimated-cost
+trend, provider/model distribution, Agent/Skill/Plugin attributed share and ranking, resource/model
+success/error and duration, and top members/resources with role breakdown. Chart selection filters a
+server-paginated activity table.
+
+Activity rows show reported/received time, member and recorded role, resource kind/name/version/relation,
+request outcome, model calls, provider/model, token categories, estimated cost/source, duration and safe
+error category. Request detail correlates Agent runs, standalone or Plugin-provided Skills,
+Plugin-contributed tools, model retries and per-call tokens/cost/duration without work content. The member
+detail integrates installations, tokens, resource usage, charts and activity; resource detail shows
+members, roles, versions, adoption, usage and failures.
 
 A regular User should only see personal usage unless granted broader permission.
 
 ### Implementation status
 
 `DashboardSummary` provides counts only, and as noted in section 8 one of those counts is always zero
-([dashboard.rs](../crates/conductor-storage/src/repos/dashboard.rs)). There is no usage dashboard, no
-filtering and no time series. `ResourceCounts` omits `Command`.
+([dashboard.rs](../crates/conductor-storage/src/repos/dashboard.rs)). The open member slice adds member
+KPIs, charts, activity and request detail, but current event contracts cannot attribute them completely
+to Agent/Skill/Plugin versions or supply role/cost provenance. There is no aggregate/project-wide filter
+model, and `ResourceCounts` omits `Command`.
 
 ### Addition — cost requires a priced model table
 
@@ -532,7 +713,7 @@ See [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) and
 ## 12. Document management
 
 Conductor shall support project documents such as coding standards, architecture guidelines, security
-policies, migration rulebooks, team onboarding instructions, and MCP usage policies.
+policies, migration rulebooks, team onboarding instructions, and Plugin usage policies.
 
 Documents shall support Markdown and file attachments, versioning, tags, role-based access, publication
 status, checksums and synchronization state, and optional local caching in EvoFlux.
@@ -601,8 +782,8 @@ is a prerequisite for resource publishing, not a follow-up to it.
 Two events belong in the log that the baseline does not list:
 
 - Actions rejected for insufficient permission, which is the signal of permission probing.
-- Viewing another member's individual usage data. If per-member audit exists, reading it is itself an
-  action that should be attributable.
+- Viewing another member's attributed resource/request usage detail. Reading it is itself an action that
+  must be attributable without copying the viewed usage values into the administrative audit log.
 
 See [REQ-018](requirement/05-REQ-018-audit-logging.md).
 
@@ -622,11 +803,26 @@ POST /api/v1/telemetry/batch
 # Resource synchronization
 GET  /api/v1/resources
 GET  /api/v1/resources/changes?cursor=...
-GET  /api/v1/resources/{id}/versions/{version}
+GET  /api/v1/resources/{id}/versions/{version_id}
+GET  /api/v1/resources/{id}/versions/{version_id}/artifact
 
 # Resource administration
 POST   /api/resources
 PATCH  /api/resources/{id}
+GET    /api/resources/guides/{kind}
+GET    /api/resources/templates/{kind}
+POST   /api/resources/{id}/draft/import
+GET    /api/resources/{id}/draft/tree
+GET    /api/resources/{id}/draft/files/{path}
+PUT    /api/resources/{id}/draft/files/{path}
+POST   /api/resources/{id}/draft/entries
+DELETE /api/resources/{id}/draft/entries/{path}
+POST   /api/resources/{id}/draft/validate
+POST   /api/resources/{id}/draft/diagnostics/{code}/acknowledge
+POST   /api/resources/{id}/versions
+POST   /api/resources/{id}/versions/{version_id}/artifact
+POST   /api/resources/{id}/beta
+PUT    /api/resources/{id}/beta/members
 POST   /api/resources/{id}/publish
 POST   /api/resources/{id}/deprecate
 GET    /api/resources/{id}/versions
@@ -634,18 +830,30 @@ GET    /api/resources/{id}/versions
 # Monitoring
 GET /api/usage/summary
 GET /api/usage/members
+GET /api/usage/resources
+GET /api/usage/activity
+GET /api/usage/requests/{request_id}
+GET /api/usage/timeseries
+GET /api/usage/models
 GET /api/usage/tools
-GET /api/usage/mcp
+GET /api/usage/plugins
 GET /api/inventory
 GET /api/audit-events
 ```
 
+Beta and Publish requests that create a version carry `version_mode: auto|manual` and an optional manual
+version. Their response returns the allocated semantic version, immutable version ID and refreshed next
+version. Promotion identifies an existing Beta version ID and does not accept or allocate another
+version.
+
 ### Implementation status
 
-Of the endpoints listed above, exactly one exists in any form: `GET /api/v1/subscribe/resources`
-([routes/mod.rs:61](../crates/conductor-server/src/http/routes/mod.rs)), which corresponds to
-`GET /api/v1/resources` but returns the unfiltered catalog. Every other endpoint in this section is
-unimplemented.
+The current Conductor source exposes the temporary `GET /api/v1/subscribe/resources` snapshot and the
+catalog administration/version/access/monitoring handlers
+([routes/mod.rs](../crates/conductor-server/src/http/routes/mod.rs),
+[resources.rs](../crates/conductor-server/src/http/routes/resources.rs)). Registration and heartbeat are
+implemented in the open cross-repo integration work. Cursor-based changes, plugin artifact upload and
+authorized artifact download remain missing, and the temporary V1 snapshot has no `plugin` kind.
 
 The existing router already separates session-authenticated routes from token-authenticated ones by
 convention rather than by structure. As the `/api/v1/client/*` family is added, that separation should
@@ -680,18 +888,20 @@ The target data model should contain:
 
 `instance`, `users`, `sub_roles`, `user_sub_roles`, `tags`, `tag_assignments`, `connection_secrets`,
 `client_installations`, `client_heartbeats`, `resources`, `resource_versions`,
-`resource_access_policies`, `resource_sync_state`, `documents`, `telemetry_events`, `usage_aggregates`,
-`audit_events`.
+`resource_access_policies`, `resource_sync_state`, `documents`, `telemetry_events`,
+`telemetry_event_resources`, normalized `usage_aggregates`, `model_pricing`, `audit_events`.
 
 Database changes should use versioned migrations rather than only runtime `CREATE TABLE` and best-effort
 `ALTER TABLE` statements.
 
 ### Implementation status
 
-Nine of the seventeen target tables exist: `instance`, `users`, `sub_roles`, `user_sub_roles`, `tags`,
-`tag_assignments`, `connection_secrets`, `resources`, `telemetry_events`. A tenth, `member_inventory`,
-exists and is superseded by `client_installations`. A legacy `user_tags` table is migrated into
-`tag_assignments` at startup.
+The current schema contains the baseline `instance`, user, role, tag, secret, resource and
+`telemetry_events` tables plus the partial `resource_usage_events` and `member_inventory` paths.
+`member_inventory` is superseded by installation-scoped inventory, while the two usage-event paths need
+one correlated fact model and `telemetry_event_resources` attribution before aggregation. Client
+installation/heartbeat, document, normalized aggregate, model-pricing and audit storage remain missing.
+A legacy `user_tags` table is migrated into `tag_assignments` at startup.
 
 The migration mechanism is exactly what this section warns against: an array of
 `CREATE TABLE IF NOT EXISTS` statements followed by an array of `ALTER TABLE` statements whose errors are
@@ -699,7 +909,8 @@ The migration mechanism is exactly what this section warns against: an array of
 no `schema_version` table, so the system cannot report which migrations have been applied, and a failed
 migration is indistinguishable from a successful one.
 
-This must be replaced before the seven new tables are added, not after.
+This must be replaced before the remaining project, client, attribution, aggregate and governance tables
+are added, not after.
 
 ### Addition — protect configuration secrets
 
@@ -716,8 +927,8 @@ column must at minimum be renamed so it stops misleading future readers.
 
 ### Addition — model pricing table
 
-`model_pricing`, versioned by effective date, is required by section 11. It is absent from the target
-list.
+`model_pricing`, versioned by effective date, is required by section 11. It is present in the target
+model above but absent from the current schema.
 
 See [REQ-001](requirement/03-REQ-001-versioned-migrations.md) and
 [REQ-002](requirement/04-REQ-002-configuration-secret-protection.md).
@@ -744,10 +955,10 @@ The V1 integration shall be considered complete when:
 | 8 | EvoFlux sends inventory without creating duplicate records | [REQ-013](requirement/14-REQ-013-inventory-synchronization.md) AC-2 |
 | 9 | After a session, EvoFlux sends privacy-safe usage telemetry | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md), [REQ-015](requirement/11-REQ-015-privacy-controls.md) AC-3 |
 | 10 | Admin sees the member online on the dashboard | [REQ-013](requirement/14-REQ-013-inventory-synchronization.md) AC-4, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-4 |
-| 11 | Admin can view a member's tokens, tool usage and MCP usage | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-8, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-5, AC-6, AC-12 |
+| 11 | Admin can audit which Agent/Skill/Plugin versions a member used, when, their recorded role, request/model/tool outcomes, token usage, model calls and estimated cost, alongside that member's connection tokens | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-8, [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) AC-6, AC-11–AC-16, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-5, AC-6, AC-12–AC-25 |
 | 12 | Revoking a token removes EvoFlux access immediately | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-6, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-11 |
 | 13 | Disabling a member blocks both browser session and EvoFlux connection | [REQ-005](requirement/07-REQ-005-member-lifecycle.md) AC-1, AC-2, AC-3 |
-| 14 | A newly published resource is synchronized by EvoFlux at the correct version | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-4, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-8, AC-9, AC-14 |
+| 14 | A newly released agent, standalone Skill or Portable Agent Plugin receives the correct automatically incremented or validated manual version and is synchronized by EvoFlux at the correct project and Published/Beta version; same-name resources from another project remain isolated, Beta is isolated to selected eligible members and executable plugin components remain disabled until locally trusted | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-4, AC-12, AC-14–AC-38, [REQ-008](requirement/10-REQ-008-resource-access-policy.md) AC-11–AC-14, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-8, AC-9, AC-14–AC-38, [REQ-010](requirement/19-REQ-010-plugin-distribution-safety.md) AC-3, AC-13–AC-16 |
 | 15 | Source code, prompts, tool arguments and credentials are not uploaded by default | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) AC-9, [REQ-015](requirement/11-REQ-015-privacy-controls.md) AC-3, AC-10 |
 | 16 | Every administrative change appears in the audit log | [REQ-018](requirement/05-REQ-018-audit-logging.md) AC-3 |
 
@@ -772,13 +983,15 @@ only indirectly. Acceptance criteria were added so each has something concrete t
 | # | Gap | Added |
 |---|---|---|
 | 7 | The heartbeat endpoint and its idempotency were specified, but no criterion required the client to send on an interval | [REQ-011](requirement/12-REQ-011-client-registration.md) AC-12 |
-| 11 | Tokens, tool usage and MCP usage were each covered separately, but no criterion required a single per-member view | [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-12 |
-| 14 | Checksums and cursor-based change retrieval were specified, but no criterion required convergence on a newly published version | [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-14 |
+| 11 | Tokens and usage were covered separately, but no criterion required one fully attributed member/resource view with filters, charts and request drill-down | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) AC-11–AC-16, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-12–AC-25 |
+| 14 | Checksums and cursor-based change retrieval were specified, but no criterion required transactional version allocation, project-scoped stable-ID reconciliation, safe cursor commit, ownership-aware diff, project/Beta isolation or convergence on a newly released version | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-33–AC-38, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-14, AC-23–AC-38 |
 
-The current codebase has largely implemented the member, role, tag, project-settings, and
-connection-token foundations. Resource publishing, EvoFlux client integration, inventory
-synchronization, telemetry ingestion, document management, and detailed dashboards remain the main
-implementation work.
+The current codebase has largely implemented the member, role, tag, project-settings, connection-token
+and Conductor catalog foundations. The open EvoFlux integration implements registration, Agent/Skill
+reconciliation, a legacy configuration path and telemetry foundations. Its current `kind/slug` managed
+state does not distinguish project ownership. Portable Agent Plugin distribution, project-scoped stable artifact
+delivery, inventory synchronization, document management and the remaining dashboard aggregation are the
+main implementation work.
 
 ### Addition — foundation work that must precede the acceptance run
 
