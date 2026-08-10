@@ -47,6 +47,15 @@ export interface User {
   created_at: string
 }
 
+export interface ClientInstallationSummary {
+  id: string
+  display_name: string
+  platform: "macos" | "linux" | "windows"
+  evoflux_version: string
+  connected_at: string
+  last_seen_at: string
+}
+
 export interface AuthSession {
   token: string
   user: User
@@ -333,6 +342,8 @@ export const api = {
     ),
   pendingCount: () => request<{ count: number }>("/members/pending/count"),
   getMember: (id: string) => request<User>(`/members/${id}`),
+  memberInstallations: (id: string) =>
+    request<ClientInstallationSummary[]>(`/members/${id}/installations`),
   createMember: (body: CreateMemberBody) =>
     request<CreatedMember>("/members", { method: "POST", body: JSON.stringify(body) }),
   updateMember: (id: string, body: UpdateMemberBody) =>

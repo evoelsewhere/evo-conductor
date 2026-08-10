@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { useMemo, useState } from "react"
 
+import { MemberInstallationsPanel } from "@/features/members/components/member-installations-panel"
 import {
   api,
   type PrimaryRole,
@@ -692,6 +693,7 @@ function EditMemberDialog({
             emptyLabel="No tags defined yet. Create them under Tags."
           />
         </Field>
+        <MemberInstallationsPanel userId={user.id} />
         {error && <ErrorState message={error} />}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose}>
