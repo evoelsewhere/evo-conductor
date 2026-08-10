@@ -1,6 +1,7 @@
 # Design
 
-REQ-020 was accepted on 2026-08-09 and its design is below.
+DES-020 follows the normal lifecycle. DES-011 is an explicitly labelled pre-approval planning draft
+requested to prepare the next implementation slice.
 
 ## When to create a design
 
@@ -23,3 +24,4 @@ Tasks are created in [../task/](../task/) only after the design is approved.
 | Step | ID | Requirement | Title | Created | Status |
 |---|---|---|---|---|---|
 | 01 | [DES-020](01-DES-020-automated-testing-ci.md) | REQ-020 | Automated testing and CI | 2026-08-09 | Draft |
+| 12 | [DES-011](12-DES-011-client-registration.md) | REQ-011 | Client registration and connection | 2026-08-10 | Draft (planning) |

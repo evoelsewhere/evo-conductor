@@ -4,7 +4,7 @@
 |---|---|
 | ID | REQ-011 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
+| Updated | 2026-08-10 |
 | Status | Draft |
 | Priority | P0 |
 | Build order | Step 12 of 23 |
@@ -13,13 +13,15 @@
 | Depends on | REQ-001, REQ-006 |
 | Blocks | REQ-012, REQ-013, REQ-014, V1 acceptance criteria 3 and 4 |
 | Repositories | `evo-conductor` and `evoflux` |
-| Design | Not created; requires acceptance |
+| Design | [DES-011](../design/12-DES-011-client-registration.md) — Draft planning; requires requirement acceptance and design approval before implementation |
 
 ## 1. Context
 
-This is the point at which the two products meet, and none of it exists yet. Searching the entire
-`evoflux` repository for the string `conductor` across Python, TypeScript, Rust and Markdown returns zero
-matches. The integration currently exists only on the server side.
+This is the point at which the two products meet. A temporary local V1 compatibility adapter now connects
+EvoFlux to the resource-subscription endpoint, but it is not a registration protocol: it synthesizes a
+local machine identifier, stores its credential through the current local store, and cannot return the
+member/policy/bootstrap contract. The planned protocol below replaces that stopgap without treating a
+read-only resource GET as enrolment.
 
 Registration is separate from resource synchronization because an installation is a first-class entity: a
 member may run EvoFlux on two machines, and monitoring must distinguish them.
@@ -37,7 +39,8 @@ the telemetry and privacy configuration.
 |---|---|
 | Token authentication path on one endpoint ([resources.rs:17-51](../../crates/conductor-server/src/http/routes/resources.rs)) | `POST /api/v1/client/register`, `POST /api/v1/client/heartbeat` |
 | Project branding endpoint for browser sessions ([settings.rs](../../crates/conductor-server/src/http/routes/settings.rs)) | `client_installations` table |
-| | Any EvoFlux-side client, settings screen or credential storage |
+| Temporary EvoFlux V1 client calls subscription as enrolment ([client.py:138-157](../../../evoflux/app/conductor/client.py#L138-L157)); settings screen accepts URL/token ([ConductorConnectionSettings.tsx:117-140](../../../evoflux/web/src/components/settings/ConductorConnectionSettings.tsx#L117-L140)) | OS credential-store adapter and secure registration lifecycle |
+| Background resource-sync lifecycle ([service.py:99-184](../../../evoflux/app/conductor/service.py#L99-L184)) | Persistent registration identity, configurable heartbeat and terminal-error policy |
 | | A token-authenticated endpoint returning identity, policy and privacy configuration |
 
 ## 4. Acceptance criteria
@@ -85,3 +88,5 @@ the telemetry and privacy configuration.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-10 | Corrected current V1 compatibility baseline after source review | Codex |
+| 2026-08-10 | Linked pre-approval design and task planning requested for implementation preparation | Codex |

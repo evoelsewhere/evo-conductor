@@ -1,6 +1,8 @@
 # Task
 
-DES-020 is approved and its tasks are below.
+The DES-020 tasks follow the normal lifecycle. The DES-011 entries below are explicitly labelled draft
+planning requested to prepare implementation; they must not begin until REQ-011 is accepted and DES-011
+is approved.
 
 ## When to create a task
 
@@ -46,5 +48,10 @@ None of this tooling is installed yet. See
 | [TSK-020-03](01-REQ-020-automated-testing-ci/TSK-020-03-frontend-unit-testing.md) | DES-020 | FE | Set up frontend unit testing and linting | none | Todo |
 | [TSK-020-04](01-REQ-020-automated-testing-ci/TSK-020-04-frontend-e2e.md) | DES-020 | FE | Set up Playwright and one end-to-end flow | 020-03 | Todo |
 | [TSK-020-05](01-REQ-020-automated-testing-ci/TSK-020-05-ci-pipeline.md) | DES-020 | Infra | Build the CI pipeline | 01, 02, 03, 04 | Todo |
+| [TSK-011-01](12-REQ-011-client-registration/TSK-011-01-installation-storage.md) | DES-011 | BE | Add installation registration storage | REQ-001, 006, 015 accepted | Draft planning |
+| [TSK-011-02](12-REQ-011-client-registration/TSK-011-02-client-registration-api.md) | DES-011 | BE | Expose the client registration API | 011-01 | Draft planning |
+| [TSK-011-03](12-REQ-011-client-registration/TSK-011-03-evoflux-connection-service.md) | DES-011 | EvoFlux | Implement EvoFlux connection service | 011-02 | Draft planning |
+| [TSK-011-04](12-REQ-011-client-registration/TSK-011-04-evoflux-connection-ui.md) | DES-011 | EvoFlux FE | Build the EvoFlux connection experience | 011-03 | Draft planning |
+| [TSK-011-05](12-REQ-011-client-registration/TSK-011-05-console-installations.md) | DES-011 | FE | Show installations in the Conductor console | 011-02 | Draft planning |
 
 Start with **TSK-020-01**. TSK-020-01 and TSK-020-03 are independent and can run in parallel.

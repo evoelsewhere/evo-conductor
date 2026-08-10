@@ -80,6 +80,12 @@ That test fails on `user`, which is the evidence for step 2. Step 2 is then a fo
 REQ-015 precedes REQ-011 because registration must return the active collection level
 (REQ-011 AC-5), which cannot be returned before it is defined.
 
+### Pre-approval implementation planning
+
+REQ-011 remains Draft. At the user's request, [DES-011](design/12-DES-011-client-registration.md) and
+its five [draft planning tasks](task/12-REQ-011-client-registration/) are available for review, but they
+do not bypass the lifecycle gate in [BASE conventions](base/BASE-CONVENTIONS.md#2-lifecycle).
+
 ### Phase 4 — Monitoring
 
 | Step | ID | Title | Priority | Depends on | Status |
