@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-016 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Draft |
+| Updated | 2026-08-10 |
+| Status | Accepted (2026-08-10) — partial implementation in review |
 | Priority | P0 |
 | Build order | Step 17 of 23 |
 | Spec section | [requirements.md section 11](../requirements.md) |
@@ -13,7 +13,7 @@
 | Depends on | REQ-004, REQ-013, REQ-014, REQ-015 |
 | Blocks | REQ-017, V1 acceptance criterion 10 |
 | Repositories | `evo-conductor` |
-| Design | Not created; requires acceptance |
+| Design | Not created; requirement accepted 2026-08-10, so an as-built reconciliation design is the next lifecycle artifact |
 
 ## 1. Context
 
@@ -30,11 +30,34 @@ their own usage unless explicitly authorized.
 
 ## 3. Implementation status
 
-| Implemented | Missing | Incorrect |
+The project owner accepted this requirement on 2026-08-10. A per-member audit slice is open in
+[evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2). It is useful product value, but it
+does not yet implement the aggregate architecture or project-wide scope required by this requirement.
+
+| Delivered in review | Evidence |
+|---|---|
+| Member overview KPIs for requests, token categories, model calls, tool calls and errors | Conductor commits [`352e5c6`](https://github.com/evoelsewhere/evo-conductor/commit/352e5c6e6308358a2a031bf5110a988d03549d98) and [`e3c36e5`](https://github.com/evoelsewhere/evo-conductor/commit/e3c36e51b3ca1a4882c688690ac3bf86b78f478d) |
+| Daily token trend and model/provider distribution charts | Reusable Recharts components in Conductor PR #2 |
+| Request activity, pagination, request detail and per-event audit timeline | Member activity and request-detail routes/pages in Conductor PR #2 |
+| Tool totals, success/failure, average duration and ranked usage chart | Member tools API and page in Conductor PR #2 |
+| Preset and custom date-range filters, responsive mobile layout and local provider icons | [Playwright QA evidence](https://github.com/evoelsewhere/evo-conductor/blob/c5431d3bc2070ff704f29fd374e6f28da0dc2781/docs/member-usage-ui-qa.md) |
+| Member-scoped authorization and admin-managed member connection tokens | Telemetry and member-secret route tests in Conductor PR #2 |
+
+| Remaining gap | Affected criteria |
+|---|---|
+| No `usage_aggregates` table or automatic late-arrival recomputation; current queries scan `telemetry_events` and group on client time | AC-1, AC-2, AC-3 |
+| No complete project overview, project/team/tag/sub-role/agent/installation filters or highest-usage resource views | AC-4, AC-5, AC-6 |
+| Resource adoption and MCP server/tool analytics are not implemented | AC-8, AC-12 |
+| Empty-state distinction is only partial and has no dedicated automated assertion | AC-9 |
+| No projected-volume target or benchmark has been recorded | AC-11 |
+
+### Acceptance progress
+
+| AC | State | Note |
 |---|---|---|
-| `DashboardSummary` with counts and a console overview screen ([dashboard.rs](../../crates/conductor-storage/src/repos/dashboard.rs)) | `usage_aggregates` table | The overview has no role check ([dashboard.rs:8-13](../../crates/conductor-server/src/http/routes/dashboard.rs)) |
-| | Every usage endpoint and every time series | `members_online` is always zero |
-| | Filtering and breakdown | `ResourceCounts` omits `command` |
+| AC-7, AC-10 | Implemented in review | Self-only access is allowed by the privacy boundary; privileged roles may inspect another member |
+| AC-4, AC-5, AC-6, AC-9, AC-12 | Partial | Per-member slice only |
+| AC-1, AC-2, AC-3, AC-8, AC-11 | Not implemented or not verified | Aggregate/project scope remains |
 
 ## 4. Acceptance criteria
 
@@ -84,3 +107,5 @@ their own usage unless explicitly authorized.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-10 | Recorded the implemented per-member audit slice and remaining aggregate/project gaps | Codex |
+| 2026-08-10 | Accepted by project owner | Project owner |

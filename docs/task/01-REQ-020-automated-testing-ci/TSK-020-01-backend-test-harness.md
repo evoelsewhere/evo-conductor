@@ -4,8 +4,8 @@
 |---|---|
 | ID | TSK-020-01 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Todo |
+| Updated | 2026-08-10 |
+| Status | In Review — implementation merged; reporting gaps remain |
 | Layer | BE |
 | Requirement | [REQ-020](../../requirement/01-REQ-020-automated-testing-ci.md) |
 | Design | [DES-020 sections 2, 5](../../design/01-DES-020-automated-testing-ci.md) |
@@ -84,15 +84,15 @@ Record the wall-clock time of the suite; AC-11 needs a measured number.
 
 ## 6. Definition of done
 
-- [ ] Step 0 settled and the outcome recorded in section 7
-- [ ] `test_app`, `seed_user`, `token_for` and the request helper all work
-- [ ] `GET /api/health` test passes
-- [ ] Migration test passes, including the second-run no-op
-- [ ] Domain predicate tests pass for all three roles
-- [ ] Every command in section 5 runs clean, no warning suppressed
-- [ ] `cargo build --release` succeeds
-- [ ] Section 7 contains real output
-- [ ] No new clippy warning
+- [x] Step 0 settled and the outcome recorded in section 7.
+- [x] `test_app`, `seed_user`, `token_for` and the request helper all work.
+- [x] Health/liveness and setup-required route tests pass.
+- [x] Migration test passes, including the second-run no-op.
+- [x] Domain predicate tests pass for all three roles.
+- [ ] Every command in section 5 runs clean, no warning suppressed. `cargo nextest`/JUnit was not run.
+- [x] `cargo build --release` succeeds.
+- [x] Section 7 contains real output.
+- [x] No new clippy warning.
 
 ## 7. Results
 
@@ -100,29 +100,35 @@ Record the wall-clock time of the suite; AC-11 needs a measured number.
 
 | AC | Test case | File | Result |
 |---|---|---|---|
-| AC-1 | `health_returns_ok` | `tests/health.rs` | |
-| AC-1 | `migrations_apply_to_empty_db` | `conductor-storage/tests/migrations.rs` | |
-| AC-1 | `migrations_are_idempotent` | `conductor-storage/tests/migrations.rs` | |
-| AC-1 | `seeded_user_is_readable_across_repos` | `tests/support` smoke | |
-| AC-11 | suite wall-clock time | — | |
+| AC-1 | Health/database dialect and isolated test-app routes | `crates/conductor-server/tests/health.rs` | Pass |
+| AC-1 | `migrations_apply_to_an_empty_database` | `crates/conductor-storage/tests/migrations.rs` | Pass |
+| AC-1 | `migrations_are_idempotent` | `crates/conductor-storage/tests/migrations.rs` | Pass |
+| AC-1 | Shared-cache visibility, pool concurrency and isolation | `crates/conductor-storage/tests/step0_pool_isolation.rs` | Pass |
+| AC-11 | `cargo test --workspace` wall-clock | local verification | About 3.2 seconds; formal target pending |
 
 ### Step 0 outcome
 
-<!-- State plainly which database path was taken and why. If the shared-cache URL failed, paste the
-     error and describe the fallback as implemented. -->
+Selected unique named shared-cache in-memory SQLite URLs. Tests prove visibility across pooled
+connections, isolation between test databases and concurrency within the configured pool.
 
 ### Command output
 
 ```
-<paste the unmodified output>
+cargo fmt --check                                                   PASS
+cargo clippy --workspace --all-targets --all-features -- -D warnings PASS
+cargo test --workspace                                              PASS (42 tests, about 3.2s)
+cargo build -p conductor-server --release                           PASS
+cargo nextest run / JUnit                                           NOT RUN
 ```
 
 ### Notes
 
-<!-- Deviations from the design, debt accepted, follow-up work needing its own task. -->
+The harness merged through PR #1. The task remains In Review because nextest/JUnit and a formal AC-11
+target were not recorded; PostgreSQL belongs to TSK-020-05/REQ-001 rather than this SQLite harness proof.
 
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-09 | Todo | Created |
+| 2026-08-10 | In Review | Backend harness merged in PR #1; nextest/JUnit and formal duration target remain |

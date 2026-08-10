@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-020 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Accepted (2026-08-09) |
+| Updated | 2026-08-10 |
+| Status | Accepted (2026-08-09) — partial implementation |
 | Priority | P0 |
 | Build order | Step 1 of 23 |
 | Spec section | [requirements.md section 16](../requirements.md), addition |
@@ -17,8 +17,8 @@
 
 ## 1. Context
 
-The Rust workspace contains zero tests: searching `crates/` for `#[test]` and `#[tokio::test]` returns no
-matches. `apps/web/package.json` declares no test tooling and no lint script.
+At creation, the Rust workspace contained zero tests and `apps/web/package.json` declared no test tooling
+or lint script. The backend harness has since landed; frontend test infrastructure and CI remain absent.
 
 Meanwhile the system holds passwords, JWT signing material and connection tokens for an entire team, and
 is about to distribute configuration onto member machines. Section 16 of the specification lists sixteen
@@ -36,10 +36,21 @@ that runs it on every change, and a regression suite covering authentication and
 
 | Implemented | Missing |
 |---|---|
-| `cargo` provides the test harness | Any test in `crates/` |
-| `tsc -b --noEmit` is available through the `typecheck` script | `vitest`, Testing Library, Playwright, ESLint |
-| | A CI workflow; this repository has no workflow directory |
-| | A single-command local test entry point |
+| Backend unit, repository, SQLite pool-isolation/migration and Axum route harness from merged PR #1 | `cargo nextest` JUnit and `cargo llvm-cov` reports |
+| Shared `TestApp`, user seeding, JWT helpers and isolated database URLs | PostgreSQL migration execution in CI |
+| Domain role/user tests and backend integration suites; current workspace run passes 42 tests | Complete endpoint/three-role authorization matrix |
+| `cargo fmt`, strict clippy, TypeScript typecheck and production builds are runnable | Conductor Vitest/Testing Library and committed Playwright scripts/reporting |
+| Ad-hoc Playwright visual evidence exists for the member analytics PR | GitHub Actions or another merge-blocking CI workflow |
+| | One full-suite local command and measured/targeted suite duration |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-1 | Implemented |
+| AC-8 | Partial — protected feature routes have negative tests, not every endpoint/role combination |
+| AC-11 | Partial — recent workspace run completed in about 3.2 seconds, but no formal target is recorded |
+| AC-2–AC-7, AC-9, AC-10 | Not complete |
 
 ## 4. Acceptance criteria
 
@@ -84,3 +95,4 @@ that runs it on every change, and a regression suite covering authentication and
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-10 | Recorded merged backend harness and remaining frontend/reporting/CI gaps | Codex |

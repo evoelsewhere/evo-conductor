@@ -5,7 +5,7 @@
 | ID | TSK-011-05 |
 | Created | 2026-08-10 |
 | Updated | 2026-08-10 |
-| Status | Draft planning — do not start until DES-011 is approved |
+| Status | In Review — lifecycle exception; Conductor PR #2 |
 | Layer | Conductor FE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 section 7](../../design/12-DES-011-client-registration.md#7-frontend-changes--conductor-console) |
@@ -62,10 +62,10 @@ bun run test:e2e -- member-installations
 
 ## 6. Definition of done
 
-- [ ] Two installations owned by one member are separate and correctly attributed.
-- [ ] Privacy field exclusion and role access are tested, not just documented.
-- [ ] Loading, empty and error states are accessible and tested.
-- [ ] Covered AC has passing tests and screenshots.
+- [x] Two installations owned by one member are separate and correctly attributed at the API boundary.
+- [x] Privacy field exclusion and role access are tested at the API boundary.
+- [ ] Loading, empty and error states are accessible and tested. States are implemented but have no component test.
+- [ ] Covered AC has passing tests and screenshots. Dedicated two-installation console e2e evidence is missing.
 
 ## 7. Results
 
@@ -73,20 +73,25 @@ bun run test:e2e -- member-installations
 
 | AC | Test case | File | Result |
 |---|---|---|---|
-| AC-11 | Not run — planning task | — | Pending |
+| AC-11 | Owner-scoped privacy-safe installation listing | `member_installation_list_is_privacy_safe_and_authorized` | Pass at API boundary; console component/e2e pending |
 
 ### Command output
 
 ```text
-Not run — planning task.
+cargo test --workspace  PASS (42 tests; API authorization included)
+bun run typecheck       PASS
+bun run build           PASS
+Dedicated component/e2e PASS NOT ESTABLISHED
 ```
 
 ### Screenshots
 
-Not captured — planning task.
+No dedicated screenshot with two installations was captured. The later member analytics screenshots do
+not prove this task's two-row state.
 
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
+| 2026-08-10 | In Review | Member installation panel implemented by `ac01ad4`; Conductor PR #2 is open |

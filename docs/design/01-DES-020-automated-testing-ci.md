@@ -4,8 +4,8 @@
 |---|---|
 | ID | DES-020 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Draft |
+| Updated | 2026-08-10 |
+| Status | Draft — partial implementation reconciliation |
 | Requirement | [REQ-020](../requirement/01-REQ-020-automated-testing-ci.md) |
 | Build order | Step 1 of 23 |
 | References | [BASE-CONVENTIONS](../base/BASE-CONVENTIONS.md), [architecture.md](../architecture.md) |
@@ -93,8 +93,8 @@ None.
 
 Everything the fixture needs is already public: `conductor_server::{build_router, AppState, Config}`
 ([lib.rs:3-7](../../crates/conductor-server/src/lib.rs)), `Config`'s fields are public
-([config.rs:4-10](../../crates/conductor-server/src/config.rs)), and `AppState::set_jwt_secret` is public
-([state.rs:38](../../crates/conductor-server/src/http/state.rs)). No production signature changes.
+([config.rs](../../crates/conductor-server/src/core/config.rs)), and `AppState::set_jwt_secret` is public
+([state.rs](../../crates/conductor-server/src/core/state.rs)). No production signature changes.
 
 ### The fixture
 
@@ -114,7 +114,7 @@ async fn get(&self, path, token: Option<&str>) -> (StatusCode, serde_json::Value
 Three facts drive its construction:
 
 1. `AppState::new(url)` connects, runs migrations, and reads `jwt_secret` from the `instance` row
-   ([state.rs:27](../../crates/conductor-server/src/http/state.rs)). A fresh test database has no instance
+   ([state.rs](../../crates/conductor-server/src/core/state.rs)). A fresh test database has no instance
    row, so `jwt` stays `None` and `AuthUser` returns **428 `SetupRequired`**, not 401
    ([auth_user.rs:28](../../crates/conductor-server/src/http/extractors/auth_user.rs)). The fixture must
    call `state.set_jwt_secret(...)` explicitly. A test that forgets this fails with a confusing 428.
@@ -209,3 +209,4 @@ TSK-020-01 and TSK-020-03 are independent and can run in parallel if two people 
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-10 | Recorded the merged backend harness while approval and remaining tasks are still open | Codex |

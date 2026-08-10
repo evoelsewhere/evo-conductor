@@ -5,7 +5,7 @@
 | ID | TSK-011-02 |
 | Created | 2026-08-10 |
 | Updated | 2026-08-10 |
-| Status | Draft planning — do not start until DES-011 is approved |
+| Status | In Review — lifecycle exception; Conductor PR #2 |
 | Layer | Conductor BE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 5, 6 and 9](../../design/12-DES-011-client-registration.md#5-api-changes) |
@@ -60,10 +60,10 @@ cargo test -p conductor-server -p conductor-storage -p conductor-domain
 
 ## 6. Definition of done
 
-- [ ] Client cannot choose user, role, tags or project workspace.
-- [ ] Register is idempotent; heartbeat cannot update another member's installation.
-- [ ] Error codes match the EvoFlux actions in DES-011.
-- [ ] Existing resource subscription tests remain green.
+- [x] Client cannot choose user, role, tags or project workspace.
+- [x] Register is idempotent; heartbeat cannot update another member's installation.
+- [x] Error codes match the EvoFlux actions in DES-011.
+- [x] Existing resource subscription tests remain green.
 
 ## 7. Results
 
@@ -71,17 +71,19 @@ cargo test -p conductor-server -p conductor-storage -p conductor-domain
 
 | AC | Test case | File | Result |
 |---|---|---|---|
-| AC-2 | Not run — planning task | — | Pending |
-| AC-3 | Not run — planning task | — | Pending |
-| AC-4 | Not run — planning task | — | Pending |
-| AC-5 | Not run — planning task | — | Pending |
-| AC-8 | Not run — planning task | — | Pending |
-| AC-9 | Not run — planning task | — | Pending |
+| AC-2 | Register response includes canonical installation/project bootstrap | `registration_is_idempotent_and_returns_server_owned_bootstrap` | Pass |
+| AC-3 | Repeated request replay and conflicting replay | `registration_is_idempotent_and_returns_server_owned_bootstrap`, `registration_rejects_conflicting_replay_and_wrong_scope` | Pass |
+| AC-4 | Member identity, primary role, sub-roles and tags are server assembled | `registration_is_idempotent_and_returns_server_owned_bootstrap` | Pass |
+| AC-5 | Collection level and telemetry policy are returned | `registration_is_idempotent_and_returns_server_owned_bootstrap` | Pass |
+| AC-8 | Owner-scoped, repeat-safe heartbeat | `heartbeat_is_owner_scoped_and_revocation_stops_access` | Pass |
+| AC-9 | Missing/unknown/revoked/wrong-scope credentials stop access | Three registration/heartbeat route tests | Pass |
 
 ### Command output
 
 ```text
-Not run — planning task.
+cargo fmt --check                                                   PASS
+cargo clippy --workspace --all-targets --all-features -- -D warnings PASS
+cargo test --workspace                                              PASS (42 tests)
 ```
 
 ## History
@@ -89,3 +91,4 @@ Not run — planning task.
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
+| 2026-08-10 | In Review | Register/heartbeat contract implemented by `cec8571`; Conductor PR #2 is open |

@@ -5,14 +5,17 @@
 | ID | DES-011 |
 | Created | 2026-08-10 |
 | Updated | 2026-08-10 |
-| Status | Draft — planning exception; REQ-011 is still Draft |
+| Status | Draft — as-built reconciliation; implementation PRs are in review |
 | Requirement | [REQ-011](../requirement/12-REQ-011-client-registration.md) |
 | References | [architecture.md](../architecture.md), [BASE-CONVENTIONS](../base/BASE-CONVENTIONS.md), [REQ-004](../requirement/02-REQ-004-api-authorization.md), [REQ-005](../requirement/07-REQ-005-member-lifecycle.md), [REQ-006](../requirement/08-REQ-006-connection-tokens.md), [REQ-015](../requirement/11-REQ-015-privacy-controls.md) |
-| Tasks | Draft planning tasks [TSK-011-01](../task/12-REQ-011-client-registration/TSK-011-01-installation-storage.md) through [TSK-011-05](../task/12-REQ-011-client-registration/TSK-011-05-console-installations.md); implementation requires approval |
+| Tasks | [TSK-011-01](../task/12-REQ-011-client-registration/TSK-011-01-installation-storage.md) through [TSK-011-05](../task/12-REQ-011-client-registration/TSK-011-05-console-installations.md), all In Review under the recorded lifecycle exception |
 
-> These documents were prepared before the normal lifecycle gate at the user's request. They are **not**
-> approval to implement REQ-011. Accept the requirement and approve this design before moving tasks to
-> their normal execution states.
+> These documents were prepared before the normal lifecycle gate at the user's request. Implementation
+> later proceeded by explicit user direction and is open in
+> [evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2) and
+> [evoflux#4](https://github.com/evoelsewhere/evoflux/pull/4). This update records reality; it does **not**
+> retroactively approve DES-011. REQ-011 was accepted by the project owner on 2026-08-10; design approval
+> remains the next lifecycle decision before this design can be treated as approved.
 
 ## 1. Goal
 
@@ -321,3 +324,5 @@ deleting tokens or installation history; re-enable performs idempotent registrat
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-10 | Created as pre-approval implementation planning | Codex |
+| 2026-08-10 | Reconciled the design and tasks with the open cross-repository implementation PRs | Codex |
+| 2026-08-10 | Parent requirement REQ-011 accepted; design remains Draft | Project owner |

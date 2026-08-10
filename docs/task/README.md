@@ -1,8 +1,8 @@
 # Task
 
-The DES-020 tasks follow the normal lifecycle. The DES-011 entries below are explicitly labelled draft
-planning requested to prepare implementation; they must not begin until REQ-011 is accepted and DES-011
-is approved.
+The DES-020 tasks follow the normal lifecycle. DES-011 began as pre-approval planning, but implementation
+proceeded later by explicit user direction. REQ-011 is now accepted; DES-011 approval remains unrecorded.
+Its tasks stay `In Review` with results and remaining gaps recorded under that design lifecycle exception.
 
 ## When to create a task
 
@@ -36,22 +36,22 @@ Reports: `cargo nextest` produces JUnit XML, `cargo llvm-cov` produces coverage,
 HTML report with screenshots. Commands are listed in
 [../base/TEMPLATE-TASK.md section 5](../base/TEMPLATE-TASK.md).
 
-None of this tooling is installed yet. See
-[REQ-020](../requirement/01-REQ-020-automated-testing-ci.md).
+The backend harness and static Rust tooling are available. Frontend unit/e2e integration, reports and CI
+remain tracked by [REQ-020](../requirement/01-REQ-020-automated-testing-ci.md).
 
 ## Register
 
 | ID | Design | Layer | Title | Depends on | Status |
 |---|---|---|---|---|---|
-| [TSK-020-01](01-REQ-020-automated-testing-ci/TSK-020-01-backend-test-harness.md) | DES-020 | BE | Build the backend test harness | none | Todo |
+| [TSK-020-01](01-REQ-020-automated-testing-ci/TSK-020-01-backend-test-harness.md) | DES-020 | BE | Build the backend test harness | none | In Review |
 | [TSK-020-02](01-REQ-020-automated-testing-ci/TSK-020-02-authorization-suite.md) | DES-020 | BE | Write the authorization regression suite | 020-01 | Todo |
 | [TSK-020-03](01-REQ-020-automated-testing-ci/TSK-020-03-frontend-unit-testing.md) | DES-020 | FE | Set up frontend unit testing and linting | none | Todo |
 | [TSK-020-04](01-REQ-020-automated-testing-ci/TSK-020-04-frontend-e2e.md) | DES-020 | FE | Set up Playwright and one end-to-end flow | 020-03 | Todo |
 | [TSK-020-05](01-REQ-020-automated-testing-ci/TSK-020-05-ci-pipeline.md) | DES-020 | Infra | Build the CI pipeline | 01, 02, 03, 04 | Todo |
-| [TSK-011-01](12-REQ-011-client-registration/TSK-011-01-installation-storage.md) | DES-011 | BE | Add installation registration storage | REQ-001, 006, 015 accepted | Draft planning |
-| [TSK-011-02](12-REQ-011-client-registration/TSK-011-02-client-registration-api.md) | DES-011 | BE | Expose the client registration API | 011-01 | Draft planning |
-| [TSK-011-03](12-REQ-011-client-registration/TSK-011-03-evoflux-connection-service.md) | DES-011 | EvoFlux | Implement EvoFlux connection service | 011-02 | Draft planning |
-| [TSK-011-04](12-REQ-011-client-registration/TSK-011-04-evoflux-connection-ui.md) | DES-011 | EvoFlux FE | Build the EvoFlux connection experience | 011-03 | Draft planning |
-| [TSK-011-05](12-REQ-011-client-registration/TSK-011-05-console-installations.md) | DES-011 | FE | Show installations in the Conductor console | 011-02 | Draft planning |
+| [TSK-011-01](12-REQ-011-client-registration/TSK-011-01-installation-storage.md) | DES-011 | BE | Add installation registration storage | REQ-001, 006, 015 accepted | In Review |
+| [TSK-011-02](12-REQ-011-client-registration/TSK-011-02-client-registration-api.md) | DES-011 | BE | Expose the client registration API | 011-01 | In Review |
+| [TSK-011-03](12-REQ-011-client-registration/TSK-011-03-evoflux-connection-service.md) | DES-011 | EvoFlux | Implement EvoFlux connection service | 011-02 | In Review |
+| [TSK-011-04](12-REQ-011-client-registration/TSK-011-04-evoflux-connection-ui.md) | DES-011 | EvoFlux FE | Build the EvoFlux connection experience | 011-03 | In Review |
+| [TSK-011-05](12-REQ-011-client-registration/TSK-011-05-console-installations.md) | DES-011 | FE | Show installations in the Conductor console | 011-02 | In Review |
 
-Start with **TSK-020-01**. TSK-020-01 and TSK-020-03 are independent and can run in parallel.
+Finish the reporting/measurement gaps in **TSK-020-01**, then continue TSK-020-02 through TSK-020-05.

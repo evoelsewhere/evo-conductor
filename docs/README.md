@@ -43,7 +43,7 @@ Status values: `Draft` awaiting decision, `Accepted` approved for design, `Rejec
 
 | Step | ID | Title | Priority | Depends on | Status |
 |---|---|---|---|---|---|
-| 1 | [REQ-020](requirement/01-REQ-020-automated-testing-ci.md) | Automated testing and CI | P0 | none | **Accepted** |
+| 1 | [REQ-020](requirement/01-REQ-020-automated-testing-ci.md) | Automated testing and CI | P0 | none | **Accepted · partial implementation** |
 | 2 | [REQ-004](requirement/02-REQ-004-api-authorization.md) | API-enforced authorization | P0 | none | Draft |
 | 3 | [REQ-001](requirement/03-REQ-001-versioned-migrations.md) | Versioned database migrations | P0 | 020 | Draft |
 | 4 | [REQ-002](requirement/04-REQ-002-configuration-secret-protection.md) | Configuration secret protection | P0 | 001 | Draft |
@@ -73,26 +73,29 @@ That test fails on `user`, which is the evidence for step 2. Step 2 is then a fo
 | Step | ID | Title | Priority | Depends on | Status |
 |---|---|---|---|---|---|
 | 11 | [REQ-015](requirement/11-REQ-015-privacy-controls.md) | Privacy controls and collection levels | P0 | 004 | Draft |
-| 12 | [REQ-011](requirement/12-REQ-011-client-registration.md) | Client registration and connection | P0 | 001, 006, 015 | Draft |
+| 12 | [REQ-011](requirement/12-REQ-011-client-registration.md) | Client registration and connection | P0 | 001, 006, 015 | **Accepted · implementation in review** |
 | 13 | [REQ-012](requirement/13-REQ-012-resource-sync-client.md) | Resource synchronization client | P0 | 007, 008, 011 | Draft |
 | 14 | [REQ-013](requirement/14-REQ-013-inventory-synchronization.md) | Inventory synchronization | P0 | 001, 011 | Draft |
 
 REQ-015 precedes REQ-011 because registration must return the active collection level
 (REQ-011 AC-5), which cannot be returned before it is defined.
 
-### Pre-approval implementation planning
+### Lifecycle exception and implementation reconciliation
 
-REQ-011 remains Draft. At the user's request, [DES-011](design/12-DES-011-client-registration.md) and
-its five [draft planning tasks](task/12-REQ-011-client-registration/) are available for review, but they
-do not bypass the lifecycle gate in [BASE conventions](base/BASE-CONVENTIONS.md#2-lifecycle).
+REQ-011 was accepted by the project owner on 2026-08-10; DES-011 approval is still not recorded.
+Implementation had already proceeded at the user's direction and is now in review in
+[evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2) and
+[evoflux#4](https://github.com/evoelsewhere/evoflux/pull/4). [DES-011](design/12-DES-011-client-registration.md)
+and its five [tasks](task/12-REQ-011-client-registration/) now record the as-built evidence and remaining
+verification rather than claiming that design approval was satisfied retroactively.
 
 ### Phase 4 — Monitoring
 
 | Step | ID | Title | Priority | Depends on | Status |
 |---|---|---|---|---|---|
-| 15 | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) | Telemetry ingestion | P0 | 001, 011, 015 | Draft |
+| 15 | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) | Telemetry ingestion | P0 | 001, 011, 015 | **Accepted · partial implementation in review** |
 | 16 | [REQ-021](requirement/16-REQ-021-console-i18n.md) | Console internationalization | P2 | none | Draft |
-| 17 | [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) | Usage aggregation and dashboards | P0 | 004, 013, 014, 015 | Draft |
+| 17 | [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) | Usage aggregation and dashboards | P0 | 004, 013, 014, 015 | **Accepted · partial implementation in review** |
 
 Step 16 is a decision point, not a dependency. REQ-021 has no prerequisites and can be done at any time,
 but its cost grows with every screen added before it. Placed here it is cheapest, immediately before the
@@ -134,14 +137,28 @@ requirement it depends on still precedes it.
 
 | Step | ID | Requirement | Status |
 |---|---|---|---|
-| 01 | [DES-020](design/01-DES-020-automated-testing-ci.md) | REQ-020 | Draft |
+| 01 | [DES-020](design/01-DES-020-automated-testing-ci.md) | REQ-020 | Draft · partial implementation reconciliation |
+| 12 | [DES-011](design/12-DES-011-client-registration.md) | REQ-011 | Draft · as-built reconciliation |
 
 ## Task register
 
 | ID | Layer | Title | Status |
 |---|---|---|---|
-| [TSK-020-01](task/01-REQ-020-automated-testing-ci/TSK-020-01-backend-test-harness.md) | BE | Build the backend test harness | Todo |
+| [TSK-020-01](task/01-REQ-020-automated-testing-ci/TSK-020-01-backend-test-harness.md) | BE | Build the backend test harness | In Review |
 | [TSK-020-02](task/01-REQ-020-automated-testing-ci/TSK-020-02-authorization-suite.md) | BE | Write the authorization regression suite | Todo |
 | [TSK-020-03](task/01-REQ-020-automated-testing-ci/TSK-020-03-frontend-unit-testing.md) | FE | Set up frontend unit testing and linting | Todo |
 | [TSK-020-04](task/01-REQ-020-automated-testing-ci/TSK-020-04-frontend-e2e.md) | FE | Set up Playwright and one end-to-end flow | Todo |
 | [TSK-020-05](task/01-REQ-020-automated-testing-ci/TSK-020-05-ci-pipeline.md) | Infra | Build the CI pipeline | Todo |
+| [TSK-011-01](task/12-REQ-011-client-registration/TSK-011-01-installation-storage.md) | BE | Add installation registration storage | In Review |
+| [TSK-011-02](task/12-REQ-011-client-registration/TSK-011-02-client-registration-api.md) | BE | Expose the client registration API | In Review |
+| [TSK-011-03](task/12-REQ-011-client-registration/TSK-011-03-evoflux-connection-service.md) | EvoFlux | Implement EvoFlux connection service | In Review |
+| [TSK-011-04](task/12-REQ-011-client-registration/TSK-011-04-evoflux-connection-ui.md) | EvoFlux FE | Build the EvoFlux connection experience | In Review |
+| [TSK-011-05](task/12-REQ-011-client-registration/TSK-011-05-console-installations.md) | FE | Show installations in the Conductor console | In Review |
+
+## Implementation review snapshot — 2026-08-10
+
+| Requirement | Delivered in open PRs | Remaining before requirement completion |
+|---|---|---|
+| REQ-011 | Registration, idempotency, heartbeat, OS credential vault, connection UI and member installations | Merge both PRs; PostgreSQL proof; connection Playwright coverage and DES-011 approval |
+| REQ-014 | Privacy-safe event schema, scoped/idempotent batch ingestion, durable bounded outbox, indexes and retry after transient failure | Complete the specified event dimensions, report dropped events, classify permanent batch failures and load-test replay bursts |
+| REQ-016 | Per-member overview, token/model charts, activity/request audit, tool analytics, date filters and member-token management | Add the aggregate table/job, project/team/tag/resource/MCP views, server-time aggregation and a measured performance target |

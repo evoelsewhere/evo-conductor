@@ -1,7 +1,9 @@
 # Design
 
-DES-020 follows the normal lifecycle. DES-011 is an explicitly labelled pre-approval planning draft
-requested to prepare the next implementation slice.
+REQ-020 was accepted, but DES-020 approval was never recorded before its backend harness merged; it is
+therefore marked as partial implementation reconciliation. REQ-011 was accepted on 2026-08-10, after
+implementation had already started from its pre-approval planning draft. These statuses document reality
+without retroactively approving either design.
 
 ## When to create a design
 
@@ -23,5 +25,5 @@ Tasks are created in [../task/](../task/) only after the design is approved.
 
 | Step | ID | Requirement | Title | Created | Status |
 |---|---|---|---|---|---|
-| 01 | [DES-020](01-DES-020-automated-testing-ci.md) | REQ-020 | Automated testing and CI | 2026-08-09 | Draft |
-| 12 | [DES-011](12-DES-011-client-registration.md) | REQ-011 | Client registration and connection | 2026-08-10 | Draft (planning) |
+| 01 | [DES-020](01-DES-020-automated-testing-ci.md) | REQ-020 | Automated testing and CI | 2026-08-09 | Draft (partial implementation reconciliation) |
+| 12 | [DES-011](12-DES-011-client-registration.md) | REQ-011 | Client registration and connection | 2026-08-10 | Draft (as-built reconciliation) |

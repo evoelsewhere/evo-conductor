@@ -5,7 +5,7 @@
 | ID | TSK-011-04 |
 | Created | 2026-08-10 |
 | Updated | 2026-08-10 |
-| Status | Draft planning — do not start until DES-011 is approved |
+| Status | In Review — lifecycle exception; EvoFlux PR #4 |
 | Layer | EvoFlux FE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 5, 7 and 8](../../design/12-DES-011-client-registration.md#8-evoflux-changes) |
@@ -60,11 +60,11 @@ bun run test:e2e -- conductor-connection
 
 ## 6. Definition of done
 
-- [ ] Invalid credential and temporary offline service are distinct to members.
-- [ ] Project identity comes only from successful server bootstrap.
-- [ ] No rendered/request-debug/error data contains raw token.
-- [ ] Disconnect leaves visibly disconnected, non-communicating state.
-- [ ] Covered ACs have passing tests and screenshots.
+- [x] Invalid credential and temporary offline service are distinct to members.
+- [x] Project identity comes only from successful server bootstrap.
+- [x] No rendered/request-debug/error data contains raw token.
+- [x] Disconnect leaves visibly disconnected, non-communicating state.
+- [ ] Covered ACs have passing tests and screenshots. Component tests pass; dedicated Playwright screenshots are missing.
 
 ## 7. Results
 
@@ -72,23 +72,27 @@ bun run test:e2e -- conductor-connection
 
 | AC | Test case | File | Result |
 |---|---|---|---|
-| AC-1 | Not run — planning task | — | Pending |
-| AC-6 | Not run — planning task | — | Pending |
-| AC-9 | Not run — planning task | — | Pending |
-| AC-10 | Not run — planning task | — | Pending |
+| AC-1 | URL and token validation before Connect | `validates the URL and evc_ token before connecting` | Pass |
+| AC-6 | Successful bootstrap clears token and renders server-owned branding | `connects, clears the submitted token, and renders server-owned branding` | Pass |
+| AC-9 | Terminal/offline copy is implemented | Component/state implementation | Playwright terminal-state proof pending |
+| AC-10 | Explicit Disconnect returns to connection inputs | `disconnects explicitly and returns to connection inputs` | Pass |
 
 ### Command output
 
 ```text
-Not run — planning task.
+bun run lint       PASS (one unrelated scheduler warning)
+bun run typecheck  PASS
+bun run test       PASS (203 tests across 57 files; 3 Conductor settings component tests)
+bun run build      PASS
 ```
 
 ### Screenshots
 
-Not captured — planning task.
+Not captured for the EvoFlux connection flow. Dedicated Playwright evidence remains required before Done.
 
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
+| 2026-08-10 | In Review | Connection UI implemented by `57b3f6b8`; EvoFlux PR #4 is open |

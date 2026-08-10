@@ -5,7 +5,7 @@
 | ID | TSK-011-01 |
 | Created | 2026-08-10 |
 | Updated | 2026-08-10 |
-| Status | Draft planning — do not start until DES-011 is approved |
+| Status | In Review — lifecycle exception; Conductor PR #2 |
 | Layer | Conductor BE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 4 and 6](../../design/12-DES-011-client-registration.md#4-data-model-changes) |
@@ -61,10 +61,10 @@ cargo test -p conductor-domain -p conductor-storage
 
 ## 6. Definition of done
 
-- [ ] Additive schema works on SQLite and PostgreSQL-compatible `Any` SQL.
-- [ ] Local reconciliation key never becomes the public server installation ID.
-- [ ] No raw `evc_` value can be stored by repository or migration.
-- [ ] Covered ACs have automated passing tests recorded in section 7.
+- [ ] Additive schema works on SQLite and PostgreSQL-compatible `Any` SQL. SQLite is verified; PostgreSQL is not yet run.
+- [x] Local reconciliation key never becomes the public server installation ID.
+- [x] No raw `evc_` value can be stored by repository or migration.
+- [x] Covered ACs have automated passing tests recorded in section 7.
 
 ## 7. Results
 
@@ -72,15 +72,18 @@ cargo test -p conductor-domain -p conductor-storage
 
 | AC | Test case | File | Result |
 |---|---|---|---|
-| AC-2 | Not run — planning task | — | Pending |
-| AC-3 | Not run — planning task | — | Pending |
-| AC-8 | Not run — planning task | — | Pending |
-| AC-11 | Not run — planning task | — | Pending |
+| AC-2 | First registration creates a server-owned installation | `crates/conductor-server/tests/client_registration.rs` | Pass |
+| AC-3 | Repeated registration is idempotent; conflicting replay returns conflict | `crates/conductor-server/tests/client_registration.rs` | Pass |
+| AC-8 | Heartbeat updates only an installation owned by the token principal | `crates/conductor-server/tests/client_registration.rs` | Pass |
+| AC-11 | One member's installation list is owner-scoped and privacy-safe | `crates/conductor-server/tests/client_registration.rs` | Pass at API boundary |
 
 ### Command output
 
 ```text
-Not run — planning task.
+cargo fmt --check                                                   PASS
+cargo clippy --workspace --all-targets --all-features -- -D warnings PASS
+cargo test --workspace                                              PASS (42 tests)
+PostgreSQL migration/integration run                                NOT RUN
 ```
 
 ## History
@@ -88,3 +91,4 @@ Not run — planning task.
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
+| 2026-08-10 | In Review | Implemented by `cec8571`; Conductor PR #2 is open |

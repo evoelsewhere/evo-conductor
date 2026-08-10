@@ -5,7 +5,7 @@
 | ID | REQ-011 |
 | Created | 2026-08-09 |
 | Updated | 2026-08-10 |
-| Status | Draft |
+| Status | Accepted (2026-08-10) — implementation in review |
 | Priority | P0 |
 | Build order | Step 12 of 23 |
 | Spec section | [requirements.md sections 5 and 14](../requirements.md) |
@@ -13,7 +13,7 @@
 | Depends on | REQ-001, REQ-006 |
 | Blocks | REQ-012, REQ-013, REQ-014, V1 acceptance criteria 3 and 4 |
 | Repositories | `evo-conductor` and `evoflux` |
-| Design | [DES-011](../design/12-DES-011-client-registration.md) — Draft planning; requires requirement acceptance and design approval before implementation |
+| Design | [DES-011](../design/12-DES-011-client-registration.md) — Draft as-built reconciliation; approval is still unrecorded |
 
 ## 1. Context
 
@@ -35,13 +35,25 @@ the telemetry and privacy configuration.
 
 ## 3. Implementation status
 
-| Implemented | Missing |
-|---|---|
-| Token authentication path on one endpoint ([resources.rs:17-51](../../crates/conductor-server/src/http/routes/resources.rs)) | `POST /api/v1/client/register`, `POST /api/v1/client/heartbeat` |
-| Project branding endpoint for browser sessions ([settings.rs](../../crates/conductor-server/src/http/routes/settings.rs)) | `client_installations` table |
-| Temporary EvoFlux V1 client calls subscription as enrolment ([client.py:138-157](../../../evoflux/app/conductor/client.py#L138-L157)); settings screen accepts URL/token ([ConductorConnectionSettings.tsx:117-140](../../../evoflux/web/src/components/settings/ConductorConnectionSettings.tsx#L117-L140)) | OS credential-store adapter and secure registration lifecycle |
-| Background resource-sync lifecycle ([service.py:99-184](../../../evoflux/app/conductor/service.py#L99-L184)) | Persistent registration identity, configurable heartbeat and terminal-error policy |
-| | A token-authenticated endpoint returning identity, policy and privacy configuration |
+The project owner accepted this requirement on 2026-08-10. Implementation is open for review in
+[evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2) and
+[evoflux#4](https://github.com/evoelsewhere/evoflux/pull/4). Acceptance does not imply that DES-011 is
+approved or that the PRs have merged.
+
+| Area | State | Evidence | Remaining verification |
+|---|---|---|---|
+| Installation storage and idempotent registration | Implemented in review | Conductor commits [`cec8571`](https://github.com/evoelsewhere/evo-conductor/commit/cec8571e66ed7b674d0e531a4f1cdfbcd3cca29e) and API contract tests | PostgreSQL migration run |
+| Scoped registration and heartbeat APIs | Implemented in review | `client_registration.rs`: idempotency, invalid input/scope, owner scoping and revocation tests in Conductor PR #2 | Real cross-repo smoke after merge |
+| EvoFlux credential, registration and heartbeat lifecycle | Implemented in review | EvoFlux commit [`4995fac3`](https://github.com/evoelsewhere/evoflux/commit/4995fac33469dd42b94f93636a3364a6e76b8194), keyring adapter and service tests | Packaged desktop/keyring smoke on each supported OS |
+| EvoFlux connection UI and branding | Implemented in review | EvoFlux commit [`57b3f6b8`](https://github.com/evoelsewhere/evoflux/commit/57b3f6b85694e9a792a7d16badfa0b9ae7955fc8) and three component tests | Dedicated Playwright connect/revoke/disconnect flow |
+| Conductor member installations | Implemented in review | Conductor commit [`ac01ad4`](https://github.com/evoelsewhere/evo-conductor/commit/ac01ad4c7329679b4e3364c87765b8c531b25a60) and privacy/authorization API test | Component/e2e proof for two installations in the console |
+
+### Acceptance progress
+
+| AC | State | Note |
+|---|---|---|
+| AC-1–AC-10, AC-12 | Implemented in review | Covered by Rust, pytest or component tests; final cross-repo smoke remains |
+| AC-11 | Partially verified | Two installations and safe authorization are covered at the API boundary; console two-row e2e remains |
 
 ## 4. Acceptance criteria
 
@@ -90,3 +102,5 @@ the telemetry and privacy configuration.
 | 2026-08-09 | Created | |
 | 2026-08-10 | Corrected current V1 compatibility baseline after source review | Codex |
 | 2026-08-10 | Linked pre-approval design and task planning requested for implementation preparation | Codex |
+| 2026-08-10 | Reconciled implementation and test evidence from Conductor PR #2 and EvoFlux PR #4 | Codex |
+| 2026-08-10 | Accepted by project owner | Project owner |

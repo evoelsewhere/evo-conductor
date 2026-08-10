@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-014 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Draft |
+| Updated | 2026-08-10 |
+| Status | Accepted (2026-08-10) — partial implementation in review |
 | Priority | P0 |
 | Build order | Step 15 of 23 |
 | Spec section | [requirements.md section 9](../requirements.md) |
@@ -13,7 +13,7 @@
 | Depends on | REQ-001, REQ-011, REQ-015 |
 | Blocks | REQ-016, REQ-017, V1 acceptance criterion 9 |
 | Repositories | `evo-conductor` and `evoflux` |
-| Design | Not created; requires acceptance |
+| Design | Not created; requirement accepted 2026-08-10, so an as-built reconciliation design is the next lifecycle artifact |
 
 ## 1. Context
 
@@ -31,11 +31,32 @@ replay after network interruption, and shall record both client-reported and ser
 
 ## 3. Implementation status
 
-| Implemented | Missing | Incorrect |
-|---|---|---|
-| `telemetry_events` table with `tokens_in`, `tokens_out`, `tool_calls`, `active_agents`, `reported_at` ([migrate.rs:133-143](../../crates/conductor-storage/src/migrate.rs)) | Every field required by specification section 9: tool name and category, MCP server and tool, status and duration, model and provider, installation, session times, error category, EvoFlux version | The table has no index of any kind, while five indexes were created for `users` and `tags` in the same migration |
-| `TelemetrySnapshot` type carrying counters only, correctly content-free ([telemetry.rs](../../crates/conductor-domain/src/telemetry.rs)) | `POST /api/v1/telemetry/batch` | |
-| `report_telemetry` scope defined | Idempotency, offline buffering, server timestamps | |
+The project owner accepted this requirement on 2026-08-10. Partial implementation is open in
+[evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2) and
+[evoflux#4](https://github.com/evoelsewhere/evoflux/pull/4).
+
+| Delivered in review | Evidence |
+|---|---|
+| Typed allowlisted model/tool events, token counters, duration and sanitized status/error metadata | Conductor commits [`b7d6f93`](https://github.com/evoelsewhere/evo-conductor/commit/b7d6f937b078ad24fb152d6e0b1f3b8175b08aa3) and [`6149a2c`](https://github.com/evoelsewhere/evo-conductor/commit/6149a2c39b60a5b5feaecbdece1d707079e3a4be) |
+| Idempotent scoped `POST /api/v1/telemetry/batch`, owner/installation checks and server receipt timestamp | `telemetry_is_idempotent_private_and_queryable_by_member` and `telemetry_rejects_sensitive_or_cross_owner_payloads` |
+| Indexed persistence by member/time, request and installation/time | Conductor commit [`ea39b6b`](https://github.com/evoelsewhere/evo-conductor/commit/ea39b6bbb4188049839f740958956c32d08ea42e) |
+| Durable bounded EvoFlux outbox with atomic file replacement, retry and idempotent batch export | EvoFlux commits [`fb1b0be7`](https://github.com/evoelsewhere/evoflux/commit/fb1b0be70889156ee4431a4c7cb0b4e9f744595b) and [`919d8ede`](https://github.com/evoelsewhere/evoflux/commit/919d8ede498da7f0dc29b0e28f94daed49a3ab27) |
+
+| Remaining gap | Affected criteria |
+|---|---|
+| Aggregation currently filters/groups on client `reported_at`, not server `received_at` | AC-3 |
+| Queue drops oldest items at its bound but does not report the dropped count | AC-5 |
+| MCP server/tool, explicit session boundaries and EvoFlux version are absent from the event contract | AC-6 |
+| No replay-burst/load test has established the required throughput | AC-8 |
+| The flush path defers every HTTP rejection, so permanent malformed/4xx batches are not terminally classified | AC-10 |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-1, AC-2, AC-4, AC-7, AC-9 | Implemented in review |
+| AC-3, AC-5, AC-6, AC-10 | Partial |
+| AC-8 | Not verified |
 
 ## 4. Acceptance criteria
 
@@ -81,3 +102,5 @@ replay after network interruption, and shall record both client-reported and ser
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-10 | Recorded partial implementation and remaining gaps from Conductor PR #2 and EvoFlux PR #4 | Codex |
+| 2026-08-10 | Accepted by project owner | Project owner |

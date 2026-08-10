@@ -5,7 +5,7 @@
 | ID | TSK-011-03 |
 | Created | 2026-08-10 |
 | Updated | 2026-08-10 |
-| Status | Draft planning — do not start until DES-011 is approved |
+| Status | In Review — lifecycle exception; EvoFlux PR #4 |
 | Layer | EvoFlux |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 3, 5 and 8](../../design/12-DES-011-client-registration.md#8-evoflux-changes) |
@@ -64,10 +64,10 @@ uv run pytest --no-cov -q tests/conductor/test_client_service.py tests/api/test_
 
 ## 6. Definition of done
 
-- [ ] Token is in OS credential storage only after successful registration.
-- [ ] Failed/revoked connection cannot block startup or retry forever.
-- [ ] Restart preserves schedule without duplicate registration.
-- [ ] Disconnect cancels worker before returning success.
+- [x] Token is in OS credential storage only after successful registration.
+- [x] Failed/revoked connection cannot block startup or retry forever.
+- [ ] Restart preserves schedule without duplicate registration. State/interval persistence is covered; packaged restart smoke remains.
+- [x] Disconnect cancels worker before returning success.
 
 ## 7. Results
 
@@ -75,17 +75,20 @@ uv run pytest --no-cov -q tests/conductor/test_client_service.py tests/api/test_
 
 | AC | Test case | File | Result |
 |---|---|---|---|
-| AC-1 | Not run — planning task | — | Pending |
-| AC-7 | Not run — planning task | — | Pending |
-| AC-8 | Not run — planning task | — | Pending |
-| AC-9 | Not run — planning task | — | Pending |
-| AC-10 | Not run — planning task | — | Pending |
-| AC-12 | Not run — planning task | — | Pending |
+| AC-1 | V1 registration validates and persists safe bootstrap state | `test_registration_uses_v1_contract_without_persisting_token`, `test_service_persists_safe_registration_state_and_disconnects` | Pass |
+| AC-7 | Keyring adapter and credential-store failure leave no partial connection | `test_credential_store_failure_leaves_no_partial_connection` | Pass in tests; packaged OS smoke pending |
+| AC-8 | Heartbeat uses stored token and persists server interval | `test_heartbeat_uses_stored_token`, `test_heartbeat_persists_server_interval` | Pass |
+| AC-9 | Rejected registration/authorization failure is terminal | `test_rejected_registration_is_terminal_and_never_saves_token`, `test_authorization_failure_stops_heartbeat_retry` | Pass |
+| AC-10 | Disconnect deletes credential and clears connection state | `test_service_persists_safe_registration_state_and_disconnects` | Pass |
+| AC-12 | Default/server interval persists | `test_heartbeat_persists_server_interval` | Partial; packaged restart smoke pending |
 
 ### Command output
 
 ```text
-Not run — planning task.
+uv run ruff check app/ tests/                    PASS
+uv run pytest --no-cov -q tests/conductor       PASS (25 tests)
+uv run ruff format --check app/ tests/           BASELINE FAIL (31 pre-existing files)
+uv run ty check app/                             BASELINE FAIL (25 pre-existing diagnostics)
 ```
 
 ## History
@@ -93,3 +96,4 @@ Not run — planning task.
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
+| 2026-08-10 | In Review | Connection service implemented by `4995fac3`; EvoFlux PR #4 is open |
