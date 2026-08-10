@@ -4,8 +4,8 @@ use axum::http::HeaderMap;
 use conductor_auth::hash_token;
 use conductor_domain::{ConductorError, ConnectionSecret, SecretScope, User, UserStatus};
 
-use crate::http::error::ApiResult;
-use crate::http::state::AppState;
+use crate::core::error::ApiResult;
+use crate::core::state::AppState;
 
 pub struct ConnectionPrincipal {
     pub secret: ConnectionSecret,

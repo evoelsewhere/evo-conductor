@@ -23,7 +23,7 @@ use conductor_auth::JwtService;
 use conductor_domain::core::constants::auth::{AUTH_SCHEME_BEARER, DEFAULT_JWT_TTL_HOURS};
 use conductor_domain::{CreateMemberRequest, UserStatus};
 use conductor_domain::{PrimaryRole, User};
-use conductor_server::{build_router, AppState, Config};
+use conductor_server::{build_router, AppState, Config, RealtimeConfig};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -83,7 +83,7 @@ pub struct TestApp {
 pub async fn test_app() -> TestApp {
     let database_url = test_database_url();
 
-    let state = AppState::new(&database_url)
+    let state = AppState::new(&database_url, RealtimeConfig::default())
         .await
         .expect("connect test database");
 
@@ -96,6 +96,7 @@ pub async fn test_app() -> TestApp {
         host: TEST_BIND_HOST.into(),
         port: TEST_BIND_PORT,
         web_dist: PathBuf::from(UNUSED_WEB_DIST),
+        realtime: RealtimeConfig::default(),
     };
 
     TestApp {

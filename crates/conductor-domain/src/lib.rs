@@ -25,7 +25,12 @@ pub use instance::{
     SsoConfig, SsoProvider, UpdateInstanceRequest, UpdateSsoRequest,
 };
 pub use resource::{
-    DashboardSummary, ManagedResource, ResourceCounts, ResourceKind, ResourceVisibility,
+    CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary, ManagedResource,
+    ResourceAccessPolicy, ResourceCounts, ResourceDailyUsage, ResourceFeedback, ResourceKind,
+    ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary, ResourceStatus,
+    ResourceUsageBatchRequest, ResourceUsageBatchResponse, ResourceUsageEventRequest,
+    ResourceUsageRejection, ResourceVersion, ResourceVersionStatus, ResourceVisibility,
+    UpdateResourceRequest, UpsertResourceFeedbackRequest,
 };
 pub use role::{
     CreateSubRoleRequest, CreateTagRequest, PrimaryRole, SubRole, Tag, UpdateSubRoleRequest,
