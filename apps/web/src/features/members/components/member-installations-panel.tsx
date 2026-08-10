@@ -2,19 +2,32 @@ import { useQuery } from "@tanstack/react-query"
 import { Laptop, Radio } from "lucide-react"
 
 import { api } from "@/shared/api/client"
+import {
+  CLIENT_PLATFORM_LABELS,
+  MEMBER_PRESENCE_LABELS,
+  MEMBER_PRESENCE_ONLINE_WINDOW_MS,
+  MEMBER_PRESENCE_STATUS,
+  MEMBER_PRESENCE_TONES,
+  MEMBER_QUERY_KEYS,
+  type ClientPlatform,
+} from "@/shared/constants/member"
+import {
+  MINUTES_PER_HOUR,
+  SECONDS_PER_MINUTE,
+  MILLISECONDS_PER_SECOND,
+  HOURS_PER_DAY,
+} from "@/shared/constants/time"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 
-const ONLINE_WINDOW_MS = 150_000
-
 export function MemberInstallationsPanel({ userId }: { userId: string }) {
   const query = useQuery({
-    queryKey: ["member-installations", userId],
+    queryKey: MEMBER_QUERY_KEYS.installations(userId),
     queryFn: () => api.memberInstallations(userId),
   })
 
   return (
-    <section className="space-y-2 border-t border-(--color-border-subtle) pt-4">
+    <section className="space-y-2">
       <div>
         <h3 className="text-sm font-medium text-(--color-text)">EvoFlux installations</h3>
         <p className="mt-1 text-xs leading-relaxed text-(--color-text-muted)">
@@ -52,7 +65,11 @@ export function MemberInstallationsPanel({ userId }: { userId: string }) {
         <ul className="divide-y divide-(--color-border-subtle) overflow-hidden rounded-lg border border-(--color-border)">
           {query.data.map((installation) => {
             const lastSeen = new Date(installation.last_seen_at)
-            const online = Date.now() - lastSeen.getTime() <= ONLINE_WINDOW_MS
+            const online =
+              Date.now() - lastSeen.getTime() <= MEMBER_PRESENCE_ONLINE_WINDOW_MS
+            const presence = online
+              ? MEMBER_PRESENCE_STATUS.ONLINE
+              : MEMBER_PRESENCE_STATUS.OFFLINE
             return (
               <li key={installation.id} className="flex items-center gap-3 bg-(--bg-card) px-3 py-3">
                 <div className="grid size-8 shrink-0 place-items-center rounded-md bg-(--bg-key) text-(--color-text-muted)">
@@ -70,9 +87,9 @@ export function MemberInstallationsPanel({ userId }: { userId: string }) {
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <Badge tone={online ? "success" : "neutral"}>
-                    <StatusDot tone={online ? "success" : "neutral"} />
-                    {online ? "Online" : "Offline"}
+                  <Badge tone={MEMBER_PRESENCE_TONES[presence]}>
+                    <StatusDot tone={MEMBER_PRESENCE_TONES[presence]} />
+                    {MEMBER_PRESENCE_LABELS[presence]}
                   </Badge>
                   <div className="mt-1 flex items-center justify-end gap-1 text-[0.65rem] text-(--color-text-subtle)">
                     <Radio className="size-2.5" aria-hidden="true" />
@@ -88,18 +105,19 @@ export function MemberInstallationsPanel({ userId }: { userId: string }) {
   )
 }
 
-function platformLabel(platform: "macos" | "linux" | "windows") {
-  if (platform === "macos") return "macOS"
-  if (platform === "windows") return "Windows"
-  return "Linux"
+function platformLabel(platform: ClientPlatform) {
+  return CLIENT_PLATFORM_LABELS[platform]
 }
 
 function formatLastSeen(value: Date) {
-  const seconds = Math.max(0, Math.round((Date.now() - value.getTime()) / 1_000))
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  const seconds = Math.max(
+    0,
+    Math.round((Date.now() - value.getTime()) / MILLISECONDS_PER_SECOND),
+  )
+  if (seconds < SECONDS_PER_MINUTE) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / SECONDS_PER_MINUTE)
+  if (minutes < MINUTES_PER_HOUR) return `${minutes}m ago`
+  const hours = Math.floor(minutes / MINUTES_PER_HOUR)
+  if (hours < HOURS_PER_DAY) return `${hours}h ago`
   return value.toLocaleDateString()
 }
