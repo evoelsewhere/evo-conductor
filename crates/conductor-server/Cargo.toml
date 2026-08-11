@@ -14,14 +14,17 @@ conductor-auth = { workspace = true }
 conductor-domain = { workspace = true }
 conductor-storage = { workspace = true }
 anyhow = { workspace = true }
+base64 = { workspace = true }
 async-stream = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 dotenvy = { workspace = true }
 hex = { workspace = true }
+hmac = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true }
 dashmap = { workspace = true }
 tokio = { workspace = true }
@@ -29,6 +32,7 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

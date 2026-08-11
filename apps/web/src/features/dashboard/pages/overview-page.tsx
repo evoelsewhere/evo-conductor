@@ -47,7 +47,7 @@ export function OverviewPage() {
   const resourceTotal =
     data.resources.agents +
     data.resources.skills +
-    data.resources.mcp +
+    data.resources.plugins +
     data.resources.workflows
 
   return (
@@ -72,7 +72,7 @@ export function OverviewPage() {
         <StatCard
           label="Shared resources"
           value={resourceTotal}
-          hint={`${data.resources.agents} agents · ${data.resources.skills} skills · ${data.resources.mcp} mcp`}
+          hint={`${data.resources.agents} agents · ${data.resources.skills} skills · ${data.resources.plugins} plugins`}
           icon={Boxes}
           tone="success"
         />
@@ -97,7 +97,7 @@ export function OverviewPage() {
             body="Each member generates an evc_… token under Secrets, then pastes it into EvoFlux → Conductor subscribe."
           />
           <Row
-            title="Subscribe agents / skills / MCP"
+            title="Subscribe Agents / Skills / Plugins"
             body="EvoFlux pulls shared catalogs from /api/v1/subscribe/resources and reports inventory heartbeats."
           />
           <Row

@@ -198,7 +198,7 @@ pub async fn delete_tag(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
-/// Generic tag assignment: works for member, resource, agent, skill, mcp, etc.
+/// Generic tag assignment for members and governed resources.
 pub async fn get_entity_tags(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,

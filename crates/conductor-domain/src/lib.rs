@@ -15,6 +15,7 @@ pub mod client_installation;
 pub mod core;
 pub mod instance;
 pub mod resource;
+pub mod resource_semver;
 pub mod role;
 pub mod secret;
 pub mod telemetry;
@@ -32,13 +33,22 @@ pub use instance::{
     UpdateNetworkRequest, UpdateSsoRequest,
 };
 pub use resource::{
-    CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary, ManagedResource,
-    ResourceAccessPolicy, ResourceCounts, ResourceDailyUsage, ResourceFeedback, ResourceKind,
-    ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary, ResourceStatus,
-    ResourceUsageBatchRequest, ResourceUsageBatchResponse, ResourceUsageEventRequest,
-    ResourceUsageRejection, ResourceVersion, ResourceVersionStatus, ResourceVisibility,
-    UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    CreateDraftFileRequest, CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary,
+    DeleteDraftEntryRequest, DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile,
+    DraftFileTree, EffectiveResourceVersion, ManagedResource, MoveDraftEntryRequest,
+    ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy,
+    ResourceChange, ResourceChangePage, ResourceCounts, ResourceDailyUsage, ResourceDiagnostic,
+    ResourceFeedback, ResourceInstallationState, ResourceInventoryItem,
+    ResourceInventoryMonitoring, ResourceInventoryMonitoringSummary,
+    ResourceInventoryObservedState, ResourceInventoryRequest, ResourceInventoryResponse,
+    ResourceKind, ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary,
+    ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest, ResourceUsageBatchResponse,
+    ResourceUsageEventRequest, ResourceUsageRejection, ResourceValidation, ResourceVersion,
+    ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus,
+    ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest, UpdateResourceRequest,
+    UpsertResourceFeedbackRequest, VersionMode,
 };
+pub use resource_semver::{SemanticVersion, SemanticVersionError};
 pub use role::{
     CreateSubRoleRequest, CreateTagRequest, PrimaryRole, SubRole, Tag, UpdateSubRoleRequest,
     UpdateTagRequest,
@@ -47,9 +57,12 @@ pub use secret::{ConnectionSecret, CreateSecretRequest, CreatedSecret, SecretSco
 pub use telemetry::{
     DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberPresence,
     MemberRequestDetail, MemberToolUsage, MemberToolsSummary, MemberUsageSummary,
-    ModelUsageBreakdown, TelemetryBatchRequest, TelemetryBatchResponse, TelemetryEventDetail,
-    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType, TelemetrySnapshot,
-    TelemetryToolCategory, UNKNOWN_TELEMETRY_LABEL,
+    ModelUsageBreakdown, ResourceUsageActivityItem, ResourceUsageAnalytics, ResourceUsageBreakdown,
+    ResourceUsageDay, ResourceUsageMember, ResourceUsageModel, ResourceUsageRole,
+    ResourceUsageTool, ResourceUsageTotals, TelemetryBatchRequest, TelemetryBatchResponse,
+    TelemetryCostSource, TelemetryEventDetail, TelemetryEventRequest, TelemetryEventStatus,
+    TelemetryEventType, TelemetryResourceAttributionDetail, TelemetryResourceRef,
+    TelemetryResourceRelation, TelemetrySnapshot, TelemetryToolCategory, UNKNOWN_TELEMETRY_LABEL,
 };
 pub use user::{
     ApproveMemberRequest, AuthSession, ChangePasswordRequest, CreateMemberRequest, CreatedMember,

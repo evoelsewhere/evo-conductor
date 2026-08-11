@@ -3,15 +3,16 @@ mod support;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use conductor_auth::hash_token;
 use conductor_domain::{
-    ClientPlatform, PrimaryRole, SecretScope, TelemetryEventStatus, TelemetryEventType,
-    TelemetryToolCategory, User,
+    ClientPlatform, PrimaryRole, SecretScope, TelemetryBatchRequest, TelemetryEventStatus,
+    TelemetryEventType, TelemetryToolCategory, User,
 };
 use serde_json::{json, Value};
 use support::{test_app, TestApp};
 use uuid::Uuid;
 
-async fn seed_instance(app: &TestApp) {
+async fn seed_instance(app: &TestApp) -> Uuid {
     let now = chrono::Utc::now().to_rfc3339();
+    let id = Uuid::new_v4();
     sqlx::query(
         r#"
         INSERT INTO instance (
@@ -20,12 +21,66 @@ async fn seed_instance(app: &TestApp) {
         ) VALUES (?, 'Telemetry test', '127.0.0.1', 4700, 'L1', 1, 'unused', ?, ?)
         "#,
     )
-    .bind(Uuid::new_v4().to_string())
+    .bind(id.to_string())
     .bind(&now)
     .bind(&now)
     .execute(app.state.db.pool())
     .await
     .expect("seed instance");
+    id
+}
+
+async fn seed_resource(
+    app: &TestApp,
+    project_id: Uuid,
+    owner_id: Uuid,
+    kind: &str,
+    slug: &str,
+    name: &str,
+) -> (Uuid, Uuid) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let resource_id = Uuid::new_v4();
+    let version_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO resources (
+            id, project_id, kind, slug, name, version, owner_user_id, visibility,
+            status, payload, draft_revision, highest_semver, release_channel,
+            published_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, '1.2.0', ?, 'shared',
+                  'published', '{}', 0, '1.2.0', 'published', ?, ?, ?)
+        "#,
+    )
+    .bind(resource_id.to_string())
+    .bind(project_id.to_string())
+    .bind(kind)
+    .bind(slug)
+    .bind(name)
+    .bind(owner_id.to_string())
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .execute(app.state.db.pool())
+    .await
+    .expect("seed resource");
+    sqlx::query(
+        r#"
+        INSERT INTO resource_versions (
+            id, project_id, resource_id, version, status, payload, release_channel,
+            content_sha256, content_size, created_by, created_at, published_at
+        ) VALUES (?, ?, ?, '1.2.0', 'published', '{}', 'published', 'abc', 2, ?, ?, ?)
+        "#,
+    )
+    .bind(version_id.to_string())
+    .bind(project_id.to_string())
+    .bind(resource_id.to_string())
+    .bind(owner_id.to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(app.state.db.pool())
+    .await
+    .expect("seed resource version");
+    (resource_id, version_id)
 }
 
 async fn seed_connection_token(app: &TestApp, user: &User, raw: &str) {
@@ -40,6 +95,7 @@ async fn seed_connection_token(app: &TestApp, user: &User, raw: &str) {
             &[
                 SecretScope::SubscribeResources,
                 SecretScope::ReportTelemetry,
+                SecretScope::SyncInventory,
             ],
             None,
         )
@@ -213,7 +269,7 @@ async fn telemetry_is_idempotent_private_and_queryable_by_member() {
 #[tokio::test]
 async fn telemetry_rejects_sensitive_or_cross_owner_payloads() {
     let app = test_app().await;
-    seed_instance(&app).await;
+    let project_id = seed_instance(&app).await;
     let owner = app.seed_user(PrimaryRole::User).await;
     let owner_raw = "evc_telemetry_owner";
     seed_connection_token(&app, &owner, owner_raw).await;
@@ -240,6 +296,27 @@ async fn telemetry_rejects_sensitive_or_cross_owner_payloads() {
     assert_eq!(empty["total_requests"], 0);
     assert_eq!(empty["total_tokens"], 0);
 
+    let (plugin_id, plugin_version_id) = seed_resource(
+        &app,
+        project_id,
+        owner.id,
+        "plugin",
+        "managed-plugin",
+        "Managed plugin",
+    )
+    .await;
+    let mut forged_plugin = event_batch(&installation_id, Uuid::new_v4());
+    forged_plugin["events"][1]["resources"] = json!([{
+        "resource_id": plugin_id,
+        "version_id": plugin_version_id,
+        "relation": "plugin_contributed_tool",
+        "plugin_installation_id": "forged-installation"
+    }]);
+    let (status, _) = app
+        .post("/api/v1/telemetry/batch", Some(owner_raw), forged_plugin)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
     let other = app.seed_user(PrimaryRole::User).await;
     let other_raw = "evc_telemetry_other";
     seed_connection_token(&app, &other, other_raw).await;
@@ -251,4 +328,195 @@ async fn telemetry_rejects_sensitive_or_cross_owner_payloads() {
         )
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost() {
+    let app = test_app().await;
+    let project_id = seed_instance(&app).await;
+    let member = app.seed_user(PrimaryRole::User).await;
+    let (resource_id, version_id) =
+        seed_resource(&app, project_id, member.id, "agent", "reviewer", "Reviewer").await;
+    let (skill_id, skill_version_id) = seed_resource(
+        &app,
+        project_id,
+        member.id,
+        "skill",
+        "release-check",
+        "Release check",
+    )
+    .await;
+    let raw = "evc_resource_telemetry";
+    seed_connection_token(&app, &member, raw).await;
+    let installation_id = register(&app, raw).await;
+    let observed_at = chrono::Utc::now().to_rfc3339();
+    let (status, inventory_response) = app
+        .put(
+            "/api/v1/client/inventory",
+            Some(raw),
+            json!({
+                "installation_id": installation_id,
+                "items": [
+                    {
+                        "resource_id": resource_id,
+                        "desired_version_id": version_id,
+                        "applied_version_id": version_id,
+                        "release_channel": "published",
+                        "content_sha256": "abc",
+                        "plugin_installation_id": null,
+                        "observed_state": "in_sync",
+                        "error_category": null,
+                        "observed_at": observed_at
+                    },
+                    {
+                        "resource_id": skill_id,
+                        "desired_version_id": skill_version_id,
+                        "applied_version_id": skill_version_id,
+                        "release_channel": "published",
+                        "content_sha256": "abc",
+                        "plugin_installation_id": null,
+                        "observed_state": "applied",
+                        "error_category": null,
+                        "observed_at": observed_at
+                    }
+                ]
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{inventory_response}");
+    assert_eq!(inventory_response["accepted"], 2);
+    let request_id = Uuid::new_v4();
+    let mut batch = event_batch(&installation_id, request_id);
+    let agent_reference = json!({
+        "resource_id": resource_id,
+        "version_id": version_id,
+        "relation": "executing_agent",
+        "plugin_installation_id": null
+    });
+    let skill_reference = json!({
+        "resource_id": skill_id,
+        "version_id": skill_version_id,
+        "relation": "activated_skill",
+        "plugin_installation_id": null
+    });
+    for event in batch["events"].as_array_mut().expect("events") {
+        event["resources"] = json!([agent_reference.clone(), skill_reference.clone()]);
+    }
+    batch["events"][0]["estimated_cost_usd_micros"] = json!(1250);
+    batch["events"][0]["cost_source"] = json!("evoflux_catalog");
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": request_id,
+        "session_id": "session-1",
+        "event_type": "request",
+        "sequence": 3,
+        "agent_name": "reviewer",
+        "provider": null,
+        "model": null,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "duration_ms": 1000,
+        "tool_name": null,
+        "tool_category": null,
+        "status": "success",
+        "error_category": null,
+        "resources": [agent_reference, skill_reference],
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
+    serde_json::from_value::<TelemetryBatchRequest>(batch.clone()).expect("valid telemetry batch");
+
+    let (status, response) = app.post("/api/v1/telemetry/batch", Some(raw), batch).await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert_eq!(response["accepted"], 3);
+
+    let admin_token = app.token_for_role(PrimaryRole::Admin).await;
+    let (status, analytics) = app
+        .get("/api/analytics/resource-usage", Some(&admin_token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{analytics}");
+    assert_eq!(analytics["totals"]["requests"], 1);
+    assert_eq!(analytics["totals"]["resource_uses"], 2);
+    assert_eq!(analytics["totals"]["model_calls"], 1);
+    assert_eq!(analytics["totals"]["cache_read_tokens"], 20);
+    assert_eq!(analytics["totals"]["reasoning_tokens"], 10);
+    assert_eq!(analytics["totals"]["total_tokens"], 180);
+    assert_eq!(analytics["totals"]["average_tokens_per_request"], 180);
+    assert_eq!(analytics["totals"]["estimated_cost_usd_micros"], 1250);
+    assert_eq!(analytics["totals"]["reported_installations"], 2);
+    assert_eq!(analytics["totals"]["installed_installations"], 1);
+    assert_eq!(analytics["totals"]["installed_members"], 1);
+    assert_eq!(analytics["roles"][0]["primary_role"], "user");
+    assert_eq!(analytics["roles"][0]["tool_calls"], 1);
+    assert_eq!(analytics["tools"][0]["tool_name"], "read_file");
+    assert_eq!(analytics["tools"][0]["calls"], 1);
+    let resource_rows = analytics["resources"].as_array().expect("resource rows");
+    assert_eq!(resource_rows.len(), 2);
+    assert!(resource_rows
+        .iter()
+        .any(|row| row["resource_id"] == resource_id.to_string()));
+    assert_eq!(analytics["members"][0]["primary_role"], "user");
+    assert_eq!(
+        analytics["activity"][0]["display_name"],
+        member.display_name
+    );
+
+    let (status, filtered) = app
+        .get(
+            "/api/analytics/resource-usage?provider=openai&model=gpt-5&status=success",
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{filtered}");
+    assert_eq!(filtered["totals"]["requests"], 1);
+    assert_eq!(filtered["totals"]["successes"], 1);
+    assert_eq!(filtered["totals"]["model_calls"], 1);
+    assert_eq!(filtered["totals"]["total_tokens"], 180);
+    assert_eq!(filtered["activity"][0]["total_tokens"], 180);
+    assert_eq!(filtered["activity"][0]["status"], "success");
+
+    let (status, resource_inventory) = app
+        .get(
+            &format!("/api/resources/{resource_id}/inventory"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{resource_inventory}");
+    assert_eq!(resource_inventory["summary"]["installed_installations"], 1);
+    assert_eq!(resource_inventory["summary"]["installed_members"], 1);
+    assert_eq!(
+        resource_inventory["installations"][0]["user_id"],
+        member.id.to_string()
+    );
+    assert_eq!(
+        resource_inventory["installations"][0]["desired_version"],
+        "1.2.0"
+    );
+    assert_eq!(
+        resource_inventory["installations"][0]["applied_version"],
+        "1.2.0"
+    );
+    let member_token = app.token_for(&member).await;
+    let (status, _) = app
+        .get(
+            &format!("/api/resources/{resource_id}/inventory"),
+            Some(&member_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, detail) = app
+        .get(
+            &format!("/api/members/{}/activity/{}", member.id, request_id),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(detail["request"]["estimated_cost_usd_micros"], 1250);
+    let model_event = detail["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .find(|event| event["event_type"] == "model_call")
+        .expect("model event");
+    assert_eq!(model_event["resources"].as_array().map(Vec::len), Some(2));
 }

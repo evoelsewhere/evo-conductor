@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import {
   Activity,
   Archive,
@@ -13,9 +14,15 @@ import {
   ShieldCheck,
   Star,
   Users,
+  Wrench,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { PluginCreateDrawer } from "@/features/resources/components/plugin-create-drawer"
+import { ResourceCreateDrawer } from "@/features/resources/components/resource-create-drawer"
+import { DateRangeFilter, useUsageRange } from "@/features/members/components/date-range-filter"
+import { MemberUsageChart, ResourceShareChart } from "@/features/resource-usage/components/resource-usage-charts"
+import { ResourceUsageNav } from "@/features/resource-usage/components/resource-usage-nav"
 import {
   api,
   type ManagedResource,
@@ -27,7 +34,6 @@ import { PageFrame } from "@/shared/components/page-frame"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
-import { Card, CardContent } from "@/shared/ui/card"
 import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
@@ -45,6 +51,13 @@ import {
   TableWrap,
 } from "@/shared/ui/table"
 import { Textarea } from "@/shared/ui/textarea"
+import {
+  RESOURCE_KIND,
+  RESOURCE_KIND_LABEL,
+  RESOURCE_KIND_OPTIONS,
+  RESOURCE_QUERY_KEY,
+  RESOURCE_STATUS,
+} from "@/shared/constants/resource"
 
 type ResourceKind = ManagedResource["kind"]
 type ResourceStatus = ManagedResource["status"]
@@ -52,31 +65,21 @@ type DetailTab = "overview" | "versions" | "access" | "monitoring" | "feedback"
 
 const kindOptions = [
   { value: "all", label: "All types" },
-  { value: "agent", label: "Agents" },
-  { value: "skill", label: "Skills" },
-  { value: "mcp", label: "Plugins" },
-  { value: "workflow", label: "Workflows" },
-  { value: "command", label: "Commands" },
+  ...RESOURCE_KIND_OPTIONS,
 ] as const
 
-const kindLabels: Record<ResourceKind, string> = {
-  agent: "Agent",
-  skill: "Skill",
-  mcp: "Plugin",
-  workflow: "Workflow",
-  command: "Command",
-}
+const kindLabels = RESOURCE_KIND_LABEL
 
 const kindPageMeta: Partial<Record<ResourceKind, { title: string; subtitle: string }>> = {
-  mcp: {
+  [RESOURCE_KIND.PLUGIN]: {
     title: "Plugins",
-    subtitle: "MCP servers published to EvoFlux clients, from draft to measurable outcomes.",
+    subtitle: "Portable Plugins published to EvoFlux clients, from Draft to measurable outcomes.",
   },
-  skill: {
+  [RESOURCE_KIND.SKILL]: {
     title: "Skills",
     subtitle: "Govern reusable skills from draft to measurable outcomes.",
   },
-  agent: {
+  [RESOURCE_KIND.AGENT]: {
     title: "Agents",
     subtitle: "Govern agent definitions from draft to measurable outcomes.",
   },
@@ -84,23 +87,26 @@ const kindPageMeta: Partial<Record<ResourceKind, { title: string; subtitle: stri
 
 const statusOptions = [
   { value: "all", label: "All status" },
-  { value: "published", label: "Published" },
-  { value: "draft", label: "Draft" },
-  { value: "archived", label: "Archived" },
+  { value: RESOURCE_STATUS.PUBLISHED, label: "Published" },
+  { value: RESOURCE_STATUS.DRAFT, label: "Draft" },
+  { value: RESOURCE_STATUS.ARCHIVED, label: "Archived" },
 ] as const
-
-const resourceKindOptions = kindOptions.slice(1) as ReadonlyArray<{
-  value: ResourceKind
-  label: string
-}>
 
 export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
   const canCreate = user?.primary_role === "admin" || user?.primary_role === "contribute"
+  const canMonitor = canCreate
+  const catalogDates = useUsageRange()
   const { data = [], isLoading, error } = useQuery({
-    queryKey: ["resources"],
+    queryKey: [RESOURCE_QUERY_KEY],
     queryFn: () => api.resources(),
+  })
+  const kindUsage = useQuery({
+    queryKey: ["resource-catalog-monitoring", fixedKind, catalogDates.range],
+    queryFn: () => api.resourceUsage({ ...catalogDates.range, resource_kind: fixedKind, limit: 8 }),
+    enabled: Boolean(fixedKind && canMonitor),
   })
   const [query, setQuery] = useState("")
   const [kind, setKind] = useState<(typeof kindOptions)[number]["value"]>(fixedKind ?? "all")
@@ -115,32 +121,53 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
     onSuccess: () => {
       setPendingArchive(null)
       setSelected(null)
-      void qc.invalidateQueries({ queryKey: ["resources"] })
+      void qc.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
       focusAfterDialogTransition(() => searchRef.current?.focus())
     },
   })
 
+  const scopedResources = useMemo(
+    () =>
+      fixedKind === undefined
+        ? data
+        : data.filter((resource) => resource.kind === fixedKind),
+    [data, fixedKind],
+  )
+
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
-    return data.filter(
+    return scopedResources.filter(
       (resource) =>
-        (kind === "all" || resource.kind === kind) &&
+        (fixedKind !== undefined || kind === "all" || resource.kind === kind) &&
         (status === "all" || resource.status === status) &&
         (!term ||
           resource.name.toLowerCase().includes(term) ||
           resource.slug.toLowerCase().includes(term)),
     )
-  }, [data, kind, query, status])
+  }, [fixedKind, kind, query, scopedResources, status])
 
-  const published = data.filter((resource) => resource.status === "published").length
-  const drafts = data.filter((resource) => resource.status === "draft").length
-  const catalogKinds = new Set(data.map((resource) => resource.kind)).size
+  const published = scopedResources.filter(
+    (resource) => resource.status === RESOURCE_STATUS.PUBLISHED,
+  ).length
+  const drafts = scopedResources.filter(
+    (resource) => resource.status === RESOURCE_STATUS.DRAFT,
+  ).length
+  const catalogKinds = new Set(scopedResources.map((resource) => resource.kind)).size
 
   function canManage(resource: ManagedResource) {
     return (
       user?.primary_role === "admin" ||
       (user?.primary_role === "contribute" && resource.owner_user_id === user.id)
     )
+  }
+
+  function handleCreated(resource: ManagedResource) {
+    setShowCreate(false)
+    void qc.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+    void navigate({
+      to: "/app/resources/$kind/$resourceId/edit",
+      params: { kind: resource.kind, resourceId: resource.id },
+    })
   }
 
   const meta = (fixedKind && kindPageMeta[fixedKind]) || {
@@ -157,16 +184,46 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
         canCreate ? (
           <Button variant="gradient" onClick={() => setShowCreate(true)}>
             <Plus className="size-3.5" />
-            New resource
+            {fixedKind
+              ? `Add ${RESOURCE_KIND_LABEL[fixedKind].toLowerCase()}`
+              : "New resource"}
           </Button>
         ) : undefined
       }
     >
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <CatalogMetric label="Published" value={published} icon={CheckCircle2} tone="success" />
-        <CatalogMetric label="Drafts" value={drafts} icon={Pencil} tone="warning" />
-        <CatalogMetric label="Resource types" value={catalogKinds} icon={Boxes} tone="accent" />
-      </div>
+      {fixedKind && canMonitor && <ResourceUsageNav kind={fixedKind as Extract<ResourceKind, "plugin" | "skill" | "agent">} />}
+      {fixedKind && canMonitor && (
+        <div className="mb-3 flex justify-end">
+          <DateRangeFilter preset={catalogDates.preset} onPresetChange={catalogDates.setPreset} customFrom={catalogDates.customFrom} onCustomFromChange={catalogDates.setCustomFrom} customTo={catalogDates.customTo} onCustomToChange={catalogDates.setCustomTo} />
+        </div>
+      )}
+      <CompactCatalogMetrics
+        items={fixedKind && canMonitor ? [
+          { label: "Published", value: published, icon: CheckCircle2, tone: "success" },
+          { label: "Drafts", value: drafts, icon: Pencil, tone: "warning" },
+          { label: "Total", value: scopedResources.length, icon: Boxes, tone: "accent" },
+          { label: "Installed", value: kindUsage.data?.totals.installed_installations ?? 0, icon: Archive, tone: "success" },
+          { label: "Members", value: kindUsage.data?.totals.installed_members ?? 0, icon: Users, tone: "accent" },
+          { label: `Requests · ${catalogDates.preset}`, value: kindUsage.data?.totals.requests ?? 0, icon: Activity, tone: "accent" },
+          { label: `Calls · ${catalogDates.preset}`, value: (kindUsage.data?.totals.model_calls ?? 0) + (kindUsage.data?.totals.tool_calls ?? 0), icon: Wrench, tone: "accent" },
+          { label: `Errors · ${catalogDates.preset}`, value: kindUsage.data?.totals.errors ?? 0, icon: ShieldCheck, tone: (kindUsage.data?.totals.errors ?? 0) > 0 ? "warning" : "success" },
+        ] : fixedKind ? [
+          { label: "Published", value: published, icon: CheckCircle2, tone: "success" },
+          { label: "Drafts", value: drafts, icon: Pencil, tone: "warning" },
+          { label: "Total", value: scopedResources.length, icon: Boxes, tone: "accent" },
+        ] : [
+          { label: "Published", value: published, icon: CheckCircle2, tone: "success" },
+          { label: "Drafts", value: drafts, icon: Pencil, tone: "warning" },
+          { label: "Resource types", value: catalogKinds, icon: Boxes, tone: "accent" },
+        ]}
+      />
+
+      {fixedKind && canMonitor && (
+        <div className="mb-5 grid gap-4 xl:grid-cols-2">
+          <ResourceShareChart resources={kindUsage.data?.resources ?? []} description={`${RESOURCE_KIND_LABEL[fixedKind]} usage by immutable version.`} />
+          <MemberUsageChart members={kindUsage.data?.members ?? []} />
+        </div>
+      )}
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <div className="relative min-w-0 flex-1">
@@ -191,7 +248,7 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
         />
       </div>
 
-      {(error || archive.error) && (
+      {(error || archive.error || kindUsage.error) && (
         <ErrorState
           className="mb-4"
           message={
@@ -199,6 +256,8 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
               ? error.message
               : archive.error instanceof Error
                 ? archive.error.message
+                : kindUsage.error instanceof Error
+                  ? kindUsage.error.message
                 : "Catalog action failed"
           }
         />
@@ -211,16 +270,24 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Boxes}
-          title={data.length === 0 ? "Build your governed catalog" : "No matching resources"}
+          title={
+            scopedResources.length === 0
+              ? fixedKind === undefined
+                ? "Build your governed catalog"
+                : `No ${meta.title.toLowerCase()} yet`
+              : "No matching resources"
+          }
           description={
-            data.length === 0
+            scopedResources.length === 0
               ? "Create a draft, define access, publish a version, then monitor how members use it."
               : "Try another search, type, or status filter."
           }
           action={
-            data.length === 0 && canCreate ? (
+            scopedResources.length === 0 && canCreate ? (
               <Button variant="outline" onClick={() => setShowCreate(true)}>
-                Create first resource
+                {fixedKind === undefined
+                  ? "Create first resource"
+                  : `Create first ${RESOURCE_KIND_LABEL[fixedKind].toLowerCase()}`}
               </Button>
             ) : undefined
           }
@@ -271,7 +338,16 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
                     {formatDate(resource.updated_at)}
                   </TableTd>
                   <TableTd className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => setSelected(resource)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void navigate({
+                          to: "/app/resources/$kind/$resourceId/edit",
+                          params: { kind: resource.kind, resourceId: resource.id },
+                        })
+                      }
+                    >
                       {canManage(resource) ? "Manage" : "View"}
                     </Button>
                   </TableTd>
@@ -282,16 +358,20 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
         </TableWrap>
       )}
 
-      <CreateResourceDialog
-        open={showCreate}
-        defaultKind={fixedKind}
-        onClose={() => setShowCreate(false)}
-        onCreated={(resource) => {
-          setShowCreate(false)
-          setSelected(resource)
-          void qc.invalidateQueries({ queryKey: ["resources"] })
-        }}
-      />
+      {fixedKind === RESOURCE_KIND.PLUGIN ? (
+        <PluginCreateDrawer
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          onCreated={handleCreated}
+        />
+      ) : (
+        <ResourceCreateDrawer
+          open={showCreate}
+          defaultKind={fixedKind}
+          onClose={() => setShowCreate(false)}
+          onCreated={handleCreated}
+        />
+      )}
       {selected && (
         <ResourceWorkspace
           resource={selected}
@@ -299,7 +379,7 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
           onClose={() => setSelected(null)}
           onChanged={(resource) => {
             setSelected(resource)
-            void qc.invalidateQueries({ queryKey: ["resources"] })
+            void qc.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
           }}
           onArchive={() => setPendingArchive(selected)}
         />
@@ -317,16 +397,13 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
   )
 }
 
-function CatalogMetric({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string
-  value: number
-  icon: typeof Boxes
-  tone: "success" | "warning" | "accent"
+function CompactCatalogMetrics({ items }: {
+  items: Array<{
+    label: string
+    value: number
+    icon: typeof Boxes
+    tone: "success" | "warning" | "accent"
+  }>
 }) {
   const colors = {
     success: "text-(--color-success) bg-(--color-success)/10",
@@ -334,152 +411,21 @@ function CatalogMetric({
     accent: "text-(--color-accent) bg-(--color-accent-soft)",
   }
   return (
-    <Card>
-      <CardContent className="flex items-center gap-3">
-        <span className={`grid size-9 place-items-center rounded-lg ${colors[tone]}`}>
-          <Icon className="size-4" />
-        </span>
-        <div>
-          <div className="text-xl font-semibold tabular-nums">{value}</div>
-          <div className="text-xs text-(--color-text-muted)">{label}</div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function CreateResourceDialog({
-  open,
-  defaultKind,
-  onClose,
-  onCreated,
-}: {
-  open: boolean
-  defaultKind?: ResourceKind
-  onClose: () => void
-  onCreated: (resource: ManagedResource) => void
-}) {
-  const [kind, setKind] = useState<ResourceKind>(defaultKind ?? "agent")
-  const [slug, setSlug] = useState("")
-  const [name, setName] = useState("")
-  const [description, setDescription] = useState("")
-  const [version, setVersion] = useState("0.1.0")
-  const [visibility, setVisibility] = useState<ManagedResource["visibility"]>("shared")
-  const [payload, setPayload] = useState("{}")
-  const [changelog, setChangelog] = useState("Initial version")
-  const [localError, setLocalError] = useState<string | null>(null)
-
-  const create = useMutation({
-    mutationFn: () => {
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(payload)
-      } catch {
-        throw new Error("Payload must be valid JSON")
-      }
-      return api.createResource({
-        kind,
-        slug,
-        name,
-        description,
-        version,
-        visibility,
-        payload: parsed,
-        changelog,
-      })
-    },
-    onSuccess: onCreated,
-  })
-
-  return (
-    <Dialog
-      open={open}
-      title="Create resource draft"
-      description="Start with a versioned draft. Nothing reaches EvoFlux until you publish it."
-      onClose={onClose}
-      className="sm:max-w-2xl"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={create.isPending}>
-            Cancel
-          </Button>
-          <Button
-            variant="gradient"
-            disabled={create.isPending || !slug.trim() || !name.trim()}
-            onClick={() => {
-              setLocalError(null)
-              create.mutate()
-            }}
-          >
-            {create.isPending ? "Creating…" : "Create draft"}
-          </Button>
-        </>
-      }
-    >
-      {(localError || create.error) && (
-        <ErrorState
-          className="mb-4"
-          message={localError ?? (create.error instanceof Error ? create.error.message : "Create failed")}
-        />
-      )}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Type" htmlFor="resource-kind">
-          <Select
-            id="resource-kind"
-            value={kind}
-            onValueChange={setKind}
-            options={resourceKindOptions}
-          />
-        </Field>
-        <Field label="Initial version" htmlFor="resource-version">
-          <Input id="resource-version" value={version} onChange={(e) => setVersion(e.target.value)} />
-        </Field>
-        <Field label="Name" htmlFor="resource-name">
-          <Input id="resource-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-        </Field>
-        <Field label="Slug" htmlFor="resource-slug" hint="Lowercase letters, numbers and hyphens">
-          <Input
-            id="resource-slug"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
-          />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Description" htmlFor="resource-description">
-            <Textarea
-              id="resource-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </Field>
-        </div>
-        <Field label="Default visibility" htmlFor="resource-visibility">
-          <Select
-            id="resource-visibility"
-            value={visibility}
-            onValueChange={setVisibility}
-            options={[
-              { value: "shared", label: "Shared — all members by default" },
-              { value: "private", label: "Private — owner only by default" },
-            ]}
-          />
-        </Field>
-        <Field label="Changelog" htmlFor="resource-changelog">
-          <Input id="resource-changelog" value={changelog} onChange={(e) => setChangelog(e.target.value)} />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Version payload (JSON)" htmlFor="resource-payload">
-            <Textarea
-              id="resource-payload"
-              value={payload}
-              onChange={(e) => setPayload(e.target.value)}
-              className="min-h-36 font-mono text-xs"
-              spellCheck={false}
-            />
-          </Field>
-        </div>
+    <div className="mb-5 overflow-x-auto rounded-xl border border-(--border-card) bg-(--bg-card)">
+      <div className="grid min-w-max auto-cols-[7.25rem] grid-flow-col divide-x divide-(--border-soft)">
+        {items.map(({ label, value, icon: Icon, tone }) => (
+          <div key={label} className="flex items-center gap-2.5 px-3 py-2.5">
+            <span className={`grid size-7 shrink-0 place-items-center rounded-md ${colors[tone]}`}>
+              <Icon className="size-3.5" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold tabular-nums">{value.toLocaleString()}</div>
+              <div title={label} className="truncate text-[0.68rem] text-(--color-text-muted)">{label}</div>
+            </div>
+          </div>
+        ))}
       </div>
-    </Dialog>
+    </div>
   )
 }
 
@@ -622,7 +568,7 @@ function OverviewPanel({
               variant="destructive"
               size="sm"
               onClick={onArchive}
-              disabled={resource.status === "archived"}
+              disabled={resource.status === RESOURCE_STATUS.ARCHIVED}
             >
               <Archive className="size-3.5" />
               Archive
@@ -774,7 +720,8 @@ function VersionsPanel({
                   {item.changelog || "No changelog"} · {formatDate(item.created_at)}
                 </p>
               </div>
-              {item.status === "draft" && resource.status !== "archived" && (
+              {item.status === RESOURCE_STATUS.DRAFT &&
+                resource.status !== RESOURCE_STATUS.ARCHIVED && (
                 <Button variant="outline" size="sm" onClick={() => setPendingPublish(item)}>
                   Publish
                 </Button>
@@ -1090,7 +1037,7 @@ function FeedbackPanel({
           }
         />
       )}
-      {resource.status === "published" ? (
+      {resource.status === RESOURCE_STATUS.PUBLISHED ? (
         <div className="rounded-xl border border-(--border-card) p-4">
           <div className="mb-3 flex items-center gap-2">
             <MessageSquareText className="size-4 text-(--color-text-subtle)" />
@@ -1202,7 +1149,12 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 }
 
 function StatusBadge({ status }: { status: ResourceStatus }) {
-  const tone = status === "published" ? "success" : status === "draft" ? "warning" : "neutral"
+  const tone =
+    status === RESOURCE_STATUS.PUBLISHED
+      ? "success"
+      : status === RESOURCE_STATUS.DRAFT
+        ? "warning"
+        : "neutral"
   return (
     <Badge tone={tone} className="capitalize">
       {status}
@@ -1211,7 +1163,12 @@ function StatusBadge({ status }: { status: ResourceStatus }) {
 }
 
 function VersionBadge({ status }: { status: ResourceVersion["status"] }) {
-  const tone = status === "published" ? "success" : status === "draft" ? "warning" : "neutral"
+  const tone =
+    status === RESOURCE_STATUS.PUBLISHED
+      ? "success"
+      : status === RESOURCE_STATUS.DRAFT
+        ? "warning"
+        : "neutral"
   return (
     <Badge tone={tone} className="capitalize">
       {status}

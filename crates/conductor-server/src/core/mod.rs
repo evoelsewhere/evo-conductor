@@ -5,9 +5,11 @@
 //! `http/` holds the transport itself — routers, handlers, extractors — and
 //! depends on this module rather than the other way round.
 
+pub mod artifacts;
 pub mod config;
 pub mod constants;
 pub mod error;
+pub mod resource_authoring;
 pub mod routes;
 pub mod state;
 

@@ -43,9 +43,14 @@ pub fn map_resource(r: &AnyRow) -> Result<ManagedResource, sqlx::Error> {
 
     Ok(ManagedResource {
         id: Uuid::parse_str(r.get::<String, _>("id").as_str()).unwrap_or_else(|_| Uuid::nil()),
+        project_id: r
+            .try_get::<String, _>("project_id")
+            .ok()
+            .and_then(|value| Uuid::parse_str(&value).ok())
+            .unwrap_or_else(Uuid::nil),
         kind: match kind_str.as_str() {
             "skill" => ResourceKind::Skill,
-            "mcp" => ResourceKind::Mcp,
+            "plugin" | "mcp" => ResourceKind::Plugin,
             "workflow" => ResourceKind::Workflow,
             "command" => ResourceKind::Command,
             _ => ResourceKind::Agent,
@@ -54,6 +59,13 @@ pub fn map_resource(r: &AnyRow) -> Result<ManagedResource, sqlx::Error> {
         name: r.get("name"),
         description: r.get("description"),
         version: r.get("version"),
+        highest_version: r.try_get("highest_semver").unwrap_or(None),
+        draft_revision: r.try_get::<i64, _>("draft_revision").unwrap_or(0).max(0) as u64,
+        release_channel: r
+            .try_get::<Option<String>, _>("release_channel")
+            .unwrap_or(None)
+            .as_deref()
+            .and_then(conductor_domain::ReleaseChannel::parse),
         owner_user_id: owner.and_then(|s| Uuid::parse_str(&s).ok()),
         visibility: if visibility == "private" {
             ResourceVisibility::Private

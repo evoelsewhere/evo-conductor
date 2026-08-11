@@ -20,6 +20,9 @@ import { MemberRequestDetailPage } from "@/features/members/pages/member-request
 import { MemberToolsPage } from "@/features/members/pages/member-tools-page"
 import { OverviewPage } from "@/features/dashboard/pages/overview-page"
 import { ResourcesPage } from "@/features/resources/pages/resources-page"
+import { ResourceStudioPage } from "@/features/resources/pages/resource-studio-page"
+import { ResourceUsagePage } from "@/features/resource-usage/pages/resource-usage-page"
+import { ResourceRequestDetailPage } from "@/features/resource-usage/pages/resource-request-detail-page"
 import { RolesPage } from "@/features/roles/pages/roles-page"
 import { SecretsPage } from "@/features/secrets/pages/secrets-page"
 import { SetupPage } from "@/features/setup/pages/setup-page"
@@ -27,6 +30,12 @@ import { TagsPage } from "@/features/tags/pages/tags-page"
 import { useAuthStore } from "@/shared/stores/auth"
 import { authSession } from "@/shared/lib/auth-session"
 import { PRIMARY_ROLE, type PrimaryRole } from "@/shared/constants/member"
+import {
+  RESOURCE_USAGE_ROUTE_PATHS,
+  RESOURCE_USAGE_VIEW,
+} from "@/shared/constants/resource-usage"
+import { RESOURCE_KIND } from "@/shared/constants/resource"
+import { RESOURCE_KIND_USAGE_ROUTE_PATHS } from "@/shared/constants/resource-monitoring"
 
 function RootComponent() {
   return <Outlet />
@@ -184,10 +193,73 @@ const resourcesRoute = createRoute({
   component: ResourcesPage,
 })
 
+const resourceUsageRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_USAGE_ROUTE_PATHS.overview,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.OVERVIEW} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const resourceUsageActivityRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_USAGE_ROUTE_PATHS.activity,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.ACTIVITY} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const resourceUsageAnalysisRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_USAGE_ROUTE_PATHS.usage,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.USAGE} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const resourceRequestDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_USAGE_ROUTE_PATHS.requestDetail,
+  component: ResourceRequestDetailPage,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const legacyResourceUsageRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_USAGE_ROUTE_PATHS.legacy,
+  beforeLoad: () => {
+    requireTelemetryAccess()
+    throw redirect({ to: "/app/resources/usage" })
+  },
+})
+
 const resourcesPluginsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/resources/plugins",
-  component: () => <ResourcesPage fixedKind="mcp" />,
+  component: () => <ResourcesPage fixedKind="plugin" />,
+})
+
+const resourcesPluginsActivityRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.plugin.activity,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.ACTIVITY} scopeKind={RESOURCE_KIND.PLUGIN} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const resourcesPluginsUsageRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.plugin.usage,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.USAGE} scopeKind={RESOURCE_KIND.PLUGIN} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const resourceStudioRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/$kind/$resourceId/edit",
+  component: ResourceStudioPage,
+  beforeLoad: () => {
+    const role = storedPrimaryRole()
+    if (role !== PRIMARY_ROLE.ADMIN && role !== PRIMARY_ROLE.CONTRIBUTE) {
+      throw redirect({ to: "/app/resources" })
+    }
+  },
 })
 
 const resourcesSkillsRoute = createRoute({
@@ -196,10 +268,38 @@ const resourcesSkillsRoute = createRoute({
   component: () => <ResourcesPage fixedKind="skill" />,
 })
 
+const resourcesSkillsActivityRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.skill.activity,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.ACTIVITY} scopeKind={RESOURCE_KIND.SKILL} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const resourcesSkillsUsageRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.skill.usage,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.USAGE} scopeKind={RESOURCE_KIND.SKILL} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
 const resourcesAgentsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/resources/agents",
   component: () => <ResourcesPage fixedKind="agent" />,
+})
+
+const resourcesAgentsActivityRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.agent.activity,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.ACTIVITY} scopeKind={RESOURCE_KIND.AGENT} />,
+  beforeLoad: requireTelemetryAccess,
+})
+
+const resourcesAgentsUsageRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.agent.usage,
+  component: () => <ResourceUsagePage view={RESOURCE_USAGE_VIEW.USAGE} scopeKind={RESOURCE_KIND.AGENT} />,
+  beforeLoad: requireTelemetryAccess,
 })
 
 const secretsRoute = createRoute({
@@ -257,9 +357,21 @@ const routeTree = rootRoute.addChildren([
     memberRequestDetailRoute,
     memberToolsRoute,
     resourcesRoute,
+    resourceUsageRoute,
+    resourceUsageActivityRoute,
+    resourceUsageAnalysisRoute,
+    resourceRequestDetailRoute,
+    legacyResourceUsageRoute,
     resourcesPluginsRoute,
+    resourcesPluginsActivityRoute,
+    resourcesPluginsUsageRoute,
     resourcesSkillsRoute,
+    resourcesSkillsActivityRoute,
+    resourcesSkillsUsageRoute,
     resourcesAgentsRoute,
+    resourcesAgentsActivityRoute,
+    resourcesAgentsUsageRoute,
+    resourceStudioRoute,
     secretsRoute,
     rolesRoute,
     tagsRoute,

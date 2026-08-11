@@ -1,14 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Bot, Clock3, Wrench } from "lucide-react"
+import { Activity, ArrowLeft, Bot, CircleDollarSign, Clock3, Wrench } from "lucide-react"
 
 import { MemberNav } from "@/features/members/components/member-nav"
 import { TelemetryStatusBadge } from "@/features/members/components/telemetry-status-badge"
 import { formatDuration, formatTokens } from "@/features/members/components/usage-charts"
+import { formatEstimatedCost, formatRelation } from "@/features/resource-usage/components/resource-usage-formatters"
 import { api } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
 import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/components/stat-card"
+import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
 import {
   TELEMETRY_QUERY_KEYS,
   TELEMETRY_FALLBACK_LABELS,
@@ -16,6 +18,7 @@ import {
   TelemetryToolCategory,
 } from "@/shared/constants/telemetry"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
+import { Badge } from "@/shared/ui/badge"
 import { ErrorState } from "@/shared/ui/empty-state"
 
 export function MemberRequestDetailPage() {
@@ -50,6 +53,7 @@ export function MemberRequestDetailPage() {
             <StatCard label="Model calls" value={request.model_calls} hint={`${request.provider ?? TELEMETRY_FALLBACK_LABELS.providerName}:${request.model ?? TELEMETRY_FALLBACK_LABELS.modelIdentifier}`} icon={Bot} />
             <StatCard label="Tool calls" value={request.tool_calls} hint="Names and status only" icon={Wrench} tone="success" />
             <StatCard label="Measured duration" value={formatDuration(request.duration_ms)} hint="Sum of reported operations" icon={Clock3} />
+            <StatCard label="Estimated cost" value={formatEstimatedCost(request.estimated_cost_usd_micros)} hint={`${request.unpriced_model_calls} unpriced model calls`} icon={CircleDollarSign} tone="warning" />
           </StatCardGrid>
           <Card className="mt-4">
             <CardHeader><div><CardTitle>Execution timeline</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Privacy-safe metadata only; no prompts, outputs, arguments, or file paths.</p></div></CardHeader>
@@ -57,14 +61,16 @@ export function MemberRequestDetailPage() {
               <ol className="relative ml-3 border-l border-(--color-border)">
                 {events.map((event) => {
                   const isModel = event.event_type === TelemetryEventType.ModelCall
+                  const isRequest = event.event_type === TelemetryEventType.Request
                   return (
                     <li key={event.event_id} className="relative pb-6 pl-6 last:pb-0">
-                      <span className="absolute -left-3 grid size-6 place-items-center rounded-full border border-(--color-border) bg-(--bg-card)">{isModel ? <ProviderBrandIcon providerId={event.provider ?? event.model} className="size-[1.125rem] rounded-full" /> : <Wrench className="size-3" />}</span>
+                      <span className="absolute -left-3 grid size-6 place-items-center rounded-full border border-(--color-border) bg-(--bg-card)">{isModel ? <ProviderBrandIcon providerId={event.provider ?? event.model} className="size-[1.125rem] rounded-full" /> : isRequest ? <Activity className="size-3" /> : <Wrench className="size-3" />}</span>
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div><div className="text-sm font-medium">{isModel ? `${event.provider ?? TELEMETRY_FALLBACK_LABELS.providerName}:${event.model ?? TELEMETRY_FALLBACK_LABELS.modelIdentifier}` : event.tool_name ?? TELEMETRY_FALLBACK_LABELS.tool}</div><div className="mt-0.5 text-xs text-(--color-text-subtle)">{event.agent_name ?? TELEMETRY_FALLBACK_LABELS.agent} · {new Date(event.reported_at).toLocaleTimeString()} · {formatDuration(event.duration_ms)}</div></div>
+                        <div><div className="text-sm font-medium">{isModel ? `${event.provider ?? TELEMETRY_FALLBACK_LABELS.providerName}:${event.model ?? TELEMETRY_FALLBACK_LABELS.modelIdentifier}` : isRequest ? "Request completed" : event.tool_name ?? TELEMETRY_FALLBACK_LABELS.tool}</div><div className="mt-0.5 text-xs text-(--color-text-subtle)">{event.agent_name ?? TELEMETRY_FALLBACK_LABELS.agent} · {new Date(event.reported_at).toLocaleTimeString()} · {formatDuration(event.duration_ms)}</div></div>
                         <TelemetryStatusBadge status={event.status} />
                       </div>
-                      {isModel ? <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-(--color-text-muted)"><span>{formatTokens(event.tokens_in)} input</span><span>{formatTokens(event.tokens_out)} output</span><span>{formatTokens(event.cache_read_tokens)} cache</span><span>{formatTokens(event.reasoning_tokens)} reasoning</span></div> : <div className="mt-2 text-xs text-(--color-text-muted)">Category: {event.tool_category ?? TelemetryToolCategory.Other}</div>}
+                      {isModel ? <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-(--color-text-muted)"><span>{formatTokens(event.tokens_in)} input</span><span>{formatTokens(event.tokens_out)} output</span><span>{formatTokens(event.cache_read_tokens)} cache</span><span>{formatTokens(event.reasoning_tokens)} reasoning</span><span>{event.estimated_cost_usd_micros == null ? "Unpriced" : formatEstimatedCost(event.estimated_cost_usd_micros)}</span></div> : !isRequest && <div className="mt-2 text-xs text-(--color-text-muted)">Category: {event.tool_category ?? TelemetryToolCategory.Other}</div>}
+                      {event.resources.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{event.resources.map((resource) => <Badge key={`${resource.resource_id}:${resource.version_id}:${resource.relation}`} tone="accent">{RESOURCE_KIND_LABEL[resource.kind]} · {resource.name} v{resource.version} · {formatRelation(resource.relation)}</Badge>)}</div>}
                       {event.error_category && <div className="mt-1 text-xs text-(--color-error)">Error category: {event.error_category}</div>}
                     </li>
                   )

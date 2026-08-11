@@ -7,14 +7,24 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use conductor_domain::{
-    ConductorError, CreateResourceRequest, CreateResourceVersionRequest, ManagedResource,
-    PrimaryRole, ResourceAccessPolicy, ResourceFeedback, ResourceMonitoring, ResourceStatus,
-    ResourceUsageBatchRequest, ResourceUsageBatchResponse, ResourceUsageRejection, ResourceVersion,
-    ResourceVisibility, SecretScope, UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    ConductorError, CreateResourceRequest, CreateResourceVersionRequest,
+    DeprecateResourceVersionRequest, DraftFileTree, ManagedResource, PrimaryRole,
+    ResourceAccessPolicy, ResourceFeedback, ResourceInventoryMonitoring, ResourceMonitoring,
+    ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest, ResourceUsageBatchResponse,
+    ResourceUsageRejection, ResourceVersion, ResourceVisibility, RestoreResourceVersionRequest,
+    SecretScope, SemanticVersion, UpdateResourceRequest, UpsertResourceFeedbackRequest,
 };
+use conductor_storage::repos::ResourceVersionLifecycleError;
 use serde::Deserialize;
+use std::str::FromStr;
 use uuid::Uuid;
 
+use crate::core::constants::resource::{
+    ERROR_ACTIVE_RELEASE_DEPRECATION, ERROR_DEPRECATED_CONFIRMATION_REQUIRED,
+    ERROR_DRAFT_REVISION_CONFLICT, ERROR_ONLY_RELEASED_LIFECYCLE, ERROR_RESOURCE_ARCHIVED,
+    ERROR_VERSION_ALREADY_DEPRECATED, ERROR_VERSION_SOURCE_NOT_RESTORABLE,
+    MAX_DEPRECATION_REASON_LENGTH,
+};
 use crate::core::error::{ApiError, ApiResult};
 use crate::core::state::AppState;
 use crate::http::extractors::{authenticate_connection_secret, AuthUser};
@@ -40,6 +50,7 @@ pub async fn create(
 ) -> ApiResult<Json<ManagedResource>> {
     require_catalog_manager(actor.primary_role)?;
     normalize_create_request(&mut request);
+    initialize_authoring_payload(&mut request)?;
     validate_resource_request(
         &request.slug,
         &request.name,
@@ -49,8 +60,44 @@ pub async fn create(
         request.changelog.as_deref(),
     )?;
 
-    match state.db.resources().create(&request, actor.id).await {
-        Ok(resource) => Ok(Json(resource)),
+    Ok(Json(persist_resource(&state, actor.id, &request).await?))
+}
+
+pub(super) async fn create_imported_resource(
+    state: &AppState,
+    actor: &conductor_domain::User,
+    mut request: CreateResourceRequest,
+) -> ApiResult<ManagedResource> {
+    require_catalog_manager(actor.primary_role)?;
+    normalize_create_request(&mut request);
+    validate_resource_metadata(
+        &request.slug,
+        &request.name,
+        request.description.as_deref(),
+        &request.version,
+        request.changelog.as_deref(),
+    )?;
+    persist_resource(state, actor.id, &request).await
+}
+
+async fn persist_resource(
+    state: &AppState,
+    actor_id: Uuid,
+    request: &CreateResourceRequest,
+) -> ApiResult<ManagedResource> {
+    let project_id = state
+        .db
+        .instance()
+        .project_id()
+        .await?
+        .ok_or(ConductorError::NotFound("project".into()))?;
+    match state
+        .db
+        .resources()
+        .create(project_id, request, actor_id)
+        .await
+    {
+        Ok(resource) => Ok(resource),
         Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
             Err(ConductorError::Conflict("kind and slug already exist".into()).into())
         }
@@ -121,6 +168,55 @@ pub async fn versions(
 ) -> ApiResult<Json<Vec<ResourceVersion>>> {
     let _ = managed_resource(&state, &actor, resource_id).await?;
     Ok(Json(state.db.resources().versions(resource_id).await?))
+}
+
+pub async fn deprecate_version(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path((resource_id, version_id)): Path<(Uuid, Uuid)>,
+    Json(mut request): Json<DeprecateResourceVersionRequest>,
+) -> ApiResult<Json<ResourceVersion>> {
+    let _ = managed_resource(&state, &actor, resource_id).await?;
+    request.reason = request.reason.trim().to_string();
+    if request.reason.is_empty() || request.reason.len() > MAX_DEPRECATION_REASON_LENGTH {
+        return Err(ConductorError::msg(format!(
+            "reason must be 1–{MAX_DEPRECATION_REASON_LENGTH} characters"
+        ))
+        .into());
+    }
+    match state
+        .db
+        .resources()
+        .deprecate_version(resource_id, version_id, actor.id, &request.reason)
+        .await
+    {
+        Ok(version) => Ok(Json(version)),
+        Err(error) => Err(map_version_lifecycle_error(error)),
+    }
+}
+
+pub async fn restore_version_to_draft(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path((resource_id, version_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<RestoreResourceVersionRequest>,
+) -> ApiResult<Json<DraftFileTree>> {
+    let _ = managed_resource(&state, &actor, resource_id).await?;
+    match state
+        .db
+        .resources()
+        .restore_version_to_draft(
+            resource_id,
+            version_id,
+            actor.id,
+            request.draft_revision,
+            request.confirm_deprecated,
+        )
+        .await
+    {
+        Ok(tree) => Ok(Json(tree)),
+        Err(error) => Err(map_version_lifecycle_error(error)),
+    }
 }
 
 pub async fn create_version(
@@ -216,6 +312,24 @@ pub async fn monitoring(
     let days = query.days.unwrap_or(30).clamp(7, 90);
     Ok(Json(
         state.db.resources().monitoring(resource_id, days).await?,
+    ))
+}
+
+pub async fn inventory_monitoring(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path(resource_id): Path<Uuid>,
+) -> ApiResult<Json<ResourceInventoryMonitoring>> {
+    if !actor.primary_role.can_view_telemetry() {
+        return Err(ConductorError::Forbidden.into());
+    }
+    let _ = managed_resource(&state, &actor, resource_id).await?;
+    Ok(Json(
+        state
+            .db
+            .resources()
+            .inventory_monitoring(resource_id)
+            .await?,
     ))
 }
 
@@ -387,6 +501,36 @@ fn require_catalog_manager(role: PrimaryRole) -> ApiResult<()> {
     Ok(())
 }
 
+fn map_version_lifecycle_error(error: ResourceVersionLifecycleError) -> ApiError {
+    match error {
+        ResourceVersionLifecycleError::NotFound => {
+            ConductorError::NotFound("resource version".into()).into()
+        }
+        ResourceVersionLifecycleError::ResourceArchived => {
+            ConductorError::Conflict(ERROR_RESOURCE_ARCHIVED.into()).into()
+        }
+        ResourceVersionLifecycleError::ActiveRelease => {
+            ConductorError::Conflict(ERROR_ACTIVE_RELEASE_DEPRECATION.into()).into()
+        }
+        ResourceVersionLifecycleError::AlreadyDeprecated => {
+            ConductorError::Conflict(ERROR_VERSION_ALREADY_DEPRECATED.into()).into()
+        }
+        ResourceVersionLifecycleError::NotReleased => {
+            ConductorError::Conflict(ERROR_ONLY_RELEASED_LIFECYCLE.into()).into()
+        }
+        ResourceVersionLifecycleError::DeprecatedConfirmationRequired => {
+            ConductorError::Conflict(ERROR_DEPRECATED_CONFIRMATION_REQUIRED.into()).into()
+        }
+        ResourceVersionLifecycleError::DraftConflict => {
+            ConductorError::Conflict(ERROR_DRAFT_REVISION_CONFLICT.into()).into()
+        }
+        ResourceVersionLifecycleError::InvalidSource => {
+            ConductorError::msg(ERROR_VERSION_SOURCE_NOT_RESTORABLE).into()
+        }
+        ResourceVersionLifecycleError::Database(error) => ApiError::from(error),
+    }
+}
+
 async fn publish_catalog_state(state: &AppState, resource: &ManagedResource) -> ApiResult<()> {
     state.realtime.publish(RealtimeSignal::ResourceDelete {
         audience: RealtimeAudience::All,
@@ -416,7 +560,7 @@ async fn publish_catalog_state(state: &AppState, resource: &ManagedResource) -> 
     };
     state.realtime.publish(RealtimeSignal::ResourceUpsert {
         audience,
-        resource: resource.clone(),
+        resource: Box::new(resource.clone()),
     });
     Ok(())
 }
@@ -465,6 +609,69 @@ fn normalize_create_request(request: &mut CreateResourceRequest) {
     request.changelog = clean_optional(request.changelog.take());
 }
 
+fn initialize_authoring_payload(request: &mut CreateResourceRequest) -> ApiResult<()> {
+    let should_initialize = request
+        .payload
+        .as_object()
+        .is_some_and(|payload| payload.is_empty() || payload.contains_key("modes"));
+    if !should_initialize {
+        return Ok(());
+    }
+    let requested_modes = request
+        .payload
+        .get("modes")
+        .map(parse_target_modes)
+        .transpose()?;
+    let mut files = request
+        .payload
+        .get("files")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<Vec<conductor_domain::DraftFile>>(value).ok())
+        .unwrap_or_else(|| {
+            crate::core::resource_authoring::starter_files(
+                request.kind,
+                &request.slug,
+                &request.name,
+            )
+        });
+    if matches!(
+        request.kind,
+        conductor_domain::ResourceKind::Agent | conductor_domain::ResourceKind::Skill
+    ) {
+        crate::core::resource_authoring::set_target_modes(
+            &mut files,
+            requested_modes
+                .as_deref()
+                .unwrap_or(&ResourceTargetMode::ALL),
+        );
+    }
+    request.payload = serde_json::json!({ "files": files });
+    Ok(())
+}
+
+fn parse_target_modes(value: &serde_json::Value) -> ApiResult<Vec<ResourceTargetMode>> {
+    let Some(values) = value.as_array() else {
+        return Err(ConductorError::msg("modes must be a non-empty array").into());
+    };
+    let mut selected = Vec::new();
+    for value in values {
+        let mode = value
+            .as_str()
+            .and_then(ResourceTargetMode::parse)
+            .ok_or_else(|| ConductorError::msg("modes may contain only work and coding"))?;
+        if !selected.contains(&mode) {
+            selected.push(mode);
+        }
+    }
+    if selected.is_empty() {
+        return Err(ConductorError::msg("select at least one resource mode").into());
+    }
+    Ok(ResourceTargetMode::ALL
+        .into_iter()
+        .filter(|mode| selected.contains(mode))
+        .collect())
+}
+
 fn clean_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
@@ -479,14 +686,27 @@ fn validate_resource_request(
     payload: &serde_json::Value,
     changelog: Option<&str>,
 ) -> ApiResult<()> {
+    validate_resource_metadata(slug, name, description, version, changelog)?;
+    validate_payload(payload)
+}
+
+fn validate_resource_metadata(
+    slug: &str,
+    name: &str,
+    description: Option<&str>,
+    version: &str,
+    changelog: Option<&str>,
+) -> ApiResult<()> {
     if slug.is_empty()
         || slug.len() > 80
         || !slug.chars().all(|character| {
-            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '-' | '_' | '.')
         })
     {
         return Err(ConductorError::msg(
-            "slug must use 1–80 lowercase letters, numbers, or hyphens",
+            "slug must use 1–80 lowercase letters, numbers, dots, underscores, or hyphens",
         )
         .into());
     }
@@ -500,23 +720,13 @@ fn validate_resource_request(
         return Err(ConductorError::msg("changelog must be at most 2000 characters").into());
     }
     validate_version(version)?;
-    validate_payload(payload)
+    Ok(())
 }
 
 fn validate_version(version: &str) -> ApiResult<()> {
-    if version.is_empty() || version.len() > 64 {
-        return Err(ConductorError::msg("version must be valid semantic version text").into());
-    }
-    let core = version.split_once('-').map_or(version, |(core, _)| core);
-    let parts: Vec<_> = core.split('.').collect();
-    if parts.len() != 3
-        || parts.iter().any(|part| {
-            part.is_empty() || !part.chars().all(|character| character.is_ascii_digit())
-        })
-    {
-        return Err(ConductorError::msg("version must follow major.minor.patch").into());
-    }
-    Ok(())
+    SemanticVersion::from_str(version)
+        .map(|_| ())
+        .map_err(|_| ConductorError::msg("version must follow strict SemVer 2.0").into())
 }
 
 fn validate_payload(payload: &serde_json::Value) -> ApiResult<()> {

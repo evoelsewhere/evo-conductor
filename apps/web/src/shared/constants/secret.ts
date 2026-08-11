@@ -20,7 +20,7 @@ export const SECRET_SCOPE_OPTIONS: Array<{
   {
     value: SECRET_SCOPE.SUBSCRIBE_RESOURCES,
     label: "Subscribe resources",
-    description: "Pull shared agents, skills, MCP servers, and workflows.",
+    description: "Pull shared Agents, Skills, Plugins, and workflows.",
   },
   {
     value: SECRET_SCOPE.REPORT_TELEMETRY,

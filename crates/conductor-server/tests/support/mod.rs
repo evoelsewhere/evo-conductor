@@ -153,6 +153,38 @@ impl TestApp {
         .await
     }
 
+    pub async fn patch(&self, path: &str, token: Option<&str>, body: Value) -> (StatusCode, Value) {
+        self.send(
+            Request::builder().method("PATCH").uri(path),
+            token,
+            Some(body),
+        )
+        .await
+    }
+
+    pub async fn put(&self, path: &str, token: Option<&str>, body: Value) -> (StatusCode, Value) {
+        self.send(
+            Request::builder().method("PUT").uri(path),
+            token,
+            Some(body),
+        )
+        .await
+    }
+
+    pub async fn delete(
+        &self,
+        path: &str,
+        token: Option<&str>,
+        body: Value,
+    ) -> (StatusCode, Value) {
+        self.send(
+            Request::builder().method("DELETE").uri(path),
+            token,
+            Some(body),
+        )
+        .await
+    }
+
     pub async fn post_with_headers(
         &self,
         path: &str,
@@ -167,6 +199,24 @@ impl TestApp {
             }
         }
         self.send(builder, token, Some(body)).await
+    }
+
+    pub async fn post_bytes(
+        &self,
+        path: &str,
+        token: Option<&str>,
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("Content-Type", content_type);
+        if let Some(token) = token {
+            builder = builder.header("Authorization", format!("{AUTH_SCHEME_BEARER}{token}"));
+        }
+        self.send_request(builder.body(Body::from(body)).expect("build request"))
+            .await
     }
 
     async fn send(
@@ -187,6 +237,10 @@ impl TestApp {
             None => builder.body(Body::empty()).expect("build request"),
         };
 
+        self.send_request(request).await
+    }
+
+    async fn send_request(&self, request: Request<Body>) -> (StatusCode, Value) {
         let response = self
             .router
             .clone()

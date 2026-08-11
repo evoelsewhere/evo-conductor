@@ -54,7 +54,7 @@ impl RealtimeAudience {
 pub enum RealtimeSignal {
     ResourceUpsert {
         audience: RealtimeAudience,
-        resource: ManagedResource,
+        resource: Box<ManagedResource>,
     },
     ResourceDelete {
         audience: RealtimeAudience,

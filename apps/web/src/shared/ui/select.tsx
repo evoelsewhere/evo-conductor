@@ -16,6 +16,7 @@ function Select<T extends string>({
   id,
   placeholder = "Select…",
   className,
+  "aria-label": ariaLabel,
 }: {
   value: T
   onValueChange: (value: T) => void
@@ -24,6 +25,7 @@ function Select<T extends string>({
   id?: string
   placeholder?: string
   className?: string
+  "aria-label"?: string
 }) {
   return (
     <SelectPrimitive.Root
@@ -36,6 +38,7 @@ function Select<T extends string>({
     >
       <SelectPrimitive.Trigger
         id={id}
+        aria-label={ariaLabel}
         className={cn(
           "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-(--color-border) bg-(--bg-page) px-2.5 text-sm text-(--color-text) transition-colors outline-none select-none md:h-8",
           "hover:border-(--color-border-strong) focus-visible:border-(--focus-ring) focus-visible:ring-2 focus-visible:ring-(--focus-ring)/25",

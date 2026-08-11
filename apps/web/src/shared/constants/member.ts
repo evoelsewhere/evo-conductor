@@ -29,6 +29,12 @@ export const PRIMARY_ROLE_OPTIONS = [
   { value: PRIMARY_ROLE.USER, label: "User" },
 ] as const
 
+export const PRIMARY_ROLE_LABELS: Record<PrimaryRole, string> = {
+  [PRIMARY_ROLE.ADMIN]: "Admin",
+  [PRIMARY_ROLE.CONTRIBUTE]: "Contribute",
+  [PRIMARY_ROLE.USER]: "User",
+}
+
 export const USER_STATUS_FILTER_OPTIONS = [
   { value: "", label: "All" },
   { value: USER_STATUS.PENDING, label: "Pending" },
@@ -64,7 +70,7 @@ export const MEMBER_PRESENCE_TONES = {
 export const MEMBER_ANALYTICS_NAV_ITEMS = [
   { suffix: "", label: "Overview" },
   { suffix: "/activity", label: "Activity" },
-  { suffix: "/tools", label: "Tools & MCP" },
+  { suffix: "/tools", label: "Tools & Plugins" },
 ] as const
 
 export const MEMBER_QUERY_KEYS = {

@@ -4,6 +4,7 @@ mod client;
 mod dashboard;
 mod health;
 mod realtime;
+mod resource_delivery;
 mod resources;
 mod secrets;
 mod settings;
@@ -12,6 +13,7 @@ mod sso;
 mod telemetry;
 mod users;
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, patch, post, put};
 use axum::Router;
 
@@ -74,8 +76,62 @@ pub fn router() -> Router<AppState> {
         .route("/secrets", get(secrets::list).post(secrets::create))
         .route("/secrets/{id}/revoke", post(secrets::revoke))
         .route("/resources", get(resources::list).post(resources::create))
+        .route(
+            "/resources/plugins/inspect",
+            post(resource_delivery::inspect_plugin_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/plugins/import",
+            post(resource_delivery::create_plugin_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/imports/{kind}/inspect",
+            post(resource_delivery::inspect_resource_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/imports/{kind}",
+            post(resource_delivery::create_resource_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route("/resources/guides/{kind}", get(resource_delivery::guide))
+        .route(
+            "/resources/templates/{kind}",
+            get(resource_delivery::template),
+        )
         .route("/resources/{id}", patch(resources::update))
         .route("/resources/{id}/archive", post(resources::archive))
+        .route(
+            "/resources/{id}/draft/files",
+            get(resource_delivery::draft_tree),
+        )
+        .route(
+            "/resources/{id}/draft/files/{*path}",
+            put(resource_delivery::save_draft_file),
+        )
+        .route(
+            "/resources/{id}/draft/entries",
+            post(resource_delivery::create_draft_file)
+                .patch(resource_delivery::move_draft_entry)
+                .delete(resource_delivery::delete_draft_entry),
+        )
+        .route(
+            "/resources/{id}/draft/import",
+            post(resource_delivery::import_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/{id}/draft/validate",
+            post(resource_delivery::validate),
+        )
+        .route("/resources/{id}/release", post(resource_delivery::release))
         .route(
             "/resources/{id}/versions",
             get(resources::versions).post(resources::create_version),
@@ -85,15 +141,37 @@ pub fn router() -> Router<AppState> {
             post(resources::publish_version),
         )
         .route(
+            "/resources/{id}/versions/{version_id}/deprecate",
+            post(resources::deprecate_version),
+        )
+        .route(
+            "/resources/{id}/versions/{version_id}/restore-to-draft",
+            post(resources::restore_version_to_draft),
+        )
+        .route(
             "/resources/{id}/access",
             get(resources::get_access).put(resources::set_access),
         )
         .route("/resources/{id}/monitoring", get(resources::monitoring))
         .route(
+            "/resources/{id}/inventory",
+            get(resources::inventory_monitoring),
+        )
+        .route(
             "/resources/{id}/feedback",
             get(resources::feedback).put(resources::upsert_feedback),
         )
         .route("/v1/subscribe/resources", get(resources::subscribe))
+        .route("/v1/resources/changes", get(resource_delivery::changes))
+        .route(
+            "/v1/resources/{id}/versions/{version_id}",
+            get(resource_delivery::version_payload),
+        )
+        .route(
+            "/v1/resources/{id}/versions/{version_id}/artifact",
+            get(resource_delivery::artifact),
+        )
+        .route("/v1/client/inventory", put(resource_delivery::inventory))
         .route("/v1/client/register", post(client::register))
         .route("/v1/client/heartbeat", post(client::heartbeat))
         .route("/v1/telemetry/batch", post(telemetry::ingest))
@@ -105,5 +183,6 @@ pub fn router() -> Router<AppState> {
             get(telemetry::request_detail),
         )
         .route("/members/{id}/tools", get(telemetry::tools_summary))
+        .route("/analytics/resource-usage", get(telemetry::resource_usage))
         .route("/v1/realtime/events", get(realtime::events))
 }

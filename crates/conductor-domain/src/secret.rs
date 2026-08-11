@@ -18,7 +18,7 @@ pub struct ConnectionSecret {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretScope {
-    /// Pull shared agents / skills / MCP catalogs.
+    /// Pull shared Agents, Skills and Plugin catalogs.
     SubscribeResources,
     /// Push local usage / performance telemetry.
     ReportTelemetry,

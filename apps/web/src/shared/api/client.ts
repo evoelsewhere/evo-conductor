@@ -9,6 +9,14 @@ import type {
   TelemetryEventType,
   TelemetryToolCategory,
 } from "@/shared/constants/telemetry"
+import type {
+  ReleaseChannel,
+  ResourceKind,
+  ResourceStatus,
+  ResourceTargetMode,
+  ResourceVersionStatus,
+  VersionMode,
+} from "@/shared/constants/resource"
 import { authSession } from "@/shared/lib/auth-session"
 
 export type { PrimaryRole, UserStatus } from "@/shared/constants/member"
@@ -112,7 +120,18 @@ export interface MemberActivityItem {
   tokens_out: number
   total_tokens: number
   duration_ms: number
+  estimated_cost_usd_micros: number
+  unpriced_model_calls: number
   status: TelemetryEventStatus
+}
+
+export interface TelemetryResourceAttributionDetail {
+  resource_id: string
+  version_id: string
+  kind: ResourceKind
+  name: string
+  version: string
+  relation: TelemetryResourceRelation
 }
 
 export interface MemberActivityResponse {
@@ -129,6 +148,7 @@ export interface TelemetryEventDetail {
   agent_name: string | null
   provider: string | null
   model: string | null
+  response_model: string | null
   tokens_in: number
   tokens_out: number
   cache_read_tokens: number
@@ -139,6 +159,9 @@ export interface TelemetryEventDetail {
   tool_category: TelemetryToolCategory | null
   status: TelemetryEventStatus
   error_category: string | null
+  estimated_cost_usd_micros: number | null
+  cost_source: "evoflux_catalog" | null
+  resources: TelemetryResourceAttributionDetail[]
   reported_at: string
 }
 
@@ -164,6 +187,169 @@ export interface MemberToolsSummary {
   successful_calls: number
   failed_calls: number
   tools: MemberToolUsage[]
+}
+
+export type TelemetryResourceRelation =
+  | "executing_agent"
+  | "activated_skill"
+  | "plugin_contributed_skill"
+  | "plugin_contributed_tool"
+
+export interface ResourceUsageTotals {
+  reported_installations: number
+  installed_installations: number
+  installed_members: number
+  pending_installations: number
+  attention_installations: number
+  requests: number
+  resource_uses: number
+  model_calls: number
+  tool_calls: number
+  successes: number
+  errors: number
+  blocked: number
+  cancelled: number
+  tokens_in: number
+  tokens_out: number
+  cache_read_tokens: number
+  reasoning_tokens: number
+  tool_use_tokens: number
+  total_tokens: number
+  estimated_cost_usd_micros: number
+  unpriced_model_calls: number
+  average_tokens_per_request: number
+  average_duration_ms: number
+}
+
+export interface ResourceUsageDay {
+  date: string
+  requests: number
+  successes: number
+  errors: number
+  blocked: number
+  cancelled: number
+  tokens_in: number
+  tokens_out: number
+  cache_read_tokens: number
+  reasoning_tokens: number
+  tool_use_tokens: number
+  estimated_cost_usd_micros: number
+  unpriced_model_calls: number
+}
+
+export interface ResourceUsageBreakdown {
+  resource_id: string
+  version_id: string
+  kind: ResourceKind
+  name: string
+  version: string
+  relation: TelemetryResourceRelation
+  uses: number
+  members: number
+  requests: number
+  successes: number
+  errors: number
+  model_calls: number
+  tool_calls: number
+  total_tokens: number
+  estimated_cost_usd_micros: number
+  last_used_at: string
+}
+
+export interface ResourceUsageMember {
+  user_id: string
+  display_name: string
+  email: string
+  primary_role: PrimaryRole
+  requests: number
+  resource_uses: number
+  total_tokens: number
+  estimated_cost_usd_micros: number
+}
+
+export interface ResourceUsageModel {
+  provider: string
+  model: string
+  calls: number
+  total_tokens: number
+  estimated_cost_usd_micros: number
+  unpriced_calls: number
+}
+
+export interface ResourceUsageRole {
+  primary_role: PrimaryRole
+  requests: number
+  model_calls: number
+  tool_calls: number
+  total_tokens: number
+  estimated_cost_usd_micros: number
+}
+
+export interface ResourceUsageTool {
+  tool_name: string
+  category: TelemetryToolCategory
+  calls: number
+  successes: number
+  errors: number
+  blocked: number
+  cancelled: number
+  average_duration_ms: number
+  last_used_at: string
+}
+
+export interface ResourceUsageActivityItem {
+  request_id: string
+  user_id: string
+  display_name: string
+  primary_role: PrimaryRole
+  resource_id: string
+  version_id: string
+  kind: ResourceKind
+  resource_name: string
+  version: string
+  relation: TelemetryResourceRelation
+  occurred_at: string
+  status: TelemetryEventStatus
+  provider: string | null
+  model: string | null
+  model_calls: number
+  tool_calls: number
+  total_tokens: number
+  estimated_cost_usd_micros: number
+  unpriced_model_calls: number
+  duration_ms: number
+}
+
+export interface ResourceUsageAnalytics {
+  from: string
+  to: string
+  totals: ResourceUsageTotals
+  daily: ResourceUsageDay[]
+  resources: ResourceUsageBreakdown[]
+  members: ResourceUsageMember[]
+  models: ResourceUsageModel[]
+  roles: ResourceUsageRole[]
+  tools: ResourceUsageTool[]
+  activity: ResourceUsageActivityItem[]
+  activity_total: number
+  limit: number
+  offset: number
+}
+
+export interface ResourceUsageParams extends DateRangeParams {
+  member_id?: string
+  primary_role?: PrimaryRole
+  resource_kind?: ResourceKind
+  resource_id?: string
+  version_id?: string
+  status?: TelemetryEventStatus
+  provider?: string
+  model?: string
+  installation_id?: string
+  relation?: TelemetryResourceRelation
+  tool_name?: string
+  limit?: number
+  offset?: number
 }
 
 export interface DateRangeParams {
@@ -227,7 +413,7 @@ export interface DashboardSummary {
   resources: {
     agents: number
     skills: number
-    mcp: number
+    plugins: number
     workflows: number
   }
   sso_enabled: boolean
@@ -301,14 +487,18 @@ export interface CreatedSecret {
 
 export interface ManagedResource {
   id: string
-  kind: "agent" | "skill" | "mcp" | "workflow" | "command"
+  project_id: string
+  kind: ResourceKind
   slug: string
   name: string
   description: string | null
   version: string
+  highest_version: string | null
+  draft_revision: number
+  release_channel: ReleaseChannel | null
   owner_user_id: string | null
   visibility: "shared" | "private"
-  status: "draft" | "published" | "archived"
+  status: ResourceStatus
   payload: unknown
   published_at: string | null
   created_at: string
@@ -317,14 +507,114 @@ export interface ManagedResource {
 
 export interface ResourceVersion {
   id: string
+  project_id: string
   resource_id: string
   version: string
-  status: "draft" | "published" | "deprecated"
+  status: ResourceVersionStatus
   payload: unknown
   changelog: string | null
+  release_channel: ReleaseChannel | null
+  active_channel: ReleaseChannel | null
+  content_sha256: string
+  content_size: number
+  artifact_key: string | null
+  minimum_evoflux_version: string | null
   created_by: string
   created_at: string
   published_at: string | null
+  deprecated_at: string | null
+  deprecated_by: string | null
+  deprecation_reason: string | null
+}
+
+export interface DraftFile {
+  path: string
+  content: string
+}
+
+export interface DraftFileTree {
+  resource_id: string
+  revision: number
+  files: DraftFile[]
+}
+
+export interface ResourceDiagnostic {
+  severity: "warning" | "error"
+  code: string
+  message: string
+  path: string | null
+  line: number | null
+}
+
+export interface ResourceValidation {
+  valid: boolean
+  revision: number
+  diagnostics: ResourceDiagnostic[]
+}
+
+export interface DraftImportResponse {
+  tree: DraftFileTree
+  validation: ResourceValidation
+}
+
+export interface PluginArchiveManifest {
+  name: string | null
+  version: string | null
+  description: string | null
+}
+
+export interface PluginArchiveInspection {
+  manifest: PluginArchiveManifest
+  validation: ResourceValidation
+  file_count: number
+  total_uncompressed_bytes: number
+  skill_count: number
+}
+
+export interface PluginArchiveCreateResponse {
+  resource: ManagedResource
+  validation: ResourceValidation
+}
+
+export interface ResourceArchiveMetadata {
+  slug: string | null
+  version: string | null
+  description: string | null
+  primary_source: string | null
+}
+
+export interface ResourceArchiveInspection {
+  kind: ResourceKind
+  metadata: ResourceArchiveMetadata
+  validation: ResourceValidation
+  file_count: number
+  total_uncompressed_bytes: number
+}
+
+export interface ResourceArchiveCreateResponse {
+  resource: ManagedResource
+  validation: ResourceValidation
+}
+
+export interface ReleaseResourceRequest {
+  channel: ReleaseChannel
+  version_mode: VersionMode
+  manual_version: string | null
+  draft_revision: number
+  changelog: string | null
+  beta_member_ids: string[]
+  minimum_evoflux_version: string | null
+}
+
+export interface ReleaseResourceResult {
+  resource_id: string
+  version_id: string
+  version: string
+  channel: ReleaseChannel
+  sha256: string
+  size: number
+  highest_version: string
+  next_version: string
 }
 
 export interface ResourceAccessPolicy {
@@ -367,6 +657,37 @@ export interface ResourceMonitoring {
   }>
 }
 
+export interface ResourceInventoryMonitoring {
+  resource_id: string
+  summary: {
+    reported_installations: number
+    installed_installations: number
+    installed_members: number
+    pending_installations: number
+    attention_installations: number
+  }
+  installations: Array<{
+    installation_id: string
+    installation_name: string
+    platform: string
+    evoflux_version: string
+    user_id: string
+    member_name: string
+    email: string
+    primary_role: PrimaryRole
+    desired_version_id: string | null
+    desired_version: string | null
+    applied_version_id: string | null
+    applied_version: string | null
+    release_channel: ReleaseChannel | null
+    plugin_installation_id: string | null
+    observed_state: string
+    error_category: string | null
+    observed_at: string
+    last_seen_at: string
+  }>
+}
+
 export interface ResourceFeedback {
   id: string
   resource_id: string
@@ -382,7 +703,9 @@ export interface ResourceFeedback {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authSession.getToken()
   const headers = new Headers(init?.headers)
-  headers.set("Content-Type", "application/json")
+  if (typeof init?.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
   if (token) headers.set("Authorization", `Bearer ${token}`)
 
   const res = await fetch(`/api${path}`, { ...init, headers })
@@ -497,6 +820,26 @@ export const api = {
     request<MemberToolsSummary>(
       `/members/${id}/tools${qs({ from: params.from, to: params.to })}`,
     ),
+  resourceUsage: (params: ResourceUsageParams = {}) =>
+    request<ResourceUsageAnalytics>(
+      `/analytics/resource-usage${qs({
+        from: params.from,
+        to: params.to,
+        member_id: params.member_id,
+        primary_role: params.primary_role,
+        resource_kind: params.resource_kind,
+        resource_id: params.resource_id,
+        version_id: params.version_id,
+        status: params.status,
+        provider: params.provider,
+        model: params.model,
+        installation_id: params.installation_id,
+        relation: params.relation,
+        tool_name: params.tool_name,
+        limit: params.limit,
+        offset: params.offset,
+      })}`,
+    ),
   createMember: (body: CreateMemberBody) =>
     request<CreatedMember>("/members", { method: "POST", body: JSON.stringify(body) }),
   updateMember: (id: string, body: UpdateMemberBody) =>
@@ -607,12 +950,60 @@ export const api = {
     version: string
     visibility: ManagedResource["visibility"]
     payload: unknown
+    modes?: ResourceTargetMode[]
     changelog?: string
   }) =>
     request<ManagedResource>("/resources", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  inspectPluginArchive: (file: File) =>
+    request<PluginArchiveInspection>("/resources/plugins/inspect", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/zip" },
+      body: file,
+    }),
+  createPluginFromArchive: (
+    file: File,
+    body: { name: string; visibility: ManagedResource["visibility"] },
+  ) =>
+    request<PluginArchiveCreateResponse>(
+      `/resources/plugins/import${qs({ name: body.name, visibility: body.visibility })}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/zip" },
+        body: file,
+      },
+    ),
+  inspectResourceArchive: (kind: ResourceKind, file: File) =>
+    request<ResourceArchiveInspection>(`/resources/imports/${kind}/inspect`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/zip" },
+      body: file,
+    }),
+  createResourceFromArchive: (
+    kind: ResourceKind,
+    file: File,
+    body: {
+      slug: string
+      name: string
+      visibility: ManagedResource["visibility"]
+      modes: ResourceTargetMode[]
+    },
+  ) =>
+    request<ResourceArchiveCreateResponse>(
+      `/resources/imports/${kind}${qs({
+        slug: body.slug,
+        name: body.name,
+        visibility: body.visibility,
+        modes: body.modes.join(","),
+      })}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/zip" },
+        body: file,
+      },
+    ),
   updateResource: (
     id: string,
     body: {
@@ -629,6 +1020,69 @@ export const api = {
     request<ManagedResource>(`/resources/${id}/archive`, { method: "POST" }),
   resourceVersions: (id: string) =>
     request<ResourceVersion[]>(`/resources/${id}/versions`),
+  resourceDraft: (id: string) =>
+    request<DraftFileTree>(`/resources/${id}/draft/files`),
+  saveResourceDraftFile: (
+    id: string,
+    path: string,
+    content: string,
+    draftRevision: number,
+  ) =>
+    request<DraftFileTree>(
+      `/resources/${id}/draft/files/${path
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/")}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content, draft_revision: draftRevision }),
+      },
+    ),
+  createResourceDraftFile: (
+    id: string,
+    path: string,
+    content: string,
+    draftRevision: number,
+  ) =>
+    request<DraftFileTree>(`/resources/${id}/draft/entries`, {
+      method: "POST",
+      body: JSON.stringify({ path, content, draft_revision: draftRevision }),
+    }),
+  moveResourceDraftEntry: (
+    id: string,
+    path: string,
+    destinationPath: string,
+    draftRevision: number,
+  ) =>
+    request<DraftFileTree>(`/resources/${id}/draft/entries`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        path,
+        destination_path: destinationPath,
+        draft_revision: draftRevision,
+      }),
+    }),
+  deleteResourceDraftEntry: (id: string, path: string, draftRevision: number) =>
+    request<DraftFileTree>(`/resources/${id}/draft/entries`, {
+      method: "DELETE",
+      body: JSON.stringify({ path, draft_revision: draftRevision }),
+    }),
+  importResourceDraft: (id: string, file: File, draftRevision: number) =>
+    request<DraftImportResponse>(
+      `/resources/${id}/draft/import${qs({ draft_revision: draftRevision })}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/zip" },
+        body: file,
+      },
+    ),
+  validateResourceDraft: (id: string) =>
+    request<ResourceValidation>(`/resources/${id}/draft/validate`, { method: "POST" }),
+  releaseResource: (id: string, body: ReleaseResourceRequest) =>
+    request<ReleaseResourceResult>(`/resources/${id}/release`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   createResourceVersion: (
     id: string,
     body: { version: string; payload: unknown; changelog?: string },
@@ -642,6 +1096,27 @@ export const api = {
       `/resources/${resourceId}/versions/${versionId}/publish`,
       { method: "POST" },
     ),
+  deprecateResourceVersion: (resourceId: string, versionId: string, reason: string) =>
+    request<ResourceVersion>(
+      `/resources/${resourceId}/versions/${versionId}/deprecate`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    ),
+  restoreResourceVersionToDraft: (
+    resourceId: string,
+    versionId: string,
+    draftRevision: number,
+    confirmDeprecated: boolean,
+  ) =>
+    request<DraftFileTree>(
+      `/resources/${resourceId}/versions/${versionId}/restore-to-draft`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          draft_revision: draftRevision,
+          confirm_deprecated: confirmDeprecated,
+        }),
+      },
+    ),
   resourceAccess: (id: string) =>
     request<ResourceAccessPolicy>(`/resources/${id}/access`),
   setResourceAccess: (id: string, body: ResourceAccessPolicy) =>
@@ -651,6 +1126,8 @@ export const api = {
     }),
   resourceMonitoring: (id: string, days = 30) =>
     request<ResourceMonitoring>(`/resources/${id}/monitoring?days=${days}`),
+  resourceInventory: (id: string) =>
+    request<ResourceInventoryMonitoring>(`/resources/${id}/inventory`),
   resourceFeedback: (id: string) =>
     request<ResourceFeedback[]>(`/resources/${id}/feedback`),
   submitResourceFeedback: (id: string, rating: number, comment?: string) =>

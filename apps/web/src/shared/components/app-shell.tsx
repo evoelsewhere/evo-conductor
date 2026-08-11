@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import {
   Bot,
   Boxes,
+  ChartNoAxesCombined,
   ChevronDown,
   ChevronsUpDown,
   KeyRound,
@@ -124,16 +125,25 @@ export function AppShell() {
         badge: isAdmin ? pending?.count : undefined,
       })
     }
+    const resourceItems: NavItemDef[] = [
+      { to: "/app/resources/plugins", label: "Plugins", icon: Plug, end: false },
+      { to: "/app/resources/skills", label: "Skills", icon: Sparkles, end: false },
+      { to: "/app/resources/agents", label: "Agents", icon: Bot, end: false },
+    ]
+    if (canListMembers) {
+      resourceItems.push({
+        to: "/app/resources/usage",
+        label: "Usage",
+        icon: ChartNoAxesCombined,
+        end: false,
+      })
+    }
     workspaceItems.push({
       to: "/app/resources",
       label: "Resources",
       icon: Boxes,
       end: true,
-      children: [
-        { to: "/app/resources/plugins", label: "Plugins", icon: Plug, end: false },
-        { to: "/app/resources/skills", label: "Skills", icon: Sparkles, end: false },
-        { to: "/app/resources/agents", label: "Agents", icon: Bot, end: false },
-      ],
+      children: resourceItems,
     })
 
     const accessItems: NavItemDef[] = [

@@ -44,8 +44,8 @@ impl DashboardRepo {
         )
         .fetch_one(&self.pool)
         .await?;
-        let mcp: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM resources WHERE kind = 'mcp' AND status = 'published'",
+        let plugins: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resources WHERE kind = 'plugin' AND status = 'published'",
         )
         .fetch_one(&self.pool)
         .await?;
@@ -65,7 +65,7 @@ impl DashboardRepo {
             resources: ResourceCounts {
                 agents: agents as u32,
                 skills: skills as u32,
-                mcp: mcp as u32,
+                plugins: plugins as u32,
                 workflows: workflows as u32,
             },
             sso_enabled: sso.enabled,

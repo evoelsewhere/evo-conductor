@@ -29,6 +29,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 hex = "0.4"
+hmac = "0.12"
 jsonwebtoken = "9"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
@@ -45,3 +46,4 @@ tower-http = { version = "0.6", features = ["fs", "set-header", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["serde", "v4"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
