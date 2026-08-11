@@ -11,6 +11,7 @@
 //! telemetry   usage and presence reporting
 //! ```
 
+pub mod analytics;
 pub mod client_installation;
 pub mod core;
 pub mod instance;
@@ -21,6 +22,13 @@ pub mod secret;
 pub mod telemetry;
 pub mod user;
 
+pub use analytics::{
+    validate_analytics_view_metadata, AnalyticsComparison, AnalyticsDashboardDensity,
+    AnalyticsDashboardPreset, AnalyticsDateRange, AnalyticsDimension, AnalyticsMetric,
+    AnalyticsQuery, AnalyticsView, AnalyticsViewDefinition, AnalyticsViewVisibility,
+    AnalyticsVisualization, AnalyticsWidget, AnalyticsWidgetSize, CreateAnalyticsViewRequest,
+    UpdateAnalyticsViewRequest, ANALYTICS_VIEW_SCHEMA_VERSION,
+};
 pub use client_installation::{
     ClientHeartbeatRequest, ClientHeartbeatResponse, ClientInstallation, ClientInstallationSummary,
     ClientMember, ClientPlatform, ClientPolicy, ClientProject, ClientTelemetryPolicy,
@@ -35,18 +43,18 @@ pub use instance::{
 pub use resource::{
     CreateDraftFileRequest, CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary,
     DeleteDraftEntryRequest, DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile,
-    DraftFileTree, EffectiveResourceVersion, ManagedResource, MoveDraftEntryRequest,
-    ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy,
-    ResourceChange, ResourceChangePage, ResourceCounts, ResourceDailyUsage, ResourceDiagnostic,
-    ResourceFeedback, ResourceInstallationState, ResourceInventoryItem,
-    ResourceInventoryMonitoring, ResourceInventoryMonitoringSummary,
-    ResourceInventoryObservedState, ResourceInventoryRequest, ResourceInventoryResponse,
-    ResourceKind, ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary,
-    ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest, ResourceUsageBatchResponse,
-    ResourceUsageEventRequest, ResourceUsageRejection, ResourceValidation, ResourceVersion,
-    ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus,
-    ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest, UpdateResourceRequest,
-    UpsertResourceFeedbackRequest, VersionMode,
+    DraftFileTree, EffectiveResourceVersion, FileManifestEntry, ManagedResource,
+    MoveDraftEntryRequest, ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult,
+    ResourceAccessPolicy, ResourceBundleKind, ResourceBundleV2, ResourceChange, ResourceChangePage,
+    ResourceCounts, ResourceDailyUsage, ResourceDiagnostic, ResourceFeedback,
+    ResourceInstallationState, ResourceInventoryItem, ResourceInventoryMonitoring,
+    ResourceInventoryMonitoringSummary, ResourceInventoryObservedState, ResourceInventoryRequest,
+    ResourceInventoryResponse, ResourceKind, ResourceMemberUsage, ResourceMonitoring,
+    ResourceMonitoringSummary, ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest,
+    ResourceUsageBatchResponse, ResourceUsageEventRequest, ResourceUsageRejection,
+    ResourceValidation, ResourceVersion, ResourceVersionLifecycleAction, ResourceVersionNotice,
+    ResourceVersionStatus, ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest,
+    UpdateResourceRequest, UpsertResourceFeedbackRequest, VersionMode,
 };
 pub use resource_semver::{SemanticVersion, SemanticVersionError};
 pub use role::{

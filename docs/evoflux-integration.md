@@ -348,6 +348,8 @@ Use `RealtimeAudience::Owner(user_id)` for private resources. If visibility chan
 
 ## Future EvoFlux checklist
 
+The canonical Agent, Skill and Plugin file-manifest, integrity and Work/Coding/AIM scope contract is defined in [resource-bundle-v2.md](resource-bundle-v2.md). New clients should use its additive v2 fields while retaining the v1 fallback for legacy releases.
+
 - Add secure secret configuration and redaction.
 - Add an incremental SSE client with custom `Authorization` header.
 - Implement the lifecycle and retry state machine above.

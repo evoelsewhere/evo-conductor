@@ -47,14 +47,20 @@ impl ResourceUsageRepo {
         &self,
         query: &ResourceUsageQuery,
     ) -> Result<ResourceUsageAnalytics, sqlx::Error> {
-        let totals = self.totals(query).await?;
-        let daily = self.daily(query).await?;
-        let resources = self.resources(query).await?;
-        let members = self.members(query).await?;
-        let models = self.models(query).await?;
-        let roles = self.roles(query).await?;
-        let tools = self.tools(query).await?;
-        let (activity, activity_total) = self.activity(query).await?;
+        // These panels are independent read models. Running them concurrently
+        // keeps a rich dashboard from paying the sum of eight query latencies,
+        // while the pool still provides a hard concurrency bound per process.
+        let (totals, daily, resources, members, models, roles, tools, activity_page) = tokio::try_join!(
+            self.totals(query),
+            self.daily(query),
+            self.resources(query),
+            self.members(query),
+            self.models(query),
+            self.roles(query),
+            self.tools(query),
+            self.activity(query),
+        )?;
+        let (activity, activity_total) = activity_page;
         Ok(ResourceUsageAnalytics {
             from: query.from,
             to: query.to,

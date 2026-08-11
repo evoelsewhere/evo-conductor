@@ -1,4 +1,5 @@
 mod access;
+mod analytics_views;
 mod auth;
 mod client;
 mod dashboard;
@@ -184,5 +185,15 @@ pub fn router() -> Router<AppState> {
         )
         .route("/members/{id}/tools", get(telemetry::tools_summary))
         .route("/analytics/resource-usage", get(telemetry::resource_usage))
+        .route(
+            "/analytics/views",
+            get(analytics_views::list).post(analytics_views::create),
+        )
+        .route(
+            "/analytics/views/{id}",
+            get(analytics_views::get)
+                .put(analytics_views::update)
+                .delete(analytics_views::delete),
+        )
         .route("/v1/realtime/events", get(realtime::events))
 }

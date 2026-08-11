@@ -1,5 +1,5 @@
 use axum::{extract::State, Json};
-use conductor_auth::{hash_password, validate_oidc_redirect_uri, validate_oidc_url};
+use conductor_auth::{hash_password_async, validate_oidc_redirect_uri, validate_oidc_url};
 use conductor_domain::{ConductorError, SetupRequest, SetupStatus, SsoProvider};
 use rand::RngCore;
 
@@ -122,7 +122,7 @@ pub async fn complete(
         }
     }
 
-    let password_hash = hash_password(&req.admin_password)?;
+    let password_hash = hash_password_async(req.admin_password.clone()).await?;
     let mut jwt_bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut jwt_bytes);
     let jwt_secret = hex::encode(jwt_bytes);

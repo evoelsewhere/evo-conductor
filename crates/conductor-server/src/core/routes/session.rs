@@ -21,3 +21,4 @@ pub const TAG_ASSIGNMENTS: &str = "/tag-assignments/{entity_type}/{entity_id}";
 pub const SECRETS: &str = "/secrets";
 pub const SECRET_REVOKE: &str = "/secrets/{id}/revoke";
 pub const RESOURCES: &str = "/resources";
+pub const ANALYTICS_VIEWS: &str = "/analytics/views";

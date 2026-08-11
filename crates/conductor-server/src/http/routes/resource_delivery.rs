@@ -24,8 +24,8 @@ use uuid::Uuid;
 
 use crate::core::error::{ApiError, ApiResult};
 use crate::core::resource_authoring::{
-    archive_source_metadata, import_zip, safe_relative_path, set_target_modes, starter_files,
-    validate_draft, versioned_plugin_files, MAX_EDITABLE_FILE_BYTES,
+    archive_source_metadata, import_zip, resource_bundle_v2, safe_relative_path, set_target_modes,
+    starter_files, validate_draft, versioned_plugin_files, MAX_EDITABLE_FILE_BYTES,
 };
 use crate::core::state::AppState;
 use crate::http::extractors::{authenticate_connection_secret, AuthUser};
@@ -437,7 +437,7 @@ fn parse_archive_modes(value: Option<&str>) -> ApiResult<Vec<ResourceTargetMode>
         .filter(|value| !value.is_empty())
     {
         let mode = ResourceTargetMode::parse(raw)
-            .ok_or_else(|| ConductorError::msg("modes may contain only work and coding"))?;
+            .ok_or_else(|| ConductorError::msg("modes may contain only work, coding and aim"))?;
         if !selected.contains(&mode) {
             selected.push(mode);
         }
@@ -756,27 +756,54 @@ pub async fn release(
             .join(",");
         return Err(ConductorError::msg(format!("validation_failed:{codes}")).into());
     }
-    let updated_payload = serde_json::to_string(&serde_json::json!({ "files": release_files }))
+    // `source_payload` remains the artifact-hash input for Agent and Skill so
+    // the new descriptor is additive and cannot make its own digest circular.
+    let source_payload = serde_json::to_string(&serde_json::json!({ "files": &release_files }))
         .map_err(|_| ConductorError::Internal)?;
-    let content = if resource.kind == ResourceKind::Plugin {
-        let artifact = state
-            .artifacts
-            .put_plugin(&release_files)
-            .map_err(|_| ConductorError::Internal)?;
-        ReleaseContent {
-            sha256: artifact.sha256,
-            size: artifact.size,
-            artifact_key: Some(artifact.key),
-            updated_payload: Some(updated_payload),
-        }
+    let (artifact_sha256, artifact_size, artifact_key, artifact_media_type) =
+        if resource.kind == ResourceKind::Plugin {
+            let artifact = state
+                .artifacts
+                .put_plugin(&release_files)
+                .map_err(|_| ConductorError::Internal)?;
+            (
+                artifact.sha256,
+                artifact.size,
+                Some(artifact.key),
+                "application/vnd.evoflux.plugin+zip",
+            )
+        } else {
+            let bytes = source_payload.as_bytes();
+            (
+                hex::encode(Sha256::digest(bytes)),
+                bytes.len().try_into().unwrap_or(u64::MAX),
+                None,
+                "application/vnd.evoflux.resource+json",
+            )
+        };
+    let bundle_v2 = resource_bundle_v2(
+        resource.kind,
+        &resource.slug,
+        &candidate,
+        &artifact_sha256,
+        artifact_size,
+        artifact_media_type,
+        &release_files,
+    );
+    let updated_payload = if let Some(bundle_v2) = bundle_v2 {
+        serde_json::to_string(&serde_json::json!({
+            "files": &release_files,
+            "bundle_v2": bundle_v2,
+        }))
+        .map_err(|_| ConductorError::Internal)?
     } else {
-        let bytes = updated_payload.as_bytes();
-        ReleaseContent {
-            sha256: hex::encode(Sha256::digest(bytes)),
-            size: bytes.len().try_into().unwrap_or(u64::MAX),
-            artifact_key: None,
-            updated_payload: None,
-        }
+        source_payload
+    };
+    let content = ReleaseContent {
+        sha256: artifact_sha256,
+        size: artifact_size,
+        artifact_key,
+        updated_payload: Some(updated_payload),
     };
     match state
         .db
@@ -864,6 +891,11 @@ pub async fn changes(
                 release_channel: None,
                 sha256: None,
                 size: 0,
+                bundle_schema_version: None,
+                artifact_sha256: None,
+                tree_sha256: None,
+                artifact_media_type: None,
+                file_count: None,
                 minimum_evoflux_version: None,
                 trust_required: false,
                 tombstone: true,
@@ -1055,6 +1087,26 @@ fn release_candidate(highest: Option<&str>, request: &ReleaseResourceRequest) ->
 
 fn to_change(version: EffectiveResourceVersion) -> ResourceChange {
     let trust_required = version.kind == ResourceKind::Plugin;
+    let bundle_schema_version = version
+        .bundle_v2
+        .as_ref()
+        .map(|bundle| bundle.schema_version);
+    let artifact_sha256 = version
+        .bundle_v2
+        .as_ref()
+        .map(|bundle| bundle.artifact_sha256.clone());
+    let tree_sha256 = version
+        .bundle_v2
+        .as_ref()
+        .map(|bundle| bundle.tree_sha256.clone());
+    let artifact_media_type = version
+        .bundle_v2
+        .as_ref()
+        .map(|bundle| bundle.artifact_media_type.clone());
+    let file_count = version
+        .bundle_v2
+        .as_ref()
+        .map(|bundle| u32::try_from(bundle.files.len()).unwrap_or(u32::MAX));
     ResourceChange {
         project_id: version.project_id,
         resource_id: version.resource_id,
@@ -1068,6 +1120,11 @@ fn to_change(version: EffectiveResourceVersion) -> ResourceChange {
         release_channel: Some(version.release_channel),
         sha256: Some(version.sha256),
         size: version.size,
+        bundle_schema_version,
+        artifact_sha256,
+        tree_sha256,
+        artifact_media_type,
+        file_count,
         minimum_evoflux_version: version.minimum_evoflux_version,
         trust_required,
         tombstone: false,
@@ -1158,4 +1215,69 @@ fn verify_cursor_signature(payload: &[u8], signature: &[u8], secret: &[u8]) -> b
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts keys of any size");
     mac.update(payload);
     mac.verify_slice(signature).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use conductor_domain::{
+        FileManifestEntry, ReleaseChannel, ResourceBundleKind, ResourceBundleV2,
+    };
+
+    #[test]
+    fn archive_modes_accept_aim_and_keep_canonical_order() {
+        let modes = match parse_archive_modes(Some("aim,work")) {
+            Ok(modes) => modes,
+            Err(_) => panic!("AIM mode should be accepted"),
+        };
+        assert_eq!(
+            modes,
+            vec![ResourceTargetMode::Work, ResourceTargetMode::Aim]
+        );
+    }
+
+    #[test]
+    fn change_descriptor_exposes_bundle_v2_without_removing_legacy_hash() {
+        let bundle = ResourceBundleV2 {
+            schema_version: ResourceBundleV2::SCHEMA_VERSION,
+            kind: ResourceBundleKind::Agent,
+            slug: "reviewer".into(),
+            version: "1.0.0".into(),
+            artifact_sha256: "a".repeat(64),
+            artifact_size: 100,
+            artifact_media_type: "application/vnd.evoflux.resource+json".into(),
+            tree_sha256: "b".repeat(64),
+            files: vec![FileManifestEntry {
+                path: "reviewer.md".into(),
+                sha256: "c".repeat(64),
+                size: 12,
+                media_type: "text/markdown".into(),
+                executable: false,
+            }],
+        };
+        let change = to_change(EffectiveResourceVersion {
+            project_id: Uuid::nil(),
+            resource_id: Uuid::nil(),
+            version_id: Uuid::nil(),
+            kind: ResourceKind::Agent,
+            slug: "reviewer".into(),
+            version: "1.0.0".into(),
+            description: None,
+            changelog: None,
+            version_history: Vec::new(),
+            release_channel: ReleaseChannel::Published,
+            payload: serde_json::json!({}),
+            sha256: "legacy".into(),
+            size: 100,
+            artifact_key: None,
+            bundle_v2: Some(bundle),
+            minimum_evoflux_version: None,
+        });
+
+        assert_eq!(change.sha256.as_deref(), Some("legacy"));
+        assert_eq!(change.bundle_schema_version, Some(2));
+        assert_eq!(change.artifact_sha256, Some("a".repeat(64)));
+        assert_eq!(change.tree_sha256, Some("b".repeat(64)));
+        assert_eq!(change.file_count, Some(1));
+    }
 }

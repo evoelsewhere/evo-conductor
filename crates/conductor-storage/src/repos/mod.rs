@@ -1,3 +1,4 @@
+pub mod analytics_view;
 pub mod client_installation;
 pub mod dashboard;
 pub mod instance;
@@ -8,6 +9,7 @@ pub mod secret;
 pub mod telemetry;
 pub mod user;
 
+pub use analytics_view::{AnalyticsViewRepo, AnalyticsViewWriteError};
 pub use client_installation::{ClientInstallationRepo, RegisterInstallationError};
 pub use dashboard::DashboardRepo;
 pub use instance::{InstanceRepo, NetworkOverrides, SsoConfigUpdate, SsoRuntime};

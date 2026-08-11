@@ -5,7 +5,7 @@ use axum::{
 };
 use chrono::{TimeZone, Utc};
 use conductor_auth::{
-    begin_authorization, default_scopes, exchange_code, hash_password, verify_password,
+    begin_authorization, default_scopes, exchange_code, hash_password_async, verify_password_async,
 };
 use conductor_domain::{AuthSession, ChangePasswordRequest, ConductorError, User, UserStatus};
 use conductor_storage::repos::SsoLoginError;
@@ -56,7 +56,7 @@ pub async fn login(
 
     let hash = hash.ok_or(ConductorError::InvalidCredentials)?;
 
-    if !verify_password(&req.password, &hash)? {
+    if !verify_password_async(req.password, hash).await? {
         return Err(ConductorError::InvalidCredentials.into());
     }
 
@@ -100,14 +100,14 @@ pub async fn change_password(
     })?;
     let current = req.current_password.as_deref().unwrap_or("");
     if !user.must_change_password {
-        if current.is_empty() || !verify_password(current, &hash)? {
+        if current.is_empty() || !verify_password_async(current.to_string(), hash.clone()).await? {
             return Err(ConductorError::InvalidCredentials.into());
         }
-    } else if !current.is_empty() && !verify_password(current, &hash)? {
+    } else if !current.is_empty() && !verify_password_async(current.to_string(), hash).await? {
         return Err(ConductorError::InvalidCredentials.into());
     }
 
-    let new_hash = hash_password(&req.new_password)?;
+    let new_hash = hash_password_async(req.new_password).await?;
     state
         .db
         .users()

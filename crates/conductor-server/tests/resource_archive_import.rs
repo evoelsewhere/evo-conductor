@@ -72,7 +72,7 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
 
     let (status, created) = app
         .post_bytes(
-            "/api/resources/imports/agent?slug=release_review&name=Release%20Review&visibility=shared",
+            "/api/resources/imports/agent?slug=release_review&name=Release%20Review&visibility=shared&modes=aim",
             Some(&token),
             "application/zip",
             package,
@@ -91,16 +91,56 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{tree}");
-    assert!(tree["files"]
-        .as_array()
-        .unwrap()
+    let files = tree["files"].as_array().unwrap();
+    assert!(files.iter().any(|file| file["path"] == "release_review.md"));
+    let mode_file = files
         .iter()
-        .any(|file| file["path"] == "release_review.md"));
-    assert!(tree["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|file| file["path"] == ".evoflux.json"));
+        .find(|file| file["path"] == ".evoflux.json")
+        .expect("mode scope file");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(mode_file["content"].as_str().unwrap()).unwrap(),
+        serde_json::json!({ "modes": ["aim"] })
+    );
+
+    let (status, released) = app
+        .post(
+            &format!("/api/resources/{resource_id}/release"),
+            Some(&token),
+            serde_json::json!({
+                "channel": "published",
+                "version_mode": "auto",
+                "manual_version": null,
+                "draft_revision": 0,
+                "changelog": "Initial release",
+                "beta_member_ids": [],
+                "minimum_evoflux_version": null
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{released}");
+
+    let (status, versions) = app
+        .get(
+            &format!("/api/resources/{resource_id}/versions"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{versions}");
+    let bundle = &versions[0]["bundle_v2"];
+    assert_eq!(bundle["schema_version"], 2);
+    assert_eq!(bundle["kind"], "agent");
+    assert_eq!(bundle["slug"], "release_review");
+    assert_eq!(bundle["artifact_sha256"], released["sha256"]);
+    assert_eq!(bundle["artifact_size"], released["size"]);
+    assert_eq!(
+        bundle["artifact_media_type"],
+        "application/vnd.evoflux.resource+json"
+    );
+    assert_eq!(bundle["files"].as_array().map(Vec::len), Some(2));
+    assert_eq!(bundle["files"][0]["path"], ".evoflux.json");
+    assert_eq!(bundle["files"][0]["media_type"], "application/json");
+    assert_eq!(bundle["files"][0]["executable"], false);
+    assert_eq!(bundle["tree_sha256"].as_str().map(str::len), Some(64));
 }
 
 #[tokio::test]

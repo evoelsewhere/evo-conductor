@@ -352,6 +352,24 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         )
         "#,
         r#"
+        CREATE TABLE IF NOT EXISTS analytics_views (
+            id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            owner_user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            name_key TEXT NOT NULL,
+            description TEXT,
+            visibility TEXT NOT NULL DEFAULT 'private',
+            definition TEXT NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, owner_user_id, name_key),
+            FOREIGN KEY(project_id) REFERENCES instance(id),
+            FOREIGN KEY(owner_user_id) REFERENCES users(id)
+        )
+        "#,
+        r#"
         CREATE TABLE IF NOT EXISTS member_inventory (
             user_id TEXT PRIMARY KEY NOT NULL,
             evoflux_connected INTEGER NOT NULL DEFAULT 0,
@@ -396,6 +414,8 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "CREATE INDEX IF NOT EXISTS idx_resource_usage_resource_time ON resource_usage_events(resource_id, occurred_at)",
         "CREATE INDEX IF NOT EXISTS idx_resource_usage_user_time ON resource_usage_events(user_id, occurred_at)",
         "CREATE INDEX IF NOT EXISTS idx_resource_feedback_resource ON resource_feedback(resource_id, updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_analytics_views_project_visibility ON analytics_views(project_id, visibility, updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_analytics_views_owner ON analytics_views(project_id, owner_user_id, updated_at)",
     ];
 
     for sql in statements {

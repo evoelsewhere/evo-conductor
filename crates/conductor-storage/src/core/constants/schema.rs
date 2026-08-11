@@ -22,6 +22,9 @@ pub const TABLES: &[&str] = &[
     "resource_changes",
     "resource_version_events",
     "installation_resource_inventory",
+    "resource_usage_events",
+    "resource_feedback",
+    "analytics_views",
     "member_inventory",
     "telemetry_events",
     "telemetry_resource_attributions",
@@ -48,4 +51,6 @@ pub const INDEXES: &[&str] = &[
     "idx_resource_changes_resource",
     "idx_resource_version_events_resource",
     "idx_resource_inventory_state",
+    "idx_analytics_views_project_visibility",
+    "idx_analytics_views_owner",
 ];

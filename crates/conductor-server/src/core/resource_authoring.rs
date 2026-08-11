@@ -5,9 +5,10 @@ use std::io::{Cursor, Read};
 use std::str::FromStr;
 
 use conductor_domain::{
-    DiagnosticSeverity, DraftFile, ResourceDiagnostic, ResourceKind, ResourceTargetMode,
-    ResourceValidation, SemanticVersion,
+    DiagnosticSeverity, DraftFile, FileManifestEntry, ResourceBundleKind, ResourceBundleV2,
+    ResourceDiagnostic, ResourceKind, ResourceTargetMode, ResourceValidation, SemanticVersion,
 };
+use sha2::{Digest, Sha256};
 
 use crate::core::constants::resource::RESOURCE_MODE_SCOPE_FILENAME;
 
@@ -197,6 +198,88 @@ fn target_mode_file(modes: &[ResourceTargetMode]) -> DraftFile {
         }))
         .unwrap_or_default()
             + "\n",
+    }
+}
+
+/// Builds the canonical delivery descriptor for bundle-backed resource kinds.
+///
+/// File entries are sorted by path so the tree digest is independent from ZIP
+/// entry order or editor ordering. The executable bit is intentionally false:
+/// today's UTF-8 authoring/import pipeline does not retain source file modes.
+pub fn resource_bundle_v2(
+    kind: ResourceKind,
+    slug: &str,
+    version: &str,
+    artifact_sha256: &str,
+    artifact_size: u64,
+    artifact_media_type: &str,
+    files: &[DraftFile],
+) -> Option<ResourceBundleV2> {
+    let kind = ResourceBundleKind::from_resource_kind(kind)?;
+    let mut manifest = files
+        .iter()
+        .map(|file| FileManifestEntry {
+            path: file.path.clone(),
+            sha256: hex::encode(Sha256::digest(file.content.as_bytes())),
+            size: file.content.len().try_into().unwrap_or(u64::MAX),
+            media_type: resource_file_media_type(&file.path).to_string(),
+            executable: false,
+        })
+        .collect::<Vec<_>>();
+    manifest.sort_by(|left, right| left.path.cmp(&right.path));
+
+    Some(ResourceBundleV2 {
+        schema_version: ResourceBundleV2::SCHEMA_VERSION,
+        kind,
+        slug: slug.to_string(),
+        version: version.to_string(),
+        artifact_sha256: artifact_sha256.to_string(),
+        artifact_size,
+        artifact_media_type: artifact_media_type.to_string(),
+        tree_sha256: manifest_tree_sha256(&manifest),
+        files: manifest,
+    })
+}
+
+fn manifest_tree_sha256(files: &[FileManifestEntry]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"evoflux-resource-tree-v2\n");
+    for file in files {
+        hasher.update(file.path.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(file.sha256.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(file.size.to_string().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(file.media_type.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(if file.executable { b"1" } else { b"0" });
+        hasher.update(b"\n");
+    }
+    hex::encode(hasher.finalize())
+}
+
+fn resource_file_media_type(path: &str) -> &'static str {
+    let path = path.to_ascii_lowercase();
+    match path.rsplit_once('.').map(|(_, extension)| extension) {
+        Some("md") => "text/markdown",
+        Some("json") => "application/json",
+        Some("yaml" | "yml") => "application/yaml",
+        Some("toml") => "application/toml",
+        Some("xml") => "application/xml",
+        Some("html" | "htm") => "text/html",
+        Some("css") => "text/css",
+        Some("csv") => "text/csv",
+        Some("txt") => "text/plain",
+        Some("py") => "text/x-python",
+        Some("js" | "mjs" | "cjs") => "text/javascript",
+        Some("ts" | "tsx") => "text/typescript",
+        Some("sh" | "bash" | "zsh") => "text/x-shellscript",
+        Some("pdf") => "application/pdf",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _ => "application/octet-stream",
     }
 }
 
@@ -491,7 +574,7 @@ fn validate_target_modes(files: &[DraftFile], diagnostics: &mut Vec<ResourceDiag
     if modes.is_empty()
         || modes.iter().any(|mode| {
             mode.as_str()
-                .is_none_or(|mode| !matches!(mode, "work" | "coding"))
+                .is_none_or(|mode| !matches!(mode, "work" | "coding" | "aim"))
         })
         || modes
             .iter()
@@ -500,7 +583,7 @@ fn validate_target_modes(files: &[DraftFile], diagnostics: &mut Vec<ResourceDiag
     {
         diagnostics.push(diagnostic(
             "resource_modes_invalid",
-            "modes must contain work and/or coding exactly once.",
+            "modes must contain work, coding and/or aim exactly once.",
             RESOURCE_MODE_SCOPE_FILENAME,
         ));
     }
@@ -941,9 +1024,12 @@ mod tests {
     }
 
     #[test]
-    fn target_modes_use_evoflux_work_and_coding_contract() {
+    fn target_modes_use_evoflux_work_coding_and_aim_contract() {
         let mut files = starter_files(ResourceKind::Agent, "reviewer", "Reviewer");
-        set_target_modes(&mut files, &[ResourceTargetMode::Coding]);
+        set_target_modes(
+            &mut files,
+            &[ResourceTargetMode::Coding, ResourceTargetMode::Aim],
+        );
         let result = validate_draft(ResourceKind::Agent, "reviewer", 0, &files);
         assert!(result.valid, "{:?}", result.diagnostics);
         let scope = files
@@ -952,7 +1038,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&scope.content).unwrap(),
-            serde_json::json!({ "modes": ["coding"] })
+            serde_json::json!({ "modes": ["coding", "aim"] })
         );
     }
 
@@ -972,6 +1058,56 @@ mod tests {
                 .iter()
                 .any(|item| item.code == "resource_modes_invalid"));
         }
+    }
+
+    #[test]
+    fn bundle_v2_manifest_is_sorted_content_addressed_and_media_typed() {
+        let files = vec![
+            DraftFile {
+                path: "scripts/check.py".into(),
+                content: "print('ok')\n".into(),
+            },
+            DraftFile {
+                path: "SKILL.md".into(),
+                content: "# Audit\n".into(),
+            },
+        ];
+        let bundle = resource_bundle_v2(
+            ResourceKind::Skill,
+            "audit",
+            "1.2.3",
+            &"a".repeat(64),
+            123,
+            "application/vnd.evoflux.resource+json",
+            &files,
+        )
+        .unwrap();
+
+        assert_eq!(bundle.schema_version, 2);
+        assert_eq!(bundle.kind, ResourceBundleKind::Skill);
+        assert_eq!(bundle.files[0].path, "SKILL.md");
+        assert_eq!(bundle.files[0].media_type, "text/markdown");
+        assert_eq!(bundle.files[1].path, "scripts/check.py");
+        assert_eq!(bundle.files[1].media_type, "text/x-python");
+        assert!(bundle.files.iter().all(|file| !file.executable));
+        assert_eq!(
+            bundle.tree_sha256,
+            "693430d4bd25d3bee52d51f622fb8c7732904d5a820785dc156927cafdfb3703"
+        );
+    }
+
+    #[test]
+    fn bundle_v2_excludes_non_portable_resource_kinds() {
+        assert!(resource_bundle_v2(
+            ResourceKind::Workflow,
+            "deploy",
+            "1.0.0",
+            &"a".repeat(64),
+            1,
+            "application/json",
+            &[],
+        )
+        .is_none());
     }
 
     #[test]

@@ -17,6 +17,18 @@ pub const POOL_MAX_CONNECTIONS: u32 = 10;
 /// SQLite does not enforce foreign keys unless asked, per connection.
 pub const SQLITE_FOREIGN_KEYS_PRAGMA: &str = "PRAGMA foreign_keys = ON;";
 
+/// Wait for the current SQLite writer instead of surfacing a transient
+/// `database is locked` error to concurrent telemetry and inventory clients.
+pub const SQLITE_BUSY_TIMEOUT_PRAGMA: &str = "PRAGMA busy_timeout = 30000;";
+
+/// WAL lets readers continue while the single SQLite writer commits. It is a
+/// database-level setting and is enabled once for file-backed databases.
+pub const SQLITE_WAL_PRAGMA: &str = "PRAGMA journal_mode = WAL;";
+
+/// Keep WAL durability appropriate for an application database without an
+/// fsync for every page; transaction commits remain durable through the WAL.
+pub const SQLITE_SYNCHRONOUS_PRAGMA: &str = "PRAGMA synchronous = NORMAL;";
+
 /// The only in-memory URL shape usable with a pool larger than one connection.
 ///
 /// A plain `sqlite::memory:` URL gives every pooled connection its own private

@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use conductor_auth::{generate_temp_password, hash_password};
+use conductor_auth::{generate_temp_password, hash_password_async};
 use conductor_domain::{
     ApproveMemberRequest, ConductorError, CreateMemberRequest, CreatedMember, MemberListQuery,
     MemberListResponse, PrimaryRole, ResetPasswordResponse, UpdateMemberRequest, User, UserStatus,
@@ -135,7 +135,7 @@ pub async fn create(
     validate_access_ids(&state, &req.sub_role_ids, &req.tag_ids).await?;
 
     let temp = generate_temp_password();
-    let hash = hash_password(&temp)?;
+    let hash = hash_password_async(temp.clone()).await?;
     let user = state
         .db
         .users()
@@ -319,7 +319,7 @@ pub async fn reset_password(
         .ok_or_else(|| ConductorError::NotFound("member".into()))?;
 
     let temp = generate_temp_password();
-    let hash = hash_password(&temp)?;
+    let hash = hash_password_async(temp.clone()).await?;
     state.db.users().set_password(id, &hash, true).await?;
     Ok(Json(ResetPasswordResponse {
         temporary_password: temp,

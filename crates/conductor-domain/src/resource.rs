@@ -19,15 +19,17 @@ pub enum ResourceKind {
 pub enum ResourceTargetMode {
     Work,
     Coding,
+    Aim,
 }
 
 impl ResourceTargetMode {
-    pub const ALL: [Self; 2] = [Self::Work, Self::Coding];
+    pub const ALL: [Self; 3] = [Self::Work, Self::Coding, Self::Aim];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Work => "work",
             Self::Coding => "coding",
+            Self::Aim => "aim",
         }
     }
 
@@ -35,9 +37,76 @@ impl ResourceTargetMode {
         match value {
             "work" => Some(Self::Work),
             "coding" => Some(Self::Coding),
+            "aim" => Some(Self::Aim),
             _ => None,
         }
     }
+}
+
+/// Resource kinds supported by the portable EvoFlux bundle v2 contract.
+///
+/// Workflow and Command remain governed Conductor resources, but they are not
+/// executable catalog bundles and therefore cannot be represented by this
+/// deliberately narrower wire type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceBundleKind {
+    Agent,
+    Skill,
+    Plugin,
+}
+
+impl ResourceBundleKind {
+    pub fn from_resource_kind(kind: ResourceKind) -> Option<Self> {
+        match kind {
+            ResourceKind::Agent => Some(Self::Agent),
+            ResourceKind::Skill => Some(Self::Skill),
+            ResourceKind::Plugin => Some(Self::Plugin),
+            ResourceKind::Workflow | ResourceKind::Command => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Skill => "skill",
+            Self::Plugin => "plugin",
+        }
+    }
+}
+
+/// One immutable file in a [`ResourceBundleV2`].
+///
+/// `sha256` is the lowercase hex digest of the exact file bytes. The current
+/// Conductor authoring pipeline accepts UTF-8 text and therefore emits
+/// `executable = false`; keeping the field explicit prevents a future archive
+/// importer from silently inventing execution permissions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileManifestEntry {
+    pub path: String,
+    pub sha256: String,
+    pub size: u64,
+    pub media_type: String,
+    pub executable: bool,
+}
+
+/// Canonical, content-addressed descriptor for an EvoFlux Agent, Skill or
+/// Plugin release.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceBundleV2 {
+    pub schema_version: u8,
+    pub kind: ResourceBundleKind,
+    pub slug: String,
+    pub version: String,
+    pub artifact_sha256: String,
+    pub artifact_size: u64,
+    pub artifact_media_type: String,
+    pub tree_sha256: String,
+    pub files: Vec<FileManifestEntry>,
+}
+
+impl ResourceBundleV2 {
+    pub const SCHEMA_VERSION: u8 = 2;
 }
 
 impl ResourceKind {
@@ -172,6 +241,10 @@ pub struct ResourceVersion {
     pub content_sha256: String,
     pub content_size: u64,
     pub artifact_key: Option<String>,
+    /// Additive bundle metadata. It is absent for legacy versions and for
+    /// governed resource kinds outside the Agent/Skill/Plugin bundle contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_v2: Option<ResourceBundleV2>,
     pub minimum_evoflux_version: Option<String>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
@@ -373,6 +446,16 @@ pub struct ResourceChange {
     pub release_channel: Option<ReleaseChannel>,
     pub sha256: Option<String>,
     pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_schema_version: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_media_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<u32>,
     pub minimum_evoflux_version: Option<String>,
     pub trust_required: bool,
     pub tombstone: bool,
@@ -404,6 +487,8 @@ pub struct EffectiveResourceVersion {
     pub sha256: String,
     pub size: u64,
     pub artifact_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_v2: Option<ResourceBundleV2>,
     pub minimum_evoflux_version: Option<String>,
 }
 
@@ -666,4 +751,85 @@ pub struct ResourceCounts {
     pub skills: u32,
     pub plugins: u32,
     pub workflows: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_mode_round_trips_aim() {
+        assert_eq!(
+            ResourceTargetMode::parse("aim"),
+            Some(ResourceTargetMode::Aim)
+        );
+        assert_eq!(ResourceTargetMode::Aim.as_str(), "aim");
+        assert_eq!(
+            serde_json::to_value(ResourceTargetMode::Aim).unwrap(),
+            serde_json::json!("aim")
+        );
+    }
+
+    #[test]
+    fn bundle_v2_has_a_stable_wire_shape() {
+        let bundle = ResourceBundleV2 {
+            schema_version: ResourceBundleV2::SCHEMA_VERSION,
+            kind: ResourceBundleKind::Agent,
+            slug: "reviewer".into(),
+            version: "1.2.3".into(),
+            artifact_sha256: "a".repeat(64),
+            artifact_size: 42,
+            artifact_media_type: "application/vnd.evoflux.resource+json".into(),
+            tree_sha256: "b".repeat(64),
+            files: vec![FileManifestEntry {
+                path: "reviewer.md".into(),
+                sha256: "c".repeat(64),
+                size: 12,
+                media_type: "text/markdown".into(),
+                executable: false,
+            }],
+        };
+
+        let value = serde_json::to_value(&bundle).unwrap();
+        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["kind"], "agent");
+        assert_eq!(value["artifact_sha256"], "a".repeat(64));
+        assert_eq!(value["tree_sha256"], "b".repeat(64));
+        assert_eq!(value["files"][0]["media_type"], "text/markdown");
+        assert_eq!(value["files"][0]["executable"], false);
+        assert_eq!(
+            serde_json::from_value::<ResourceBundleV2>(value).unwrap(),
+            bundle
+        );
+    }
+
+    #[test]
+    fn legacy_change_without_bundle_fields_still_deserializes() {
+        let change: ResourceChange = serde_json::from_value(serde_json::json!({
+            "project_id": Uuid::nil(),
+            "resource_id": Uuid::nil(),
+            "version_id": null,
+            "kind": "skill",
+            "slug": "audit",
+            "version": null,
+            "description": null,
+            "changelog": null,
+            "release_channel": null,
+            "sha256": null,
+            "size": 0,
+            "minimum_evoflux_version": null,
+            "trust_required": false,
+            "tombstone": true
+        }))
+        .unwrap();
+
+        assert!(change.version_history.is_empty());
+        assert_eq!(change.bundle_schema_version, None);
+        assert_eq!(change.artifact_sha256, None);
+        assert_eq!(change.tree_sha256, None);
+        assert_eq!(change.file_count, None);
+        let serialized = serde_json::to_value(change).unwrap();
+        assert!(serialized.get("bundle_schema_version").is_none());
+        assert!(serialized.get("artifact_sha256").is_none());
+    }
 }

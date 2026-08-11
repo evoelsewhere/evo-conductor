@@ -12,15 +12,17 @@ use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
 
 use crate::core::mapping::parse_dt;
+use crate::DatabaseKind;
 
 #[derive(Clone)]
 pub struct TelemetryRepo {
     pool: Pool<Any>,
+    kind: DatabaseKind,
 }
 
 impl TelemetryRepo {
-    pub fn new(pool: Pool<Any>) -> Self {
-        Self { pool }
+    pub fn new(pool: Pool<Any>, kind: DatabaseKind) -> Self {
+        Self { pool, kind }
     }
 
     pub async fn ingest(
@@ -40,18 +42,9 @@ impl TelemetryRepo {
         let tag_ids = serde_json::to_string(&user.tag_ids).unwrap_or_else(|_| "[]".into());
 
         for event in events {
-            let exists: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM telemetry_events WHERE id = ?")
-                    .bind(event.event_id.to_string())
-                    .fetch_one(&mut *tx)
-                    .await?;
-            if exists > 0 {
-                duplicates += 1;
-                continue;
-            }
-
-            sqlx::query(
-                r#"
+            let insert = match self.kind {
+                DatabaseKind::Mysql => {
+                    r#"
                 INSERT INTO telemetry_events (
                     id, project_id, user_id, installation_id, request_id, session_id, event_type,
                     sequence, agent_name, provider, model, response_model, tokens_in, tokens_out,
@@ -61,45 +54,66 @@ impl TelemetryRepo {
                     primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
                     tool_calls, active_agents
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-                "#,
-            )
-            .bind(event.event_id.to_string())
-            .bind(project_id.to_string())
-            .bind(user.id.to_string())
-            .bind(installation_id.to_string())
-            .bind(event.request_id.trim())
-            .bind(event.session_id.as_deref())
-            .bind(event.event_type.as_str())
-            .bind(i64::from(event.sequence))
-            .bind(event.agent_name.as_deref())
-            .bind(event.provider.as_deref())
-            .bind(event.model.as_deref())
-            .bind(event.response_model.as_deref())
-            .bind(to_i64(event.tokens_in))
-            .bind(to_i64(event.tokens_out))
-            .bind(to_i64(event.cache_read_tokens))
-            .bind(to_i64(event.reasoning_tokens))
-            .bind(to_i64(event.tool_use_tokens))
-            .bind(to_i64(event.duration_ms))
-            .bind(event.tool_name.as_deref())
-            .bind(event.tool_category.map(TelemetryToolCategory::as_str))
-            .bind(event.status.as_str())
-            .bind(event.error_category.as_deref())
-            .bind(event.reported_at.to_rfc3339())
-            .bind(&received_at)
-            .bind(event.estimated_cost_usd_micros.map(to_i64))
-            .bind(event.cost_source.map(|value| value.as_str()))
-            .bind(evoflux_version)
-            .bind(user.primary_role.as_str())
-            .bind(&sub_role_ids)
-            .bind(&tag_ids)
-            .bind(if event.event_type == TelemetryEventType::ToolCall {
-                1i64
-            } else {
-                0i64
-            })
-            .execute(&mut *tx)
-            .await?;
+                ON DUPLICATE KEY UPDATE id = id
+                "#
+                }
+                DatabaseKind::Sqlite | DatabaseKind::Postgres => {
+                    r#"
+                INSERT INTO telemetry_events (
+                    id, project_id, user_id, installation_id, request_id, session_id, event_type,
+                    sequence, agent_name, provider, model, response_model, tokens_in, tokens_out,
+                    cache_read_tokens, reasoning_tokens, tool_use_tokens, duration_ms,
+                    tool_name, tool_category, status, error_category, reported_at,
+                    received_at, estimated_cost_usd_micros, cost_source, evoflux_version,
+                    primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
+                    tool_calls, active_agents
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ON CONFLICT (id) DO NOTHING
+                "#
+                }
+            };
+            let inserted = sqlx::query(insert)
+                .bind(event.event_id.to_string())
+                .bind(project_id.to_string())
+                .bind(user.id.to_string())
+                .bind(installation_id.to_string())
+                .bind(event.request_id.trim())
+                .bind(event.session_id.as_deref())
+                .bind(event.event_type.as_str())
+                .bind(i64::from(event.sequence))
+                .bind(event.agent_name.as_deref())
+                .bind(event.provider.as_deref())
+                .bind(event.model.as_deref())
+                .bind(event.response_model.as_deref())
+                .bind(to_i64(event.tokens_in))
+                .bind(to_i64(event.tokens_out))
+                .bind(to_i64(event.cache_read_tokens))
+                .bind(to_i64(event.reasoning_tokens))
+                .bind(to_i64(event.tool_use_tokens))
+                .bind(to_i64(event.duration_ms))
+                .bind(event.tool_name.as_deref())
+                .bind(event.tool_category.map(TelemetryToolCategory::as_str))
+                .bind(event.status.as_str())
+                .bind(event.error_category.as_deref())
+                .bind(event.reported_at.to_rfc3339())
+                .bind(&received_at)
+                .bind(event.estimated_cost_usd_micros.map(to_i64))
+                .bind(event.cost_source.map(|value| value.as_str()))
+                .bind(evoflux_version)
+                .bind(user.primary_role.as_str())
+                .bind(&sub_role_ids)
+                .bind(&tag_ids)
+                .bind(if event.event_type == TelemetryEventType::ToolCall {
+                    1i64
+                } else {
+                    0i64
+                })
+                .execute(&mut *tx)
+                .await?;
+            if inserted.rows_affected() == 0 {
+                duplicates += 1;
+                continue;
+            }
             for resource in &event.resources {
                 sqlx::query(
                     r#"

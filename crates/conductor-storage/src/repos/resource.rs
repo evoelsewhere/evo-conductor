@@ -5,12 +5,12 @@ use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
     CreateResourceRequest, CreateResourceVersionRequest, DraftFile, DraftFileTree,
     EffectiveResourceVersion, ManagedResource, PrimaryRole, ReleaseChannel, ReleaseResourceRequest,
-    ReleaseResourceResult, ResourceAccessPolicy, ResourceDailyUsage, ResourceFeedback,
-    ResourceInstallationState, ResourceInventoryMonitoring, ResourceInventoryMonitoringSummary,
-    ResourceInventoryObservedState, ResourceInventoryRequest, ResourceMemberUsage,
-    ResourceMonitoring, ResourceMonitoringSummary, ResourceUsageEventRequest, ResourceVersion,
-    ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus, SemanticVersion,
-    UpdateResourceRequest, UpsertResourceFeedbackRequest, VersionMode,
+    ReleaseResourceResult, ResourceAccessPolicy, ResourceBundleV2, ResourceDailyUsage,
+    ResourceFeedback, ResourceInstallationState, ResourceInventoryMonitoring,
+    ResourceInventoryMonitoringSummary, ResourceInventoryObservedState, ResourceInventoryRequest,
+    ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary, ResourceUsageEventRequest,
+    ResourceVersion, ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus,
+    SemanticVersion, UpdateResourceRequest, UpsertResourceFeedbackRequest, VersionMode,
 };
 use sqlx::{Any, Pool, QueryBuilder, Row};
 use uuid::Uuid;
@@ -628,6 +628,7 @@ impl ResourceRepo {
             content_sha256: String::new(),
             content_size: 0,
             artifact_key: None,
+            bundle_v2: bundle_v2_from_payload(&request.payload),
             minimum_evoflux_version: None,
             created_by,
             created_at: now,
@@ -1655,6 +1656,9 @@ fn draft_files(payload: &serde_json::Value) -> Vec<DraftFile> {
 }
 
 fn map_effective_version(row: sqlx::any::AnyRow) -> EffectiveResourceVersion {
+    let payload = serde_json::from_str(row.get::<String, _>("payload").as_str())
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let bundle_v2 = bundle_v2_from_payload(&payload);
     EffectiveResourceVersion {
         project_id: parse_uuid(row.get("project_id")),
         resource_id: parse_uuid(row.get("resource_id")),
@@ -1671,11 +1675,11 @@ fn map_effective_version(row: sqlx::any::AnyRow) -> EffectiveResourceVersion {
             .as_deref()
             .and_then(ReleaseChannel::parse)
             .unwrap_or(ReleaseChannel::Published),
-        payload: serde_json::from_str(row.get::<String, _>("payload").as_str())
-            .unwrap_or_else(|_| serde_json::json!({})),
+        payload,
         sha256: row.get("content_sha256"),
         size: nonnegative_u64(row.get("content_size")),
         artifact_key: row.get("artifact_key"),
+        bundle_v2,
         minimum_evoflux_version: row.get("minimum_evoflux_version"),
     }
 }
@@ -1696,14 +1700,16 @@ fn map_version_notice(row: sqlx::any::AnyRow) -> Option<ResourceVersionNotice> {
 }
 
 fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
+    let payload = serde_json::from_str(row.get::<String, _>("payload").as_str())
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let bundle_v2 = bundle_v2_from_payload(&payload);
     ResourceVersion {
         id: parse_uuid(row.get("id")),
         project_id: parse_uuid(row.get("project_id")),
         resource_id: parse_uuid(row.get("resource_id")),
         version: row.get("version"),
         status: ResourceVersionStatus::parse(row.get::<String, _>("status").as_str()),
-        payload: serde_json::from_str(row.get::<String, _>("payload").as_str())
-            .unwrap_or_else(|_| serde_json::json!({})),
+        payload,
         changelog: row.get("changelog"),
         release_channel: row
             .get::<Option<String>, _>("release_channel")
@@ -1716,6 +1722,7 @@ fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
         content_sha256: row.get("content_sha256"),
         content_size: nonnegative_u64(row.get("content_size")),
         artifact_key: row.get("artifact_key"),
+        bundle_v2,
         minimum_evoflux_version: row.get("minimum_evoflux_version"),
         created_by: parse_uuid(row.get("created_by")),
         created_at: parse_dt(row.get("created_at")),
@@ -1726,6 +1733,16 @@ fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
             .map(parse_uuid),
         deprecation_reason: row.get("deprecation_reason"),
     }
+}
+
+fn bundle_v2_from_payload(payload: &serde_json::Value) -> Option<ResourceBundleV2> {
+    payload
+        .get("bundle_v2")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .filter(|bundle: &ResourceBundleV2| {
+            bundle.schema_version == ResourceBundleV2::SCHEMA_VERSION
+        })
 }
 
 fn map_feedback(row: sqlx::any::AnyRow) -> ResourceFeedback {

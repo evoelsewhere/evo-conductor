@@ -32,4 +32,5 @@ pub const ALL_SESSION_ROUTES: &[&str] = &[
     session::TAGS,
     session::SECRETS,
     session::RESOURCES,
+    session::ANALYTICS_VIEWS,
 ];

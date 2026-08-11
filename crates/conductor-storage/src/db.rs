@@ -2,14 +2,15 @@ use sqlx::any::AnyPoolOptions;
 use sqlx::{Any, Pool};
 
 use crate::core::constants::database::{
-    POOL_MAX_CONNECTIONS, SQLITE_FOREIGN_KEYS_PRAGMA, SQLITE_MEMORY_PATH,
+    POOL_MAX_CONNECTIONS, SQLITE_BUSY_TIMEOUT_PRAGMA, SQLITE_FOREIGN_KEYS_PRAGMA,
+    SQLITE_MEMORY_PATH, SQLITE_SYNCHRONOUS_PRAGMA, SQLITE_WAL_PRAGMA,
 };
 use crate::core::dialect::DatabaseKind;
 use crate::core::url::sqlite_path;
 use crate::migrate;
 use crate::repos::{
-    ClientInstallationRepo, DashboardRepo, InstanceRepo, ResourceRepo, ResourceUsageRepo, RoleRepo,
-    SecretRepo, TelemetryRepo, UserRepo,
+    AnalyticsViewRepo, ClientInstallationRepo, DashboardRepo, InstanceRepo, ResourceRepo,
+    ResourceUsageRepo, RoleRepo, SecretRepo, TelemetryRepo, UserRepo,
 };
 
 /// Database handle. Cheap to clone (shares the connection pool).
@@ -39,15 +40,30 @@ impl Db {
         // Required once process-wide for sqlx::Any (sqlite/postgres/mysql drivers).
         sqlx::any::install_default_drivers();
 
+        let sqlite = kind == DatabaseKind::Sqlite;
         let pool = AnyPoolOptions::new()
             .max_connections(POOL_MAX_CONNECTIONS)
+            .after_connect(move |connection, _metadata| {
+                Box::pin(async move {
+                    if sqlite {
+                        sqlx::query(SQLITE_FOREIGN_KEYS_PRAGMA)
+                            .execute(&mut *connection)
+                            .await?;
+                        sqlx::query(SQLITE_BUSY_TIMEOUT_PRAGMA)
+                            .execute(&mut *connection)
+                            .await?;
+                        sqlx::query(SQLITE_SYNCHRONOUS_PRAGMA)
+                            .execute(&mut *connection)
+                            .await?;
+                    }
+                    Ok(())
+                })
+            })
             .connect(database_url)
             .await?;
 
-        if kind == DatabaseKind::Sqlite {
-            sqlx::query(SQLITE_FOREIGN_KEYS_PRAGMA)
-                .execute(&pool)
-                .await?;
+        if sqlite && is_file_backed_sqlite(database_url) {
+            sqlx::query(SQLITE_WAL_PRAGMA).execute(&pool).await?;
         }
 
         migrate::run(&pool).await?;
@@ -91,13 +107,22 @@ impl Db {
         DashboardRepo::new(self.pool.clone())
     }
 
+    pub fn analytics_views(&self) -> AnalyticsViewRepo {
+        AnalyticsViewRepo::new(self.pool.clone())
+    }
+
     pub fn telemetry(&self) -> TelemetryRepo {
-        TelemetryRepo::new(self.pool.clone())
+        TelemetryRepo::new(self.pool.clone(), self.kind)
     }
 
     pub fn resource_usage(&self) -> ResourceUsageRepo {
         ResourceUsageRepo::new(self.pool.clone())
     }
+}
+
+fn is_file_backed_sqlite(database_url: &str) -> bool {
+    let path = sqlite_path(database_url);
+    !path.is_empty() && path != SQLITE_MEMORY_PATH && !database_url.contains("mode=memory")
 }
 
 fn ensure_sqlite_parent_dir(database_url: &str) {
