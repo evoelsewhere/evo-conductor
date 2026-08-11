@@ -54,7 +54,7 @@ The unit of governance is a stable **resource**. The unit of delivery is an immu
 - Version lifecycle: `draft → published → deprecated`.
 - Exactly one published version per resource.
 - Publishing creates an immutable content-addressed ZIP and atomically advances the selected release channel.
-- SQL stores only object keys, digests, sizes and manifests; authored files and logos use Local, S3 or Azure Blob storage.
+- SQL stores only object keys, digests, sizes and manifests; authored files and logos use Local, S3, Azure Blob or Git storage.
 - Changelog required by product workflow, optional at API level for migration compatibility.
 
 ### Access model

@@ -128,7 +128,7 @@ The change feed intentionally omits the full file manifest to keep polling bound
 
 ## Current implementation gaps
 
-Conductor migrates legacy inline `files[].content` values at startup. SQL retains only a manifest, object key, digest, size and release metadata; draft and release bytes live in the project-selected Local, S3 or Azure Blob backend.
+Conductor migrates legacy inline `files[].content` values at startup. SQL retains only a manifest, object key, digest, size and release metadata; draft and release bytes live in the project-selected Local, S3, Azure Blob or Git backend.
 
 The following work remains before claiming full binary bundle support:
 

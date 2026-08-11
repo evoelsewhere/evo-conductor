@@ -98,7 +98,7 @@ The governed catalog supports draft/publish/archive lifecycle, version history, 
 For a deterministic public-API load test covering 1,000 members, resource sync,
 inventory and attributed telemetry, see [docs/fleet-simulator.md](docs/fleet-simulator.md).
 
-For Local, S3 and Azure Blob resource storage, credential handling and provider migration guarantees, see [docs/object-storage.md](docs/object-storage.md).
+For Local, S3, Azure Blob and Git resource storage, credential handling and provider migration guarantees, see [docs/object-storage.md](docs/object-storage.md).
 
 ## Env
 

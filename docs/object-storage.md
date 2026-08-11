@@ -60,20 +60,34 @@ Enable path-style requests for MinIO or another compatible endpoint when require
 
 Project Settings stores only account, container, endpoint and prefix. Authentication uses the Azure credential chain available to the process, including managed/workload identity, account key or SAS environment configuration.
 
-Credential values are never accepted by the Project Settings API and never stored in Conductor SQL.
+S3 and Azure credential values are never accepted by the Project Settings API and never stored in Conductor SQL.
+
+### Git repository
+
+Git storage keeps a managed local mirror under `CONDUCTOR_DATA_DIR/git-storage/checkouts`, writes the same content-addressed object paths into the configured repository prefix, commits, then synchronously pushes the configured branch. The remote may use HTTPS, SSH/SCP syntax, `file://`, or an absolute mounted repository path. Conductor requires the `git` executable at runtime.
+
+Authentication modes:
+
+- **SSH agent / credential helper:** Git inherits the operator-provided SSH agent, workload-mounted key or credential helper environment. No credential value is accepted by Conductor.
+- **HTTPS access token:** Project Settings accepts a username and write-only token. The URL must use `https://` and must not contain embedded credentials. The token is stored outside SQL in `CONDUCTOR_DATA_DIR/git-storage/credentials/<repository-sha256>.token` with mode `0600` on Unix. API responses expose only `credential_set`; leaving the input blank keeps the existing token, while **Remove** deletes it after a successful backend transaction.
+
+Normal object writes are serialized and acknowledged only after commit and push. A provider migration stages all copied objects and pushes one migration commit. Before writing, Conductor fetches and rebases the managed branch; a push race is retried up to three times. Operators must not manually rewrite the managed prefix or force-push the branch.
+
+Git is useful for auditable, moderate-volume resource catalogs. It is not the recommended backend for high-churn drafts, large binary bundles, or many active Conductor writers because repository history and clone/fetch cost grow over time. Use S3 or Azure Blob for high-throughput production. In a multi-replica deployment, prefer shared environment/SSH credentials and validate Git locking/convergence under the expected write rate.
 
 ## Backend change transaction
 
 `PUT /api/settings/storage` is admin-only. A change performs these steps:
 
-1. Build the candidate provider and write/read/delete a health-check object.
-2. Pause normal object reads and writes.
+1. Pause normal object reads and writes.
+2. Build the candidate provider and perform its write/read health check. Git verifies push access with an empty commit.
 3. Load every referenced draft, version and logo object from the active backend.
 4. Verify its key against the exact SHA-256 bytes.
 5. Copy it to the candidate backend and read it back.
 6. Verify the copied digest.
-7. Persist the new project setting.
-8. Atomically switch the live adapter and resume resource operations.
+7. Persist any write-only Git credential outside SQL, with rollback if the database update fails.
+8. Persist the sanitized project setting.
+9. Atomically switch the live adapter and resume resource operations.
 
 If any read, write, verification or database update fails, the active backend remains unchanged. Content-addressed objects copied before a failure are safe unreferenced duplicates and may be garbage-collected later.
 

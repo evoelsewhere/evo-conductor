@@ -247,7 +247,7 @@ Realtime carries invalidation metadata, not authored file bytes. `POST /v1/resou
 
 The exact request/response schema, outer commit hash, managed tombstone rule, download verification and required client checkout algorithm are normative in [resource-fetch-protocol.md](resource-fetch-protocol.md). Bundle file identity and inner tree hashing are defined in [resource-bundle-v2.md](resource-bundle-v2.md).
 
-Agent and Skill use `application/vnd.evoflux.resource+zip`; Plugin uses `application/vnd.evoflux.plugin+zip`. Object responses have digest ETags and one-year private immutable caching. Source bytes live only in the active Local, S3 or Azure Blob backend and are not stored in SQL. The storage provider never changes canonical keys or digests; see [object-storage.md](object-storage.md).
+Agent and Skill use `application/vnd.evoflux.resource+zip`; Plugin uses `application/vnd.evoflux.plugin+zip`. Object responses have digest ETags and one-year private immutable caching. Source bytes live only in the active Local, S3, Azure Blob or Git backend and are not stored in SQL. The storage provider never changes canonical keys or digests; see [object-storage.md](object-storage.md).
 
 `GET /v1/subscribe/resources`, `/v1/resources/changes` and hydrated version JSON remain legacy compatibility surfaces. They must not be used as the consistency model by new clients.
 

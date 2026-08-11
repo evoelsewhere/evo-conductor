@@ -147,7 +147,7 @@ ETag: "sha256:<artifact_sha256>"
 Cache-Control: private, max-age=31536000, immutable
 ```
 
-`If-None-Match` is supported. The client must still hash received bytes and compare them to `artifact_sha256`; an HTTP cache is not an integrity boundary. Local, S3 and Azure Blob are storage implementations behind the same object key and digest contract.
+`If-None-Match` is supported. The client must still hash received bytes and compare them to `artifact_sha256`; an HTTP cache is not an integrity boundary. Local, S3, Azure Blob and Git are storage implementations behind the same object key and digest contract.
 
 ## Required EvoFlux checkout algorithm
 
