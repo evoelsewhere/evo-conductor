@@ -1099,6 +1099,69 @@ impl ResourceRepo {
         Ok(version)
     }
 
+    /// Resolve the complete desired checkout for one member in a single SQL
+    /// statement. Beta members receive the beta ref when it exists and fall
+    /// back to published, matching [`Self::effective_version`].
+    pub async fn list_effective_versions(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<EffectiveResourceVersion>, sqlx::Error> {
+        let visible = visible_resources_query("SELECT r.id");
+        let query = format!(
+            r#"
+            SELECT r.project_id, r.id AS resource_id, r.kind, r.slug, r.description,
+                   rv.id AS version_id, rv.version, rv.changelog, rv.release_channel, rv.payload,
+                   rv.content_sha256, rv.content_size, rv.artifact_key,
+                   rv.minimum_evoflux_version
+            FROM resources r
+            JOIN resource_release_channels c ON c.resource_id = r.id
+              AND c.channel = CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM resource_beta_members b
+                    WHERE b.resource_id = r.id AND b.user_id = ?
+                ) AND EXISTS (
+                    SELECT 1 FROM resource_release_channels beta
+                    WHERE beta.resource_id = r.id AND beta.channel = 'beta'
+                ) THEN 'beta'
+                ELSE 'published'
+              END
+            JOIN resource_versions rv ON rv.id = c.version_id
+            WHERE r.id IN ({visible})
+            ORDER BY r.kind, r.slug, r.id
+            "#,
+        );
+        let rows = sqlx::query(&query)
+            .bind(user_id.to_string())
+            .bind(user_id.to_string())
+            .bind(user_id.to_string())
+            .bind(user_id.to_string())
+            .bind(user_id.to_string())
+            .bind(user_id.to_string())
+            .bind(user_id.to_string())
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(map_effective_version).collect())
+    }
+
+    pub async fn max_change_sequence(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let sequence: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(MAX(sequence), 0) FROM resource_changes
+            WHERE project_id = ?
+              AND (effective_user_id IS NULL OR effective_user_id = ?)
+            "#,
+        )
+        .bind(project_id.to_string())
+        .bind(user_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(sequence.try_into().unwrap_or(0))
+    }
+
     pub async fn change_sequences(
         &self,
         project_id: Uuid,

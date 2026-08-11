@@ -470,6 +470,71 @@ pub struct ResourceChangePage {
     pub changes: Vec<ResourceChange>,
 }
 
+/// One resource/version the client already has in its managed checkout.
+/// This is the equivalent of Git's `have` negotiation: Conductor uses it to
+/// return only changed tree entries and missing immutable objects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceFetchHave {
+    pub resource_id: Uuid,
+    pub version_id: Uuid,
+    pub artifact_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceFetchRequest {
+    pub installation_id: Uuid,
+    pub have_commit: Option<String>,
+    #[serde(default)]
+    pub have: Vec<ResourceFetchHave>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceFetchCommit {
+    /// Content identity of the complete desired resource tree.
+    pub id: String,
+    pub tree_sha256: String,
+    /// Durable project change watermark observed while building the tree.
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceFetchEntry {
+    pub resource_id: Uuid,
+    pub version_id: Uuid,
+    pub kind: ResourceBundleKind,
+    pub slug: String,
+    pub version: String,
+    pub release_channel: ReleaseChannel,
+    pub bundle: ResourceBundleV2,
+    pub minimum_evoflux_version: Option<String>,
+    pub trust_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceFetchTombstone {
+    pub resource_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceFetchObject {
+    pub artifact_sha256: String,
+    pub size: u64,
+    pub media_type: String,
+    pub href: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceFetchResponse {
+    pub schema_version: u8,
+    pub project_id: Uuid,
+    pub base_commit: Option<String>,
+    pub commit: ResourceFetchCommit,
+    pub up_to_date: bool,
+    pub entries: Vec<ResourceFetchEntry>,
+    pub tombstones: Vec<ResourceFetchTombstone>,
+    pub objects: Vec<ResourceFetchObject>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectiveResourceVersion {
     pub project_id: Uuid,
@@ -823,5 +888,26 @@ mod tests {
         let serialized = serde_json::to_value(change).unwrap();
         assert!(serialized.get("bundle_schema_version").is_none());
         assert!(serialized.get("artifact_sha256").is_none());
+    }
+
+    #[test]
+    fn smart_fetch_have_contract_is_strict_and_content_addressed() {
+        let resource_id = Uuid::new_v4();
+        let version_id = Uuid::new_v4();
+        let request: ResourceFetchRequest = serde_json::from_value(serde_json::json!({
+            "installation_id": Uuid::new_v4(),
+            "have_commit": "a".repeat(64),
+            "have": [{
+                "resource_id": resource_id,
+                "version_id": version_id,
+                "artifact_sha256": "b".repeat(64)
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(request.have.len(), 1);
+        assert_eq!(request.have[0].resource_id, resource_id);
+        assert_eq!(request.have[0].version_id, version_id);
+        assert_eq!(request.have[0].artifact_sha256, "b".repeat(64));
     }
 }

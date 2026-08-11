@@ -39,18 +39,9 @@ pub async fn events(State(state): State<AppState>, headers: HeaderMap) -> Respon
         Err(error) => return capacity_response(error),
     };
 
-    // Subscribe before loading the snapshot. A concurrent update may be delivered twice, but it
-    // cannot be missed; EvoFlux applies upserts idempotently by resource id.
+    // The stream is an invalidation channel, not a data plane. Subscribe before
+    // advertising the fetch endpoint so a concurrent head change cannot be missed.
     let mut receiver = state.realtime.subscribe();
-    let resources = match state
-        .db
-        .resources()
-        .list_visible_to(principal.secret.owner_user_id)
-        .await
-    {
-        Ok(resources) => resources,
-        Err(error) => return crate::core::ApiError::from(error).into_response(),
-    };
     drop(handshake);
 
     let connection_id = Uuid::new_v4();
@@ -71,17 +62,20 @@ pub async fn events(State(state): State<AppState>, headers: HeaderMap) -> Respon
             json!({
                 "connection_id": connection_id,
                 "heartbeat_seconds": heartbeat_seconds,
-                "snapshot_mode": "replace",
-                "capabilities": ["resources.snapshot", "resources.delta", "access.revoke"],
+                "snapshot_mode": "smart_fetch",
+                "capabilities": ["resources.fetch", "resources.changed", "access.revoke"],
             }),
         ).retry(Duration::from_secs(2)));
 
-        let snapshot_sequence = stream_state.realtime.next_sequence();
+        let head_sequence = stream_state.realtime.next_sequence();
         yield Ok(protocol_event(
-            "resources.snapshot",
-            snapshot_sequence,
+            "resources.head",
+            head_sequence,
             Utc::now(),
-            json!({ "reason": "initial", "resources": resources }),
+            json!({
+                "reason": "initial",
+                "fetch_url": "/api/v1/resources/fetch",
+            }),
         ));
 
         let heartbeat_duration = Duration::from_secs(heartbeat_seconds);
@@ -117,20 +111,28 @@ pub async fn events(State(state): State<AppState>, headers: HeaderMap) -> Respon
                                 if audience.includes(&owner) =>
                             {
                                 yield Ok(protocol_event(
-                                    "resources.upsert",
+                                    "resources.changed",
                                     message.sequence,
                                     message.emitted_at,
-                                    json!({ "resource": resource }),
+                                    json!({
+                                        "reason": "upsert",
+                                        "resource_id": resource.id,
+                                        "fetch_url": "/api/v1/resources/fetch",
+                                    }),
                                 ));
                             }
                             RealtimeSignal::ResourceDelete { audience, resource_id }
                                 if audience.includes(&owner) =>
                             {
                                 yield Ok(protocol_event(
-                                    "resources.delete",
+                                    "resources.changed",
                                     message.sequence,
                                     message.emitted_at,
-                                    json!({ "resource_id": resource_id }),
+                                    json!({
+                                        "reason": "delete",
+                                        "resource_id": resource_id,
+                                        "fetch_url": "/api/v1/resources/fetch",
+                                    }),
                                 ));
                             }
                             RealtimeSignal::AccessRevoked {
@@ -186,43 +188,23 @@ pub async fn events(State(state): State<AppState>, headers: HeaderMap) -> Respon
                                         "control.resync_required",
                                         sequence,
                                         Utc::now(),
-                                        json!({ "snapshot_url": "/api/v1/subscribe/resources" }),
+                                        json!({ "fetch_url": "/api/v1/resources/fetch" }),
                                     ));
                                     break;
                                 }
                             }
 
-                            match stream_state
-                                .db
-                                .resources()
-                                .list_visible_to(owner_user_id)
-                                .await
-                            {
-                                Ok(resources) => {
-                                    let sequence = stream_state.realtime.next_sequence();
-                                    yield Ok(protocol_event(
-                                        "resources.snapshot",
-                                        sequence,
-                                        Utc::now(),
-                                        json!({
-                                            "reason": "lag_recovery",
-                                            "skipped_events": skipped,
-                                            "resources": resources,
-                                        }),
-                                    ));
-                                }
-                                Err(error) => {
-                                    tracing::error!(%error, %connection_id, "realtime lag recovery failed");
-                                    let sequence = stream_state.realtime.next_sequence();
-                                    yield Ok(protocol_event(
-                                        "control.resync_required",
-                                        sequence,
-                                        Utc::now(),
-                                        json!({ "snapshot_url": "/api/v1/subscribe/resources" }),
-                                    ));
-                                    break;
-                                }
-                            }
+                            let sequence = stream_state.realtime.next_sequence();
+                            yield Ok(protocol_event(
+                                "control.resync_required",
+                                sequence,
+                                Utc::now(),
+                                json!({
+                                    "reason": "subscriber_lagged",
+                                    "skipped_events": skipped,
+                                    "fetch_url": "/api/v1/resources/fetch",
+                                }),
+                            ));
                         }
                         Err(RecvError::Closed) => break,
                     }

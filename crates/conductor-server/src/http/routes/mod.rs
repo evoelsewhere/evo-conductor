@@ -166,6 +166,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/v1/subscribe/resources", get(resources::subscribe))
         .route("/v1/resources/changes", get(resource_delivery::changes))
+        .route("/v1/resources/fetch", post(resource_delivery::fetch))
         .route(
             "/v1/resources/{id}/versions/{version_id}",
             get(resource_delivery::version_payload),

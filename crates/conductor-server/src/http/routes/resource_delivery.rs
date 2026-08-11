@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
 
 use axum::body::{Body, Bytes};
@@ -11,10 +11,11 @@ use base64::Engine;
 use conductor_domain::{
     ConductorError, CreateDraftFileRequest, CreateResourceRequest, DeleteDraftEntryRequest,
     DraftFile, DraftFileTree, EffectiveResourceVersion, ManagedResource, MoveDraftEntryRequest,
-    PrimaryRole, ReleaseResourceRequest, ReleaseResourceResult, ResourceChange, ResourceChangePage,
-    ResourceInventoryRequest, ResourceInventoryResponse, ResourceKind, ResourceTargetMode,
-    ResourceValidation, ResourceVisibility, SaveDraftFileRequest, SecretScope, SemanticVersion,
-    VersionMode,
+    PrimaryRole, ReleaseResourceRequest, ReleaseResourceResult, ResourceBundleKind, ResourceChange,
+    ResourceChangePage, ResourceFetchCommit, ResourceFetchEntry, ResourceFetchObject,
+    ResourceFetchRequest, ResourceFetchResponse, ResourceFetchTombstone, ResourceInventoryRequest,
+    ResourceInventoryResponse, ResourceKind, ResourceTargetMode, ResourceValidation,
+    ResourceVisibility, SaveDraftFileRequest, SecretScope, SemanticVersion, VersionMode,
 };
 use conductor_storage::repos::{
     DraftArtifact, DraftContent, DraftWriteError, ReleaseContent, ReleaseResourceError,
@@ -34,8 +35,11 @@ use crate::core::state::AppState;
 use crate::http::extractors::{authenticate_connection_secret, AuthUser};
 
 const CHANGE_SCHEMA_VERSION: u8 = 2;
+const FETCH_SCHEMA_VERSION: u8 = 1;
 const DEFAULT_CHANGE_LIMIT: u32 = 100;
 const MAX_CHANGE_LIMIT: u32 = 500;
+const MAX_FETCH_HAVE: usize = 5_000;
+const MAX_FETCH_STABILIZE_ATTEMPTS: usize = 4;
 const PLUGIN_IMPORT_CHANGELOG: &str = "Imported plugin package";
 const AGENT_IMPORT_CHANGELOG: &str = "Imported EvoFlux Agent package";
 const SKILL_IMPORT_CHANGELOG: &str = "Imported EvoFlux Skill bundle";
@@ -956,6 +960,185 @@ pub async fn version_payload(
     Ok(Json(version))
 }
 
+/// Git-style have/want negotiation for the complete member-specific resource
+/// checkout. The response contains changed tree entries and only the immutable
+/// artifact objects the client does not already have.
+pub async fn fetch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<ResourceFetchRequest>,
+) -> ApiResult<Json<ResourceFetchResponse>> {
+    let principal =
+        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
+    let project_id = state
+        .db
+        .instance()
+        .project_id()
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("project".into()))?;
+    if !state
+        .db
+        .client_installations()
+        .belongs_to(request.installation_id, project_id, principal.user.id)
+        .await?
+    {
+        return Err(ConductorError::Forbidden.into());
+    }
+    if request.have.len() > MAX_FETCH_HAVE {
+        return Err(ConductorError::msg("resource fetch is limited to 5000 have entries").into());
+    }
+    if request
+        .have_commit
+        .as_deref()
+        .is_some_and(|value| !is_lower_hex_sha256(value))
+    {
+        return Err(ConductorError::msg("have_commit must be a lowercase SHA-256").into());
+    }
+
+    let mut have = HashMap::with_capacity(request.have.len());
+    let mut have_artifacts = HashSet::with_capacity(request.have.len());
+    for item in &request.have {
+        if !is_lower_hex_sha256(&item.artifact_sha256) {
+            return Err(
+                ConductorError::msg("have artifact_sha256 must be a lowercase SHA-256").into(),
+            );
+        }
+        if have.insert(item.resource_id, item).is_some() {
+            return Err(ConductorError::msg("duplicate resource_id in fetch have list").into());
+        }
+        have_artifacts.insert(item.artifact_sha256.as_str());
+    }
+
+    let mut stable = None;
+    for _ in 0..MAX_FETCH_STABILIZE_ATTEMPTS {
+        let before = state
+            .db
+            .resources()
+            .max_change_sequence(project_id, principal.user.id)
+            .await?;
+        let versions = state
+            .db
+            .resources()
+            .list_effective_versions(principal.user.id)
+            .await?;
+        let after = state
+            .db
+            .resources()
+            .max_change_sequence(project_id, principal.user.id)
+            .await?;
+        if before == after {
+            stable = Some((versions, after));
+            break;
+        }
+    }
+    let Some((versions, sequence)) = stable else {
+        return Err(ConductorError::Conflict(
+            "resource head changed while planning fetch; retry".into(),
+        )
+        .into());
+    };
+
+    let mut current = Vec::new();
+    for version in versions {
+        let Some(kind) = ResourceBundleKind::from_resource_kind(version.kind) else {
+            continue;
+        };
+        let bundle = version.bundle_v2.ok_or_else(|| {
+            ConductorError::Conflict(format!(
+                "resource {}/{} has no portable bundle v2 artifact",
+                kind.as_str(),
+                version.slug
+            ))
+        })?;
+        if bundle.artifact_sha256 != version.sha256 || bundle.artifact_size != version.size {
+            return Err(ConductorError::Conflict(format!(
+                "resource {}/{} bundle metadata does not match its immutable version",
+                kind.as_str(),
+                version.slug
+            ))
+            .into());
+        }
+        current.push(ResourceFetchEntry {
+            resource_id: version.resource_id,
+            version_id: version.version_id,
+            kind,
+            slug: version.slug,
+            version: version.version,
+            release_channel: version.release_channel,
+            minimum_evoflux_version: version.minimum_evoflux_version,
+            trust_required: version.kind == ResourceKind::Plugin,
+            bundle,
+        });
+    }
+    current.sort_by(|left, right| {
+        left.kind
+            .as_str()
+            .cmp(right.kind.as_str())
+            .then_with(|| left.slug.cmp(&right.slug))
+            .then_with(|| left.resource_id.cmp(&right.resource_id))
+    });
+
+    let tree_sha256 = fetch_tree_sha256(&current);
+    let commit_id = fetch_commit_id(&tree_sha256);
+    let up_to_date = request.have_commit.as_deref() == Some(commit_id.as_str());
+    let current_ids = current
+        .iter()
+        .map(|entry| entry.resource_id)
+        .collect::<HashSet<_>>();
+    let mut entries = Vec::new();
+    let mut objects = BTreeMap::new();
+    let mut tombstones = Vec::new();
+
+    if !up_to_date {
+        for entry in &current {
+            let unchanged = have.get(&entry.resource_id).is_some_and(|item| {
+                item.version_id == entry.version_id
+                    && item.artifact_sha256 == entry.bundle.artifact_sha256
+            });
+            if unchanged {
+                continue;
+            }
+            entries.push(entry.clone());
+            if !have_artifacts.contains(entry.bundle.artifact_sha256.as_str()) {
+                objects
+                    .entry(entry.bundle.artifact_sha256.clone())
+                    .or_insert_with(|| ResourceFetchObject {
+                        artifact_sha256: entry.bundle.artifact_sha256.clone(),
+                        size: entry.bundle.artifact_size,
+                        media_type: entry.bundle.artifact_media_type.clone(),
+                        href: format!(
+                            "/api/v1/resources/{}/versions/{}/artifact",
+                            entry.resource_id, entry.version_id
+                        ),
+                    });
+            }
+        }
+        tombstones.extend(
+            have.keys()
+                .filter(|resource_id| !current_ids.contains(resource_id))
+                .map(|resource_id| ResourceFetchTombstone {
+                    resource_id: *resource_id,
+                }),
+        );
+        tombstones.sort_by_key(|item| item.resource_id);
+    }
+
+    Ok(Json(ResourceFetchResponse {
+        schema_version: FETCH_SCHEMA_VERSION,
+        project_id,
+        base_commit: request.have_commit,
+        commit: ResourceFetchCommit {
+            id: commit_id,
+            tree_sha256,
+            sequence,
+        },
+        up_to_date,
+        entries,
+        tombstones,
+        objects: objects.into_values().collect(),
+    }))
+}
+
 pub async fn artifact(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -970,6 +1153,24 @@ pub async fn artifact(
         .await?
         .filter(|version| version.version_id == version_id)
         .ok_or(ConductorError::Forbidden)?;
+    let etag = format!("\"sha256:{}\"", version.sha256);
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|candidate| candidate.trim() == etag))
+    {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        response.headers_mut().insert(
+            header::ETAG,
+            HeaderValue::from_str(&etag).map_err(|_| ConductorError::Internal)?,
+        );
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, max-age=31536000, immutable"),
+        );
+        return Ok(response);
+    }
     let key = version.artifact_key.ok_or(ConductorError::Forbidden)?;
     let bytes = state
         .artifacts
@@ -993,7 +1194,51 @@ pub async fn artifact(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&etag).map_err(|_| ConductorError::Internal)?,
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=31536000, immutable"),
+    );
     Ok(response)
+}
+
+fn is_lower_hex_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+}
+
+fn hash_fetch_frame(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value);
+}
+
+fn fetch_tree_sha256(entries: &[ResourceFetchEntry]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"evoflux-resource-tree-v1\0");
+    for entry in entries {
+        hash_fetch_frame(&mut hasher, entry.kind.as_str().as_bytes());
+        hash_fetch_frame(&mut hasher, entry.resource_id.to_string().as_bytes());
+        hash_fetch_frame(&mut hasher, entry.version_id.to_string().as_bytes());
+        hash_fetch_frame(&mut hasher, entry.slug.as_bytes());
+        hash_fetch_frame(&mut hasher, entry.version.as_bytes());
+        hash_fetch_frame(&mut hasher, entry.release_channel.as_str().as_bytes());
+        hash_fetch_frame(&mut hasher, entry.bundle.artifact_sha256.as_bytes());
+        hash_fetch_frame(&mut hasher, entry.bundle.tree_sha256.as_bytes());
+    }
+    hex::encode(hasher.finalize())
+}
+
+fn fetch_commit_id(tree_sha256: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"evoflux-resource-commit-v1\0");
+    hash_fetch_frame(&mut hasher, tree_sha256.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 pub async fn inventory(
@@ -1258,6 +1503,41 @@ mod tests {
         assert_eq!(
             modes,
             vec![ResourceTargetMode::Work, ResourceTargetMode::Aim]
+        );
+    }
+
+    #[test]
+    fn smart_fetch_commit_has_a_cross_language_golden_vector() {
+        let entry = ResourceFetchEntry {
+            resource_id: Uuid::from_u128(1),
+            version_id: Uuid::from_u128(2),
+            kind: ResourceBundleKind::Skill,
+            slug: "audit".into(),
+            version: "1.2.3".into(),
+            release_channel: ReleaseChannel::Published,
+            bundle: ResourceBundleV2 {
+                schema_version: ResourceBundleV2::SCHEMA_VERSION,
+                kind: ResourceBundleKind::Skill,
+                slug: "audit".into(),
+                version: "1.2.3".into(),
+                artifact_sha256: "a".repeat(64),
+                artifact_size: 42,
+                artifact_media_type: "application/vnd.evoflux.resource+zip".into(),
+                tree_sha256: "b".repeat(64),
+                files: Vec::new(),
+            },
+            minimum_evoflux_version: None,
+            trust_required: false,
+        };
+
+        let tree = fetch_tree_sha256(&[entry]);
+        assert_eq!(
+            tree,
+            "43a48be42482e92625801c5b1abdf7093128a0a96b3c3e886c73380d76045237"
+        );
+        assert_eq!(
+            fetch_commit_id(&tree),
+            "7e35c6857cf1f439057ca31d8692f9cc3d29a0e06ba0d7c0d1d2cedc618febdd"
         );
     }
 

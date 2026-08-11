@@ -238,16 +238,29 @@ impl TestApp {
     }
 
     pub async fn get_bytes(&self, path: &str) -> (StatusCode, HeaderMap, Vec<u8>) {
+        self.get_bytes_with_headers(path, None, HeaderMap::new())
+            .await
+    }
+
+    pub async fn get_bytes_with_headers(
+        &self,
+        path: &str,
+        token: Option<&str>,
+        headers: HeaderMap,
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let mut builder = Request::builder().method("GET").uri(path);
+        if let Some(token) = token {
+            builder = builder.header("Authorization", format!("{AUTH_SCHEME_BEARER}{token}"));
+        }
+        for (name, value) in headers {
+            if let Some(name) = name {
+                builder = builder.header(name, value);
+            }
+        }
         let response = self
             .router
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method("GET")
-                    .uri(path)
-                    .body(Body::empty())
-                    .expect("build request"),
-            )
+            .oneshot(builder.body(Body::empty()).expect("build request"))
             .await
             .expect("router response");
         let status = response.status();
