@@ -228,6 +228,20 @@ pub async fn update_storage(
         return Err(ConductorError::Forbidden.into());
     }
     let current = state.db.instance().storage_settings().await?;
+    let credential_change = request.storage.git.clear_credential
+        || request
+            .storage
+            .git
+            .credential
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+    if current == request.storage && !credential_change {
+        return Ok(Json(StorageMigrationResult {
+            storage: current,
+            objects_copied: 0,
+            bytes_copied: 0,
+        }));
+    }
     let mut keys = state.db.resources().object_keys().await?;
     if let Some(logo) = state.db.instance().logo_artifact().await? {
         keys.push(logo.key);
@@ -240,11 +254,10 @@ pub async fn update_storage(
     }
 
     let settings = request.storage;
-    let persisted = settings.clone();
     let instance = state.db.instance();
     let stats = state
         .artifacts
-        .reconfigure(settings.clone(), keys, move || async move {
+        .reconfigure(settings, keys, move |persisted| async move {
             instance
                 .update_storage_settings(&persisted)
                 .await
@@ -252,6 +265,7 @@ pub async fn update_storage(
         })
         .await
         .map_err(|error| ConductorError::msg(format!("storage migration failed: {error}")))?;
+    let settings = state.artifacts.settings().await;
 
     Ok(Json(StorageMigrationResult {
         storage: settings,

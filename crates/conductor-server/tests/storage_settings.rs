@@ -5,6 +5,7 @@ use conductor_domain::{PrimaryRole, SetupRequest};
 use conductor_server::{AppState, RealtimeConfig};
 use conductor_storage::Db;
 use sqlx::Row;
+use std::process::Command;
 use support::test_app;
 
 #[tokio::test]
@@ -140,6 +141,147 @@ async fn storage_settings_require_admin_and_complete_cloud_metadata() {
         .as_str()
         .unwrap_or_default()
         .contains("S3 bucket"));
+}
+
+#[tokio::test]
+async fn admin_migrates_objects_to_git_without_exposing_credentials() {
+    let app = test_app().await;
+    let (_, admin) = app
+        .state
+        .db
+        .instance()
+        .complete_setup(
+            &SetupRequest {
+                project_name: "git-storage-test".into(),
+                display_name: Some("Git storage test".into()),
+                bind_host: "127.0.0.1".into(),
+                bind_port: 4700,
+                public_url: None,
+                admin_email: "git-storage-admin@example.test".into(),
+                admin_display_name: "Git Storage Admin".into(),
+                admin_password: "unused".into(),
+                sso: None,
+            },
+            "unused-test-password-hash",
+            "unused-test-jwt-secret",
+            None,
+        )
+        .await
+        .expect("configure project");
+    let token = app.token_for(&admin).await;
+    let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    png.extend_from_slice(b"git-storage-logo");
+    let (status, _) = app
+        .put_bytes("/api/settings/logo", Some(&token), "image/png", png)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let logo_key = app
+        .state
+        .db
+        .instance()
+        .logo_artifact()
+        .await
+        .unwrap()
+        .unwrap()
+        .key;
+
+    let directory = std::env::temp_dir().join(format!(
+        "conductor-project-git-storage-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let remote = directory.join("remote.git");
+    std::fs::create_dir_all(&directory).unwrap();
+    let initialized = Command::new("git")
+        .args(["init", "--bare", remote.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(initialized.status.success());
+
+    let storage_request = serde_json::json!({
+        "storage": {
+            "backend": "git",
+            "local": {"root": null},
+            "s3": {"bucket": "", "region": "", "endpoint": null, "prefix": "", "path_style": false},
+            "azure_blob": {"account": "", "container": "", "endpoint": null, "prefix": ""},
+            "git": {
+                "repository_url": remote.to_string_lossy(),
+                "branch": "resources",
+                "prefix": "conductor-objects",
+                "auth_mode": "environment",
+                "username": null,
+                "credential": null,
+                "clear_credential": false,
+                "credential_set": false
+            }
+        },
+        "migrate_existing": true
+    });
+    let (status, migration) = app
+        .put(
+            "/api/settings/storage",
+            Some(&token),
+            storage_request.clone(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{migration}");
+    assert_eq!(migration["objects_copied"], 1);
+    assert_eq!(migration["storage"]["backend"], "git");
+    assert_eq!(migration["storage"]["git"]["credential_set"], false);
+    assert!(migration["storage"]["git"].get("credential").is_none());
+    assert!(migration["storage"]["git"]
+        .get("clear_credential")
+        .is_none());
+
+    let verify = directory.join("verify");
+    let cloned = Command::new("git")
+        .args([
+            "clone",
+            "--branch",
+            "resources",
+            remote.to_str().unwrap(),
+            verify.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        cloned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cloned.stderr)
+    );
+    assert!(verify.join("conductor-objects").join(logo_key).is_file());
+
+    let commit_count = Command::new("git")
+        .args([
+            "--git-dir",
+            remote.to_str().unwrap(),
+            "rev-list",
+            "--count",
+            "resources",
+        ])
+        .output()
+        .unwrap();
+    assert!(commit_count.status.success());
+    let commit_count = commit_count.stdout;
+
+    let (status, no_op) = app
+        .put("/api/settings/storage", Some(&token), storage_request)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{no_op}");
+    assert_eq!(no_op["objects_copied"], 0);
+    assert_eq!(no_op["bytes_copied"], 0);
+
+    let unchanged_commit_count = Command::new("git")
+        .args([
+            "--git-dir",
+            remote.to_str().unwrap(),
+            "rev-list",
+            "--count",
+            "resources",
+        ])
+        .output()
+        .unwrap();
+    assert!(unchanged_commit_count.status.success());
+    assert_eq!(unchanged_commit_count.stdout, commit_count);
 }
 
 #[tokio::test]

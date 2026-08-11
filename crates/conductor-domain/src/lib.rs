@@ -36,11 +36,11 @@ pub use client_installation::{
 };
 pub use core::error::{ConductorError, Result};
 pub use instance::{
-    AzureBlobStorageSettings, DataPolicySettings, InstanceConfig, LocalStorageSettings,
-    ProjectBranding, ProjectSettings, RealtimeSettings, S3StorageSettings, SetupRequest,
-    SetupSsoRequest, SetupStatus, SsoConfig, SsoProvider, StorageBackend, StorageMigrationResult,
-    StorageSettings, UpdateDataPolicyRequest, UpdateInstanceRequest, UpdateNetworkRequest,
-    UpdateSsoRequest, UpdateStorageRequest,
+    AzureBlobStorageSettings, DataPolicySettings, GitAuthMode, GitStorageSettings, InstanceConfig,
+    LocalStorageSettings, ProjectBranding, ProjectSettings, RealtimeSettings, S3StorageSettings,
+    SetupRequest, SetupSsoRequest, SetupStatus, SsoConfig, SsoProvider, StorageBackend,
+    StorageMigrationResult, StorageSettings, UpdateDataPolicyRequest, UpdateInstanceRequest,
+    UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
 };
 pub use resource::{
     CreateDraftFileRequest, CreateResourceRequest, DashboardSummary, DeleteDraftEntryRequest,
