@@ -99,6 +99,7 @@
 
   --color-success: var(--accent-green);
   --color-warning: var(--accent-orange);
+  --color-change: var(--chart-series-5);
   --color-error: #f87171;
   --color-error-subtle: rgba(248, 113, 113, 0.1);
   --color-info: var(--accent-blue);
@@ -183,6 +184,7 @@
 
   --color-success: var(--accent-green);
   --color-warning: var(--accent-orange);
+  --color-change: var(--chart-series-5);
   --color-error: #dc2626;
   --color-error-subtle: rgba(220, 38, 38, 0.06);
   --color-info: var(--accent-blue);
@@ -289,6 +291,52 @@ body:has([data-shell]) {
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 999px;
+}
+
+/* Resource Studio uses Git-style markers for unsaved editor changes. */
+.monaco-editor .resource-studio-change-line-modified {
+  background: color-mix(in srgb, var(--color-change) 14%, transparent);
+}
+
+.monaco-editor .resource-studio-change-line-added {
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+}
+
+.monaco-editor .resource-studio-change-line-deleted {
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+.monaco-editor .resource-studio-change-gutter-modified,
+.monaco-editor .resource-studio-change-gutter-added,
+.monaco-editor .resource-studio-change-gutter-deleted {
+  box-sizing: border-box;
+  width: 5px !important;
+  margin-left: 3px;
+  border-left: 3px solid transparent;
+}
+
+.monaco-editor .resource-studio-change-gutter-modified {
+  border-left-color: var(--color-change);
+}
+
+.monaco-editor .resource-studio-change-gutter-added {
+  border-left-color: var(--color-success);
+}
+
+.monaco-editor .resource-studio-change-gutter-deleted {
+  border-left-color: var(--color-error);
+}
+
+.monaco-editor .resource-studio-change-line-number-modified {
+  color: var(--color-change) !important;
+}
+
+.monaco-editor .resource-studio-change-line-number-added {
+  color: var(--color-success) !important;
+}
+
+.monaco-editor .resource-studio-change-line-number-deleted {
+  color: var(--color-error) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

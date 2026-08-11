@@ -1,26 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import {
-  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ChevronRight,
-  CircleDot,
-  FileCode2,
-  GitBranch,
-  PackageCheck,
   Rocket,
-  Save,
   ShieldCheck,
-  Sparkles,
   Upload,
   Users,
 } from "lucide-react"
-import { lazy, Suspense, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   api,
-  type DraftFileTree,
   type ManagedResource,
   type ReleaseResourceRequest,
   type ResourceValidation,
@@ -30,42 +22,34 @@ import {
   RESOURCE_IMPORT_ACCEPT,
   RESOURCE_KIND,
   RESOURCE_KIND_LABEL,
+  RESOURCE_MODE_SCOPE_FILENAME,
   RESOURCE_QUERY_KEY,
+  RESOURCE_TARGET_MODES,
   VERSION_MODE,
   type ReleaseChannel,
+  type ResourceTargetMode,
   type VersionMode,
 } from "@/shared/constants/resource"
-import { PageFrame } from "@/shared/components/page-frame"
-import { Badge } from "@/shared/ui/badge"
-import { Button } from "@/shared/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/ui/card"
+  RESOURCE_STUDIO_TAB,
+  resourceStudioInitialContent,
+  type ResourceStudioTab,
+} from "@/shared/constants/resource-studio"
+import { RESOURCE_KIND_USAGE_PATHS } from "@/shared/constants/resource-monitoring"
+import { PageFrame } from "@/shared/components/page-frame"
+import { ResourceStudioWorkbench } from "@/features/resources/components/resource-studio-workbench"
+import { ResourceDetailMonitoring } from "@/features/resources/components/resource-detail-monitoring"
+import { ResourceModeSelector } from "@/features/resources/components/resource-mode-selector"
+import { ResourceVersionHistory } from "@/features/resources/components/resource-version-history"
+import { Button } from "@/shared/ui/button"
 import { Dialog } from "@/shared/ui/dialog"
-import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
+import { ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { MultiSelect } from "@/shared/ui/multi-select"
 import { Select } from "@/shared/ui/select"
 import { SkeletonRows } from "@/shared/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableHead,
-  TableRow,
-  TableTd,
-  TableTh,
-  TableWrap,
-} from "@/shared/ui/table"
 import { Textarea } from "@/shared/ui/textarea"
-
-const MonacoEditor = lazy(() => import("@/shared/components/code-editor"))
-
-type StudioTab = "studio" | "releases"
 
 export function ResourceStudioPage() {
   const { resourceId } = useParams({ strict: false }) as {
@@ -73,7 +57,7 @@ export function ResourceStudioPage() {
   }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<StudioTab>("studio")
+  const [tab, setTab] = useState<ResourceStudioTab>(RESOURCE_STUDIO_TAB.SOURCE)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState("")
   const [dirty, setDirty] = useState(false)
@@ -97,6 +81,9 @@ export function ResourceStudioPage() {
     queryFn: () => api.resourceVersions(resourceId),
     enabled: Boolean(resource),
   })
+  const targetModes = resource && ["agent", "skill"].includes(resource.kind)
+    ? modesFromDraft(draft.data?.files)
+    : null
 
   useEffect(() => {
     if (!draft.data?.files.length) return
@@ -119,6 +106,87 @@ export function ResourceStudioPage() {
     },
     onSuccess: (tree) => {
       queryClient.setQueryData([RESOURCE_QUERY_KEY, resourceId, "draft"], tree)
+      setDirty(false)
+      setValidation(null)
+      void queryClient.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+    },
+  })
+
+  const saveTargetModes = useMutation({
+    mutationFn: (modes: ResourceTargetMode[]) => {
+      if (!draft.data) throw new Error("The current draft must finish loading first.")
+      return api.saveResourceDraftFile(
+        resourceId,
+        RESOURCE_MODE_SCOPE_FILENAME,
+        `${JSON.stringify({ modes }, null, 2)}\n`,
+        draft.data.revision,
+      )
+    },
+    onSuccess: (tree) => {
+      queryClient.setQueryData([RESOURCE_QUERY_KEY, resourceId, "draft"], tree)
+      setValidation(null)
+      void queryClient.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+    },
+  })
+
+  const createFile = useMutation({
+    mutationFn: (path: string) => {
+      if (!draft.data) throw new Error("The current draft must finish loading first.")
+      return api.createResourceDraftFile(
+        resourceId,
+        path,
+        resourceStudioInitialContent(path),
+        draft.data.revision,
+      )
+    },
+    onSuccess: (tree, path) => {
+      queryClient.setQueryData([RESOURCE_QUERY_KEY, resourceId, "draft"], tree)
+      const file = tree.files.find((item) => item.path === path)
+      setSelectedPath(file?.path ?? tree.files[0]?.path ?? null)
+      setEditorValue(file?.content ?? tree.files[0]?.content ?? "")
+      setDirty(false)
+      setValidation(null)
+      void queryClient.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+    },
+  })
+
+  const moveEntry = useMutation({
+    mutationFn: ({ path, destinationPath }: { path: string; destinationPath: string }) => {
+      if (!draft.data) throw new Error("The current draft must finish loading first.")
+      return api.moveResourceDraftEntry(
+        resourceId,
+        path,
+        destinationPath,
+        draft.data.revision,
+      )
+    },
+    onSuccess: (tree, { path, destinationPath }) => {
+      queryClient.setQueryData([RESOURCE_QUERY_KEY, resourceId, "draft"], tree)
+      const sourcePrefix = `${path}/`
+      const nextSelected = selectedPath === path
+        ? destinationPath
+        : selectedPath?.startsWith(sourcePrefix)
+          ? `${destinationPath}/${selectedPath.slice(sourcePrefix.length)}`
+          : selectedPath
+      const file = tree.files.find((item) => item.path === nextSelected) ?? tree.files[0]
+      setSelectedPath(file?.path ?? null)
+      setEditorValue(file?.content ?? "")
+      setDirty(false)
+      setValidation(null)
+      void queryClient.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+    },
+  })
+
+  const deleteEntry = useMutation({
+    mutationFn: (path: string) => {
+      if (!draft.data) throw new Error("The current draft must finish loading first.")
+      return api.deleteResourceDraftEntry(resourceId, path, draft.data.revision)
+    },
+    onSuccess: (tree) => {
+      queryClient.setQueryData([RESOURCE_QUERY_KEY, resourceId, "draft"], tree)
+      const file = tree.files.find((item) => item.path === selectedPath) ?? tree.files[0]
+      setSelectedPath(file?.path ?? null)
+      setEditorValue(file?.content ?? "")
       setDirty(false)
       setValidation(null)
       void queryClient.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
@@ -151,9 +219,9 @@ export function ResourceStudioPage() {
     },
   })
 
-  function selectFile(path: string, tree: DraftFileTree) {
+  function selectFile(path: string) {
     if (dirty && !window.confirm("Discard the unsaved editor change?")) return
-    const file = tree.files.find((item) => item.path === path)
+    const file = draft.data?.files.find((item) => item.path === path)
     if (!file) return
     setSelectedPath(path)
     setEditorValue(file.content)
@@ -185,9 +253,17 @@ export function ResourceStudioPage() {
     <PageFrame
       title={resource.name}
       subtitle={`${RESOURCE_KIND_LABEL[resource.kind]} · ${resource.slug} · project ${resource.project_id.slice(0, 8)}`}
+      className="max-w-none"
       action={
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => void navigate({ to: "/app/resources" })}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (!dirty || window.confirm("Discard the unsaved editor change?")) {
+                void navigate({ to: resourceCatalogPath(resource.kind) })
+              }
+            }}
+          >
             <ArrowLeft className="size-3.5" />
             Catalog
           </Button>
@@ -237,42 +313,19 @@ export function ResourceStudioPage() {
         </div>
       }
     >
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StudioMetric
-          label="Lifecycle"
-          value={resource.status}
-          icon={CircleDot}
-          tone={resource.status === "published" ? "success" : "warning"}
-        />
-        <StudioMetric
-          label="Current channel"
-          value={resource.release_channel ?? "Unreleased"}
-          icon={GitBranch}
-          tone="accent"
-        />
-        <StudioMetric
-          label="Highest version"
-          value={resource.highest_version ? `v${resource.highest_version}` : "First: v0.1.0"}
-          icon={PackageCheck}
-          tone="neutral"
-        />
-        <StudioMetric
-          label="Draft revision"
-          value={`#${draft.data?.revision ?? resource.draft_revision}`}
-          icon={FileCode2}
-          tone={dirty ? "warning" : "neutral"}
-        />
-      </div>
-
       <div className="mb-4 flex gap-1 border-b border-(--border-soft)">
         {([
-          ["studio", "Source & validation"],
-          ["releases", `Versions (${versions.data?.length ?? 0})`],
+          [RESOURCE_STUDIO_TAB.SOURCE, "Source & validation"],
+          [RESOURCE_STUDIO_TAB.VERSIONS, `Versions (${versions.data?.length ?? 0})`],
+          [RESOURCE_STUDIO_TAB.MONITORING, "Monitoring"],
         ] as const).map(([value, label]) => (
           <button
             key={value}
             type="button"
-            onClick={() => setTab(value)}
+            onClick={() => {
+              if (tab === value) return
+              if (!dirty || window.confirm("Discard the unsaved editor change?")) setTab(value)
+            }}
             className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
               tab === value
                 ? "border-(--color-accent) text-(--color-text)"
@@ -291,26 +344,113 @@ export function ResourceStudioPage() {
         </div>
       )}
 
-      {tab === "studio" ? (
-        <StudioWorkspace
+      {tab === RESOURCE_STUDIO_TAB.SOURCE ? (
+        <>
+          {targetModes && (
+            <section className="mb-4 rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-(--color-text)">
+                  EvoFlux availability
+                </h2>
+                <p className="mt-0.5 text-xs text-(--color-text-muted)">
+                  Work is the cowork surface; Coding is repository-scoped. EvoFlux keeps
+                  its built-in capabilities and mounts this managed resource only in the
+                  selected modes.
+                </p>
+              </div>
+              <ResourceModeSelector
+                value={targetModes}
+                onChange={(modes) => saveTargetModes.mutate(modes)}
+                disabled={dirty || saveTargetModes.isPending || draft.isFetching}
+              />
+              {saveTargetModes.error && (
+                <ErrorState
+                  className="mt-3"
+                  message={
+                    saveTargetModes.error instanceof Error
+                      ? saveTargetModes.error.message
+                      : "Mode update failed"
+                  }
+                />
+              )}
+            </section>
+          )}
+          <ResourceStudioWorkbench
           resource={resource}
           draft={draft.data}
           loading={draft.isLoading}
-          error={draft.error ?? save.error ?? validate.error ?? importArchive.error}
+          loadError={draft.error}
+          actionError={
+            save.error ??
+            validate.error ??
+            importArchive.error ??
+            createFile.error ??
+            moveEntry.error ??
+            deleteEntry.error
+          }
           selectedPath={selectedPath}
           editorValue={editorValue}
           dirty={dirty}
           saving={save.isPending}
+          busyAction={
+            createFile.isPending ||
+            moveEntry.isPending ||
+            deleteEntry.isPending ||
+            draft.isFetching
+          }
           validation={validation}
           onSelectFile={selectFile}
           onChange={(value) => {
             setEditorValue(value)
-            setDirty(true)
+            const savedValue =
+              draft.data?.files.find((file) => file.path === selectedPath)?.content ?? ""
+            setDirty(value !== savedValue)
+          }}
+          onDiscard={() => {
+            const content = draft.data?.files.find((file) => file.path === selectedPath)?.content ?? ""
+            setEditorValue(content)
+            setDirty(false)
           }}
           onSave={() => save.mutate()}
+          onRefresh={() => {
+            if (dirty && !window.confirm("Discard the unsaved editor change?")) return
+            void draft.refetch()
+          }}
+          onCreateFile={(path) => createFile.mutateAsync(path).then(() => undefined)}
+          onMoveEntry={(path, destinationPath) =>
+            moveEntry.mutateAsync({ path, destinationPath }).then(() => undefined)
+          }
+          onDeleteEntry={(path) => deleteEntry.mutateAsync(path).then(() => undefined)}
+          />
+        </>
+      ) : tab === RESOURCE_STUDIO_TAB.VERSIONS ? (
+        <ResourceVersionHistory
+          resource={resource}
+          draftRevision={draft.data?.revision ?? resource.draft_revision}
+          loading={versions.isLoading}
+          versions={versions.data}
+          onVersionDeprecated={(version) => {
+            setReleaseResult(`Deprecated v${version.version}. Its immutable history remains available.`)
+            void queryClient.invalidateQueries({
+              queryKey: [RESOURCE_QUERY_KEY, resourceId, "versions"],
+            })
+          }}
+          onDraftRestored={(tree, version) => {
+            queryClient.setQueryData([RESOURCE_QUERY_KEY, resourceId, "draft"], tree)
+            const first = tree.files[0]
+            setSelectedPath(first?.path ?? null)
+            setEditorValue(first?.content ?? "")
+            setDirty(false)
+            setValidation(null)
+            setTab(RESOURCE_STUDIO_TAB.SOURCE)
+            setReleaseResult(
+              `Restored v${version.version} into Draft revision ${tree.revision}. Release creates a new greater version.`,
+            )
+            void queryClient.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+          }}
         />
       ) : (
-        <ReleaseHistory resource={resource} loading={versions.isLoading} versions={versions.data} />
+        <ResourceDetailMonitoring resource={resource} />
       )}
 
       <ReleaseDialog
@@ -335,239 +475,20 @@ export function ResourceStudioPage() {
   )
 }
 
-function StudioWorkspace({
-  resource,
-  draft,
-  loading,
-  error,
-  selectedPath,
-  editorValue,
-  dirty,
-  saving,
-  validation,
-  onSelectFile,
-  onChange,
-  onSave,
-}: {
-  resource: ManagedResource
-  draft?: DraftFileTree
-  loading: boolean
-  error: unknown
-  selectedPath: string | null
-  editorValue: string
-  dirty: boolean
-  saving: boolean
-  validation: ResourceValidation | null
-  onSelectFile: (path: string, tree: DraftFileTree) => void
-  onChange: (value: string) => void
-  onSave: () => void
-}) {
-  if (loading) return <SkeletonRows rows={8} />
-  if (error) {
-    return <ErrorState message={error instanceof Error ? error.message : "Resource Studio failed"} />
+function modesFromDraft(
+  files: { path: string; content: string }[] | undefined,
+): ResourceTargetMode[] {
+  const source = files?.find((file) => file.path === RESOURCE_MODE_SCOPE_FILENAME)?.content
+  if (!source) return [...RESOURCE_TARGET_MODES]
+  try {
+    const value = JSON.parse(source) as { modes?: unknown }
+    const rawModes = value.modes
+    if (!Array.isArray(rawModes)) return [...RESOURCE_TARGET_MODES]
+    const selected = RESOURCE_TARGET_MODES.filter((mode) => rawModes.includes(mode))
+    return selected.length ? selected : [...RESOURCE_TARGET_MODES]
+  } catch {
+    return [...RESOURCE_TARGET_MODES]
   }
-  if (!draft?.files.length) {
-    return (
-      <EmptyState
-        icon={FileCode2}
-        title="Draft has no files"
-        description="Create this resource again from its starter template or import a valid package."
-      />
-    )
-  }
-  return (
-    <div
-      className="grid min-h-[620px] overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) lg:grid-cols-[220px_minmax(0,1fr)_290px]"
-      data-testid="resource-studio"
-    >
-      <aside className="border-b border-(--border-soft) lg:border-r lg:border-b-0">
-        <div className="border-b border-(--border-soft) px-3 py-3">
-          <div className="text-[0.68rem] font-semibold tracking-wider text-(--color-text-subtle) uppercase">
-            Draft files
-          </div>
-          <div className="mt-1 text-xs text-(--color-text-muted)">
-            {draft.files.length} text {draft.files.length === 1 ? "file" : "files"}
-          </div>
-        </div>
-        <div className="max-h-56 overflow-auto p-2 lg:max-h-[560px]">
-          {draft.files.map((file) => (
-            <button
-              key={file.path}
-              type="button"
-              onClick={() => onSelectFile(file.path, draft)}
-              className={`mb-1 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left font-mono text-[0.7rem] transition-colors ${
-                file.path === selectedPath
-                  ? "bg-(--color-accent-soft) text-(--color-accent)"
-                  : "text-(--color-text-muted) hover:bg-(--bg-key) hover:text-(--color-text)"
-              }`}
-            >
-              <FileCode2 className="size-3.5 shrink-0" />
-              <span className="min-w-0 truncate">{file.path}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
-
-      <section className="min-w-0 border-b border-(--border-soft) lg:border-r lg:border-b-0">
-        <div className="flex min-h-12 items-center justify-between gap-3 border-b border-(--border-soft) px-3">
-          <div className="min-w-0">
-            <div className="truncate font-mono text-xs">{selectedPath}</div>
-            <div className="text-[0.65rem] text-(--color-text-subtle)">
-              {dirty ? "Unsaved changes" : `Saved at revision ${draft.revision}`}
-            </div>
-          </div>
-          <Button size="sm" disabled={!dirty || saving} onClick={onSave}>
-            <Save className="size-3.5" />
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </div>
-        <Suspense
-          fallback={<div className="grid h-[548px] place-items-center text-xs">Loading editor…</div>}
-        >
-          <MonacoEditor
-            height="548px"
-            language={editorLanguage(selectedPath)}
-            theme="vs-dark"
-            value={editorValue}
-            onChange={(value) => onChange(value ?? "")}
-            options={{
-              minimap: { enabled: false },
-              fontFamily: "JetBrains Mono Variable, monospace",
-              fontSize: 13,
-              lineHeight: 21,
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              padding: { top: 14 },
-              automaticLayout: true,
-            }}
-          />
-        </Suspense>
-      </section>
-
-      <aside className="p-3">
-        <div className="mb-4">
-          <div className="flex items-center gap-2 text-xs font-medium">
-            <Sparkles className="size-3.5 text-(--color-accent)" />
-            {RESOURCE_KIND_LABEL[resource.kind]} guide
-          </div>
-          <p className="mt-2 text-xs leading-5 text-(--color-text-muted)">
-            {resource.kind === RESOURCE_KIND.PLUGIN
-              ? "Keep plugin.json at the root. Releases are packaged immutably and arrive disabled in EvoFlux until the member reviews commands, hosts and capabilities."
-              : resource.kind === RESOURCE_KIND.SKILL
-                ? "SKILL.md must contain name and description frontmatter. The saved source remains a Draft until you create a Beta or Published release."
-                : "Agent Markdown must declare matching name and description frontmatter. Validation never executes source content."}
-          </p>
-        </div>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs font-medium">Diagnostics</span>
-          {validation && (
-            <Badge tone={validation.valid ? "success" : "danger"}>
-              {validation.valid ? "Valid" : `${validation.diagnostics.length} issues`}
-            </Badge>
-          )}
-        </div>
-        {!validation ? (
-          <div className="rounded-lg border border-dashed border-(--color-border) p-3 text-xs leading-5 text-(--color-text-subtle)">
-            Save all edits, then run Validate. Structured errors include a stable code and file path.
-          </div>
-        ) : validation.diagnostics.length === 0 ? (
-          <div className="flex items-start gap-2 rounded-lg border border-(--color-success)/30 bg-(--color-success)/8 p-3 text-xs text-(--color-success)">
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-            Draft passes static validation and is ready for release.
-          </div>
-        ) : (
-          <div className="space-y-2" data-testid="resource-diagnostics">
-            {validation.diagnostics.map((item, index) => (
-              <div
-                key={`${item.code}-${item.path}-${index}`}
-                className="rounded-lg border border-(--color-error)/25 bg-(--color-error-subtle) p-2.5"
-              >
-                <div className="flex items-center gap-1.5 text-xs font-medium text-(--color-error)">
-                  <AlertTriangle className="size-3.5" />
-                  {item.code}
-                </div>
-                <p className="mt-1 text-[0.7rem] leading-4 text-(--color-text-muted)">
-                  {item.message}
-                </p>
-                {item.path && (
-                  <div className="mt-1.5 font-mono text-[0.65rem] text-(--color-text-subtle)">
-                    {item.path}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </aside>
-    </div>
-  )
-}
-
-function ReleaseHistory({
-  resource,
-  loading,
-  versions,
-}: {
-  resource: ManagedResource
-  loading: boolean
-  versions?: Awaited<ReturnType<typeof api.resourceVersions>>
-}) {
-  if (loading) return <SkeletonRows rows={6} />
-  if (!versions?.length) {
-    return (
-      <EmptyState
-        icon={GitBranch}
-        title="No immutable releases yet"
-        description="Validate the Draft and release v0.1.0 to Beta or Published. Saving files does not allocate a version."
-      />
-    )
-  }
-  return (
-    <Card>
-      <CardHeader>
-        <div>
-          <CardTitle>Immutable release history</CardTitle>
-          <CardDescription>
-            {resource.slug} · SHA-256 identifies the exact payload or Plugin archive.
-          </CardDescription>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <TableWrap className="rounded-none border-0">
-          <Table>
-            <TableHead>
-              <tr>
-                <TableTh>Version</TableTh>
-                <TableTh>Channel</TableTh>
-                <TableTh>Integrity</TableTh>
-                <TableTh>Size</TableTh>
-                <TableTh>Released</TableTh>
-              </tr>
-            </TableHead>
-            <TableBody>
-              {versions.map((version) => (
-                <TableRow key={version.id}>
-                  <TableTd className="font-mono font-medium">v{version.version}</TableTd>
-                  <TableTd>
-                    <Badge tone={version.release_channel === RELEASE_CHANNEL.PUBLISHED ? "success" : "warning"}>
-                      {version.release_channel ?? version.status}
-                    </Badge>
-                  </TableTd>
-                  <TableTd className="font-mono text-[0.68rem] text-(--color-text-muted)">
-                    {version.content_sha256 ? version.content_sha256.slice(0, 12) : "Legacy"}
-                  </TableTd>
-                  <TableTd>{formatBytes(version.content_size)}</TableTd>
-                  <TableTd className="text-xs text-(--color-text-muted)">
-                    {new Date(version.created_at).toLocaleString()}
-                  </TableTd>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableWrap>
-      </CardContent>
-    </Card>
-  )
 }
 
 function ReleaseDialog({
@@ -741,46 +662,6 @@ function ReleaseDialog({
   )
 }
 
-function StudioMetric({
-  label,
-  value,
-  icon: Icon,
-  tone,
-}: {
-  label: string
-  value: string
-  icon: typeof FileCode2
-  tone: "success" | "warning" | "accent" | "neutral"
-}) {
-  const tones = {
-    success: "bg-(--color-success)/10 text-(--color-success)",
-    warning: "bg-(--color-warning)/10 text-(--color-warning)",
-    accent: "bg-(--color-accent-soft) text-(--color-accent)",
-    neutral: "bg-(--bg-key) text-(--color-text-muted)",
-  }
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-3 p-3">
-        <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${tones[tone]}`}>
-          <Icon className="size-4" />
-        </span>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold capitalize">{value}</div>
-          <div className="text-[0.68rem] text-(--color-text-muted)">{label}</div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function editorLanguage(path: string | null) {
-  if (path?.endsWith(".json")) return "json"
-  if (path?.endsWith(".yaml") || path?.endsWith(".yml")) return "yaml"
-  if (path?.endsWith(".py")) return "python"
-  if (path?.endsWith(".ts") || path?.endsWith(".tsx")) return "typescript"
-  return "markdown"
-}
-
 function nextPatch(highest: string | null) {
   if (!highest) return "0.1.0"
   const stable = highest.split(/[+-]/, 1)[0]
@@ -790,9 +671,9 @@ function nextPatch(highest: string | null) {
   return `${parts[0]}.${parts[1]}.${parts[2] + 1}`
 }
 
-function formatBytes(bytes: number) {
-  if (!bytes) return "—"
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
+function resourceCatalogPath(kind: ManagedResource["kind"]) {
+  if (kind === RESOURCE_KIND.PLUGIN) return RESOURCE_KIND_USAGE_PATHS.plugin.overview
+  if (kind === RESOURCE_KIND.SKILL) return RESOURCE_KIND_USAGE_PATHS.skill.overview
+  if (kind === RESOURCE_KIND.AGENT) return RESOURCE_KIND_USAGE_PATHS.agent.overview
+  return "/app/resources" as const
 }

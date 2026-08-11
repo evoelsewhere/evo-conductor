@@ -12,10 +12,14 @@ import {
 import { Button } from "@/shared/ui/button"
 import { Input } from "@/shared/ui/input"
 
-export function useUsageRange(defaultPreset: UsageRangePreset = DEFAULT_USAGE_RANGE_PRESET) {
+export function useUsageRange(
+  defaultPreset: UsageRangePreset = DEFAULT_USAGE_RANGE_PRESET,
+  defaultCustomFrom = dateInputDaysAgo(DEFAULT_CUSTOM_RANGE_DAYS),
+  defaultCustomTo = dateInputDaysAgo(0),
+) {
   const [preset, setPreset] = useState<UsageRangePreset>(defaultPreset)
-  const [customFrom, setCustomFrom] = useState(() => dateInputDaysAgo(DEFAULT_CUSTOM_RANGE_DAYS))
-  const [customTo, setCustomTo] = useState(() => dateInputDaysAgo(0))
+  const [customFrom, setCustomFrom] = useState(defaultCustomFrom)
+  const [customTo, setCustomTo] = useState(defaultCustomTo)
 
   const range = useMemo(() => {
     const now = new Date()

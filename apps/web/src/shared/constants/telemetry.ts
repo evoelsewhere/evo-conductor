@@ -1,6 +1,7 @@
 import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_SECOND } from "@/shared/constants/time"
 
 export const TelemetryEventType = {
+  Request: "request",
   ModelCall: "model_call",
   ToolCall: "tool_call",
 } as const
@@ -11,6 +12,7 @@ export const TelemetryEventStatus = {
   Success: "success",
   Error: "error",
   Blocked: "blocked",
+  Cancelled: "cancelled",
 } as const
 export type TelemetryEventStatus =
   (typeof TelemetryEventStatus)[keyof typeof TelemetryEventStatus]
@@ -45,6 +47,7 @@ export const TELEMETRY_STATUS_OPTIONS = [
   { value: TelemetryEventStatus.Success, label: "Success" },
   { value: TelemetryEventStatus.Error, label: "Error" },
   { value: TelemetryEventStatus.Blocked, label: "Blocked" },
+  { value: TelemetryEventStatus.Cancelled, label: "Cancelled" },
 ] as const
 
 export const USAGE_RANGE_PRESET_OPTIONS = [
@@ -88,6 +91,7 @@ export const TELEMETRY_STATUS_TONES = {
   [TelemetryEventStatus.Success]: "success",
   [TelemetryEventStatus.Error]: "danger",
   [TelemetryEventStatus.Blocked]: "warning",
+  [TelemetryEventStatus.Cancelled]: "neutral",
 } as const
 
 export const TELEMETRY_FALLBACK_LABELS = {
