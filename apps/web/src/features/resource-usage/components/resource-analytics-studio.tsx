@@ -70,6 +70,7 @@ import {
 } from "@/shared/ui/chart"
 import {
   Menu,
+  MenuGroup,
   MenuGroupLabel,
   MenuItem,
   MenuSeparator,
@@ -415,17 +416,19 @@ export function ResourceAnalyticsStudio({
                 </Button>
               }
             >
-              <MenuGroupLabel>Portable report data</MenuGroupLabel>
-              <MenuItem onClick={() => data && exportResourceAnalytics(data, "csv", scopeLabel)}>
-                <FileSpreadsheet className="size-4" /> Export CSV
-              </MenuItem>
-              <MenuItem onClick={() => data && exportResourceAnalytics(data, "json", scopeLabel)}>
-                <FileJson className="size-4" /> Export JSON
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem onClick={() => window.print()}>
-                <Download className="size-4" /> Print / save PDF
-              </MenuItem>
+              <MenuGroup>
+                <MenuGroupLabel>Portable report data</MenuGroupLabel>
+                <MenuItem onClick={() => data && exportResourceAnalytics(data, "csv", scopeLabel)}>
+                  <FileSpreadsheet className="size-4" /> Export CSV
+                </MenuItem>
+                <MenuItem onClick={() => data && exportResourceAnalytics(data, "json", scopeLabel)}>
+                  <FileJson className="size-4" /> Export JSON
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem onClick={() => window.print()}>
+                  <Download className="size-4" /> Print / save PDF
+                </MenuItem>
+              </MenuGroup>
             </Menu>
           </div>
         </div>
@@ -467,24 +470,26 @@ export function ResourceAnalyticsStudio({
                   </Button>
                 }
               >
-                <MenuGroupLabel>Widget library</MenuGroupLabel>
-                {hiddenWidgets.map((id) => (
-                  <MenuItem
-                    key={id}
-                    onClick={() =>
-                      updateWidgets((widgets) => [
-                        ...widgets,
-                        {
-                          id,
-                          width: "half",
-                          view: WIDGET_META[id].defaultView,
-                        },
-                      ])
-                    }
-                  >
-                    <BarChart3 className="size-4" /> {WIDGET_META[id].title}
-                  </MenuItem>
-                ))}
+                <MenuGroup>
+                  <MenuGroupLabel>Widget library</MenuGroupLabel>
+                  {hiddenWidgets.map((id) => (
+                    <MenuItem
+                      key={id}
+                      onClick={() =>
+                        updateWidgets((widgets) => [
+                          ...widgets,
+                          {
+                            id,
+                            width: "half",
+                            view: WIDGET_META[id].defaultView,
+                          },
+                        ])
+                      }
+                    >
+                      <BarChart3 className="size-4" /> {WIDGET_META[id].title}
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
               </Menu>
               <Button
                 variant="ghost"

@@ -45,7 +45,13 @@ import {
   MultiSelect,
   type MultiSelectOption,
 } from "@/shared/ui/multi-select"
-import { Menu, MenuGroupLabel, MenuItem, MenuSeparator } from "@/shared/ui/menu"
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuSeparator,
+} from "@/shared/ui/menu"
 import { Select } from "@/shared/ui/select"
 import { SkeletonRows } from "@/shared/ui/skeleton"
 import {
@@ -413,24 +419,26 @@ export function MembersPage() {
                               </Button>
                             }
                           >
-                            <MenuGroupLabel>Member actions</MenuGroupLabel>
-                            <MenuItem onClick={() => setEditUser(m)}>Edit access profile</MenuItem>
-                            {(m.status === USER_STATUS.PENDING || m.status === USER_STATUS.INVITED) && (
-                              <MenuItem onClick={() => approve.mutate(m.id)}>
-                                <UserCheck className="size-4" /> Approve member
+                            <MenuGroup>
+                              <MenuGroupLabel>Member actions</MenuGroupLabel>
+                              <MenuItem onClick={() => setEditUser(m)}>Edit access profile</MenuItem>
+                              {(m.status === USER_STATUS.PENDING || m.status === USER_STATUS.INVITED) && (
+                                <MenuItem onClick={() => approve.mutate(m.id)}>
+                                  <UserCheck className="size-4" /> Approve member
+                                </MenuItem>
+                              )}
+                              {m.status === USER_STATUS.DISABLED ? (
+                                <MenuItem onClick={() => enable.mutate(m.id)}>Enable member</MenuItem>
+                              ) : m.id !== actor?.id ? (
+                                <MenuItem tone="danger" onClick={() => setConfirmation({ action: "disable", member: m })}>
+                                  <UserX className="size-4" /> Disable member
+                                </MenuItem>
+                              ) : null}
+                              <MenuSeparator />
+                              <MenuItem onClick={() => setConfirmation({ action: "reset", member: m })}>
+                                <RotateCcw className="size-4" /> Reset password
                               </MenuItem>
-                            )}
-                            {m.status === USER_STATUS.DISABLED ? (
-                              <MenuItem onClick={() => enable.mutate(m.id)}>Enable member</MenuItem>
-                            ) : m.id !== actor?.id ? (
-                              <MenuItem tone="danger" onClick={() => setConfirmation({ action: "disable", member: m })}>
-                                <UserX className="size-4" /> Disable member
-                              </MenuItem>
-                            ) : null}
-                            <MenuSeparator />
-                            <MenuItem onClick={() => setConfirmation({ action: "reset", member: m })}>
-                              <RotateCcw className="size-4" /> Reset password
-                            </MenuItem>
+                            </MenuGroup>
                           </Menu>
                         </div>
                       </TableTd>
