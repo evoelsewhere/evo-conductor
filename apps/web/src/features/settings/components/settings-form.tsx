@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react"
 import {
   api,
   type CollectionLevel,
+  type GitAuthMode,
   type SsoProvider,
   type StorageBackend,
 } from "@/shared/api/client"
@@ -101,6 +102,14 @@ export function SettingsForm() {
   const [azureContainer, setAzureContainer] = useState("")
   const [azureEndpoint, setAzureEndpoint] = useState("")
   const [azurePrefix, setAzurePrefix] = useState("")
+  const [gitRepositoryUrl, setGitRepositoryUrl] = useState("")
+  const [gitBranch, setGitBranch] = useState("main")
+  const [gitPrefix, setGitPrefix] = useState("")
+  const [gitAuthMode, setGitAuthMode] =
+    useState<GitAuthMode>("environment")
+  const [gitUsername, setGitUsername] = useState("")
+  const [gitCredential, setGitCredential] = useState("")
+  const [clearGitCredential, setClearGitCredential] = useState(false)
   const [collectionLevel, setCollectionLevel] =
     useState<CollectionLevel>("L1")
   const [ssoEnabled, setSsoEnabled] = useState(false)
@@ -136,6 +145,13 @@ export function SettingsForm() {
     setAzureContainer(data.storage.azure_blob.container)
     setAzureEndpoint(data.storage.azure_blob.endpoint ?? "")
     setAzurePrefix(data.storage.azure_blob.prefix)
+    setGitRepositoryUrl(data.storage.git.repository_url)
+    setGitBranch(data.storage.git.branch)
+    setGitPrefix(data.storage.git.prefix)
+    setGitAuthMode(data.storage.git.auth_mode)
+    setGitUsername(data.storage.git.username ?? "")
+    setGitCredential("")
+    setClearGitCredential(false)
     setCollectionLevel(data.data_policy.collection_level)
     setSsoEnabled(data.sso.enabled)
     setProvider(data.sso.provider)
@@ -254,10 +270,25 @@ export function SettingsForm() {
             endpoint: azureEndpoint.trim() || null,
             prefix: azurePrefix.trim(),
           },
+          git: {
+            repository_url: gitRepositoryUrl.trim(),
+            branch: gitBranch.trim(),
+            prefix: gitPrefix.trim(),
+            auth_mode: gitAuthMode,
+            username: gitUsername.trim() || null,
+            credential:
+              gitAuthMode === "https_token"
+                ? gitCredential.trim() || null
+                : null,
+            clear_credential: clearGitCredential,
+            credential_set: data?.storage.git.credential_set ?? false,
+          },
         },
         true,
       ),
     onSuccess: (result) => {
+      setGitCredential("")
+      setClearGitCredential(false)
       setMessage(
         `Storage switched to ${result.storage.backend}; ${result.objects_copied.toLocaleString()} objects verified`,
       )
@@ -327,6 +358,17 @@ export function SettingsForm() {
       />
     )
   }
+
+  const gitCredentialMatchesRepository =
+    data.storage.git.credential_set &&
+    gitRepositoryUrl.trim() === data.storage.git.repository_url
+  const gitStorageIsIncomplete =
+    storageBackend === "git" &&
+    (!gitRepositoryUrl.trim() ||
+      !gitBranch.trim() ||
+      (gitAuthMode === "https_token" &&
+        !gitCredential.trim() &&
+        !gitCredentialMatchesRepository))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
@@ -605,6 +647,7 @@ export function SettingsForm() {
                   { value: "local", label: "Local filesystem" },
                   { value: "s3", label: "Amazon S3 / compatible" },
                   { value: "azure_blob", label: "Azure Blob Storage" },
+                  { value: "git", label: "Git repository" },
                 ]}
               />
             </Field>
@@ -672,15 +715,140 @@ export function SettingsForm() {
                 </CredentialNotice>
               </div>
             )}
+
+            {storageBackend === "git" && (
+              <div className="space-y-4">
+                <Field
+                  label="Repository URL"
+                  hint="HTTPS, SSH, SCP syntax or a mounted absolute repository path. Never embed a token in this URL."
+                >
+                  <Input
+                    value={gitRepositoryUrl}
+                    onChange={(event) =>
+                      setGitRepositoryUrl(event.target.value)
+                    }
+                    placeholder="https://git.example.com/team/resources.git"
+                  />
+                </Field>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Branch">
+                    <Input
+                      value={gitBranch}
+                      onChange={(event) => setGitBranch(event.target.value)}
+                      placeholder="main"
+                    />
+                  </Field>
+                  <Field
+                    label="Object prefix"
+                    hint="Directory inside the repository."
+                  >
+                    <Input
+                      value={gitPrefix}
+                      onChange={(event) => setGitPrefix(event.target.value)}
+                      placeholder="evo-conductor/objects"
+                    />
+                  </Field>
+                </div>
+                <Field label="Authentication">
+                  <Select
+                    value={gitAuthMode}
+                    onValueChange={(value) =>
+                      setGitAuthMode(value as GitAuthMode)
+                    }
+                    options={[
+                      {
+                        value: "environment",
+                        label: "SSH agent / credential helper",
+                      },
+                      {
+                        value: "https_token",
+                        label: "HTTPS access token",
+                      },
+                    ]}
+                  />
+                </Field>
+                {gitAuthMode === "https_token" && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field
+                      label="Username"
+                      hint="Provider-specific; commonly git, oauth2 or x-access-token."
+                    >
+                      <Input
+                        value={gitUsername}
+                        onChange={(event) =>
+                          setGitUsername(event.target.value)
+                        }
+                        placeholder="oauth2"
+                        autoComplete="off"
+                      />
+                    </Field>
+                    <Field
+                      label={
+                        gitCredentialMatchesRepository
+                          ? "Access token (leave blank to keep)"
+                          : "Access token"
+                      }
+                      hint="Write-only. The API never returns this value."
+                    >
+                      <Input
+                        type="password"
+                        value={gitCredential}
+                        onChange={(event) => {
+                          setGitCredential(event.target.value)
+                          setClearGitCredential(false)
+                        }}
+                        placeholder={
+                          gitCredentialMatchesRepository
+                            ? "Saved credential"
+                            : "Paste access token"
+                        }
+                        autoComplete="new-password"
+                      />
+                    </Field>
+                  </div>
+                )}
+                {gitCredentialMatchesRepository && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-(--border-soft) bg-(--bg-key)/45 px-3 py-2">
+                    <span className="text-xs text-(--color-text-muted)">
+                      {clearGitCredential
+                        ? "The saved credential will be removed when you save."
+                        : "A credential is saved for this repository."}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setClearGitCredential((current) => {
+                          if (!current) setGitAuthMode("environment")
+                          return !current
+                        })
+                        setGitCredential("")
+                      }}
+                    >
+                      {clearGitCredential ? "Keep credential" : "Remove"}
+                    </Button>
+                  </div>
+                )}
+                <CredentialNotice>
+                  Git uses a serialized local mirror and pushes
+                  content-addressed objects to this branch. HTTPS tokens are
+                  stored in a permission-restricted file outside SQL. For
+                  multi-replica deployments, prefer a shared SSH agent or
+                  workload credential helper.
+                </CredentialNotice>
+              </div>
+            )}
             </SettingsCard>
 
             <div className="rounded-lg border border-(--color-warning)/25 bg-(--color-warning)/8 px-3 py-2 text-xs text-(--color-text-muted)">
-              Saving performs a write/read health check, pauses resource writes, copies every referenced object, verifies its digest, persists the setting, then switches atomically.
+              Saving pauses resource writes, verifies the candidate backend,
+              copies every referenced object, checks its digest, persists the
+              sanitized setting, then switches atomically.
             </div>
             <ActionRow>
               <Button
                 variant="gradient"
-                disabled={saveStorage.isPending}
+                disabled={saveStorage.isPending || gitStorageIsIncomplete}
                 onClick={() => saveStorage.mutate()}
               >
                 {saveStorage.isPending ? "Migrating objects…" : "Save and migrate storage"}

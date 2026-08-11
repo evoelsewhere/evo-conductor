@@ -572,7 +572,8 @@ export interface RealtimeSettings {
   heartbeat_seconds: number
 }
 
-export type StorageBackend = "local" | "s3" | "azure_blob"
+export type StorageBackend = "local" | "s3" | "azure_blob" | "git"
+export type GitAuthMode = "environment" | "https_token"
 
 export interface StorageSettings {
   backend: StorageBackend
@@ -589,6 +590,16 @@ export interface StorageSettings {
     container: string
     endpoint: string | null
     prefix: string
+  }
+  git: {
+    repository_url: string
+    branch: string
+    prefix: string
+    auth_mode: GitAuthMode
+    username: string | null
+    credential?: string | null
+    clear_credential?: boolean
+    credential_set: boolean
   }
 }
 
