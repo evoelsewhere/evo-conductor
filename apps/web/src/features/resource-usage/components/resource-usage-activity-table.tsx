@@ -78,7 +78,7 @@ export function ResourceUsageActivityTable({ items }: { items: ResourceUsageActi
               <TableTd>
                 <div className="flex items-center justify-end gap-1">
                   <Link
-                    to="/app/resources/$kind/$resourceId/edit"
+                    to="/app/resources/$kind/$resourceId"
                     params={{ kind: item.kind, resourceId: item.resource_id }}
                     className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "size-8")}
                     aria-label={`Open ${item.resource_name}`}

@@ -6,21 +6,22 @@ import { DateRangeFilter, useUsageRange } from "@/features/members/components/da
 import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
 import { ResourceUsageActivityTable } from "@/features/resource-usage/components/resource-usage-activity-table"
 import {
+  ResourceAnalyticsStudio,
+  TelemetryReadiness,
+  hasAnalyticsData,
+} from "@/features/resource-usage/components/resource-analytics-studio"
+import {
   ResourceMemberBreakdownTable,
   ResourceModelBreakdownTable,
   ResourceRoleBreakdownTable,
   ResourceToolBreakdownTable,
 } from "@/features/resource-usage/components/resource-usage-breakdown-tables"
 import {
-  MemberUsageChart,
-  ModelCallsChart,
   RequestOutcomeChart,
-  RoleCallsChart,
   TokenCostChart,
-  ToolCallsChart,
 } from "@/features/resource-usage/components/resource-usage-charts"
 import { formatEstimatedCost } from "@/features/resource-usage/components/resource-usage-formatters"
-import { api, type ManagedResource, type ResourceInventoryMonitoring, type ResourceUsageAnalytics } from "@/shared/api/client"
+import { api, type AnalyticsQuery, type ManagedResource, type ResourceInventoryMonitoring, type ResourceUsageAnalytics } from "@/shared/api/client"
 import {
   RESOURCE_INSTALLED_STATES,
   RESOURCE_MONITORING_TAB,
@@ -83,7 +84,7 @@ export function ResourceDetailMonitoring({ resource }: { resource: ManagedResour
       {tab === RESOURCE_MONITORING_TAB.OVERVIEW && <MonitoringOverview usage={usage.data} inventory={inventory.data} loading={usage.isLoading || inventory.isLoading} />}
       {tab === RESOURCE_MONITORING_TAB.INSTALLATIONS && <InstallationsPanel data={inventory.data} loading={inventory.isLoading} />}
       {tab === RESOURCE_MONITORING_TAB.ACTIVITY && <ActivityPanel data={usage.data} loading={usage.isLoading} />}
-      {tab === RESOURCE_MONITORING_TAB.USAGE && <UsagePanel data={usage.data} loading={usage.isLoading} />}
+      {tab === RESOURCE_MONITORING_TAB.USAGE && <UsagePanel resource={resource} data={usage.data} loading={usage.isLoading} dates={dates} />}
     </div>
   )
 }
@@ -108,12 +109,14 @@ function MonitoringOverview({ usage, inventory, loading }: { usage?: ResourceUsa
           <MonitoringMetric label="Est. cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} />
         </div>
       </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <RequestOutcomeChart daily={usage?.daily ?? []} />
-        <TokenCostChart daily={usage?.daily ?? []} />
-        <MemberUsageChart members={usage?.members ?? []} />
-        <ToolCallsChart tools={usage?.tools ?? []} />
-      </div>
+      {!hasAnalyticsData(usage) ? (
+        <TelemetryReadiness data={usage} />
+      ) : (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <RequestOutcomeChart daily={usage?.daily ?? []} />
+          <TokenCostChart daily={usage?.daily ?? []} />
+        </div>
+      )}
     </>
   )
 }
@@ -173,16 +176,35 @@ function ActivityPanel({ data, loading }: { data?: ResourceUsageAnalytics; loadi
   )
 }
 
-function UsagePanel({ data, loading }: { data?: ResourceUsageAnalytics; loading: boolean }) {
-  if (loading) return <SkeletonRows rows={8} />
+function UsagePanel({
+  resource,
+  data,
+  loading,
+  dates,
+}: {
+  resource: ManagedResource
+  data?: ResourceUsageAnalytics
+  loading: boolean
+  dates: ReturnType<typeof useUsageRange>
+}) {
+  const query: AnalyticsQuery = {
+    date_range: monitoringDateRange(dates.preset),
+    from: dates.preset === "custom" ? dates.range.from ?? null : null,
+    to: dates.preset === "custom" ? dates.range.to ?? null : null,
+    resource_kind: resource.kind,
+    resource_id: resource.id,
+  }
   return (
     <>
-      <div className="grid gap-4 xl:grid-cols-2">
-        <MemberUsageChart members={data?.members ?? []} />
-        <RoleCallsChart roles={data?.roles ?? []} />
-        <ToolCallsChart tools={data?.tools ?? []} />
-        <ModelCallsChart models={data?.models ?? []} />
-      </div>
+      <ResourceAnalyticsStudio
+        data={data}
+        loading={loading}
+        scopeLabel={resource.name}
+        storageKey={`conductor.resource-analytics.resource.${resource.id}.v1`}
+        scope={{ resourceKind: resource.kind, resourceId: resource.id }}
+        query={query}
+        onApplyQuery={(saved) => applyMonitoringDateRange(saved, dates)}
+      />
       <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and estimated cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Calls by role" description="Requests, model calls and tool calls by the role captured at ingest time.">{data?.roles.length ? <ResourceRoleBreakdownTable items={data.roles} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Tool calls" description="Which tools this resource drives most, including outcome, average duration and last use.">{data?.tools.length ? <ResourceToolBreakdownTable items={data.tools} /> : <UsageEmpty />}</Breakdown>
@@ -194,6 +216,34 @@ function UsagePanel({ data, loading }: { data?: ResourceUsageAnalytics; loading:
       </div>
     </>
   )
+}
+
+function monitoringDateRange(
+  preset: ReturnType<typeof useUsageRange>["preset"],
+): AnalyticsQuery["date_range"] {
+  if (preset === "day") return "last_24_hours"
+  if (preset === "week") return "last_7_days"
+  if (preset === "custom") return "custom"
+  return "last_30_days"
+}
+
+function applyMonitoringDateRange(
+  query: AnalyticsQuery,
+  dates: ReturnType<typeof useUsageRange>,
+) {
+  if (query.date_range === "last_24_hours") return dates.setPreset("day")
+  if (query.date_range === "last_7_days") return dates.setPreset("week")
+  if (query.date_range === "last_30_days") return dates.setPreset("month")
+  dates.setPreset("custom")
+  const fallback = new Date()
+  const from = query.date_range === "last_90_days"
+    ? new Date(fallback.getTime() - 90 * 86_400_000).toISOString().slice(0, 10)
+    : query.from?.slice(0, 10)
+  const to = query.date_range === "last_90_days"
+    ? fallback.toISOString().slice(0, 10)
+    : query.to?.slice(0, 10)
+  if (from) dates.setCustomFrom(from)
+  if (to) dates.setCustomTo(to)
 }
 
 function Breakdown({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

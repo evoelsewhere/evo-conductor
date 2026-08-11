@@ -54,7 +54,7 @@ export function ResourceBreakdownTable({ items }: { items: ResourceUsageBreakdow
               <TableRow key={`${item.resource_id}:${item.version_id}:${item.relation}`}>
                 <TableTd>
                   <Link
-                    to="/app/resources/$kind/$resourceId/edit"
+                    to="/app/resources/$kind/$resourceId"
                     params={{ kind: item.kind, resourceId: item.resource_id }}
                     className="font-medium hover:text-(--color-accent)"
                   >
@@ -76,7 +76,7 @@ export function ResourceBreakdownTable({ items }: { items: ResourceUsageBreakdow
                 <TableTd>
                   <div className="flex justify-end gap-1">
                     <Link
-                      to="/app/resources/$kind/$resourceId/edit"
+                      to="/app/resources/$kind/$resourceId"
                       params={{ kind: item.kind, resourceId: item.resource_id }}
                       className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "size-8")}
                       aria-label={`Open ${item.name}`}

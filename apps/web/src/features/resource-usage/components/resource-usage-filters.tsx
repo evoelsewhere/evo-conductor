@@ -1,4 +1,5 @@
-import { RotateCcw, Search } from "lucide-react"
+import { RotateCcw, Search, SlidersHorizontal } from "lucide-react"
+import { useState } from "react"
 
 import type {
   ClientInstallationSummary,
@@ -63,6 +64,7 @@ export function ResourceUsageFilters({
   lockedKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
   onChange: (value: ResourceUsageFilterState) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
   const set = (key: keyof ResourceUsageFilterState, next: string) =>
     onChange({ ...value, [key]: next })
   const visibleResources = resources.filter(
@@ -79,10 +81,15 @@ export function ResourceUsageFilters({
         ? Boolean(item)
         : item !== RESOURCE_USAGE_ALL_FILTER,
   )
+  const activeCount = Object.entries(value).filter(([key, item]) => {
+    if (key === "resourceKind" && lockedKind) return false
+    if (key === "provider" || key === "model" || key === "toolName") return Boolean(item)
+    return item !== RESOURCE_USAGE_ALL_FILTER
+  }).length
 
   return (
-    <div className="rounded-xl border border-(--border-card) bg-(--bg-card) p-3">
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="rounded-xl border border-(--border-card) bg-(--bg-card)">
+      <div className="flex flex-col gap-2 p-3 lg:flex-row lg:items-center">
         <Select
           value={value.memberId}
           onValueChange={(next) =>
@@ -97,26 +104,9 @@ export function ResourceUsageFilters({
             ...members.map((member) => ({ value: member.id, label: member.display_name })),
           ]}
           aria-label="Filter by member"
+          className="lg:w-48"
         />
-        <Select
-          value={value.installationId}
-          onValueChange={(next) => set("installationId", next)}
-          options={[
-            { value: RESOURCE_USAGE_ALL_FILTER, label: "All installations" },
-            ...installations.map((installation) => ({
-              value: installation.id,
-              label: `${installation.display_name} · ${installation.platform}`,
-            })),
-          ]}
-          disabled={value.memberId === RESOURCE_USAGE_ALL_FILTER}
-          aria-label="Filter by EvoFlux installation"
-        />
-        <Select value={value.primaryRole} onValueChange={(next) => set("primaryRole", next)} options={[...RESOURCE_USAGE_ROLE_OPTIONS]} aria-label="Filter by role" />
-        {lockedKind ? (
-          <div className="flex h-9 items-center rounded-lg border border-(--border-soft) bg-(--bg-key) px-3 text-xs font-medium capitalize text-(--color-text-muted)">
-            {lockedKind} scope
-          </div>
-        ) : (
+        {!lockedKind && (
           <Select
             value={value.resourceKind}
             onValueChange={(next) =>
@@ -129,6 +119,7 @@ export function ResourceUsageFilters({
             }
             options={[...RESOURCE_USAGE_KIND_OPTIONS]}
             aria-label="Filter by resource kind"
+            className="lg:w-44"
           />
         )}
         <Select
@@ -145,35 +136,98 @@ export function ResourceUsageFilters({
             ...visibleResources.map((resource) => ({ value: resource.id, label: resource.name })),
           ]}
           aria-label="Filter by resource"
+          className="lg:min-w-48 lg:flex-1"
         />
-        <Select
-          value={value.versionId}
-          onValueChange={(next) => set("versionId", next)}
-          options={[
-            { value: RESOURCE_USAGE_ALL_FILTER, label: "All versions" },
-            ...versions.map((version) => ({ value: version.id, label: `v${version.version} · ${version.status}` })),
-          ]}
-          disabled={value.resourceId === RESOURCE_USAGE_ALL_FILTER}
-          aria-label="Filter by resource version"
-        />
-        <Select value={value.status} onValueChange={(next) => set("status", next)} options={[...RESOURCE_USAGE_STATUS_OPTIONS]} aria-label="Filter by outcome" />
-        <Select value={value.relation} onValueChange={(next) => set("relation", next)} options={[...RESOURCE_USAGE_RELATION_OPTIONS]} aria-label="Filter by attribution relation" />
-        <label className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--color-text-subtle)" />
-          <Input className="pl-8" value={value.provider} onChange={(event) => set("provider", event.target.value)} placeholder="Provider" aria-label="Filter by provider" />
-        </label>
-        <label className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--color-text-subtle)" />
-          <Input className="pl-8" value={value.toolName} onChange={(event) => set("toolName", event.target.value)} placeholder="Tool name" aria-label="Filter by tool name" />
-        </label>
-        <label className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--color-text-subtle)" />
-          <Input className="pl-8" value={value.model} onChange={(event) => set("model", event.target.value)} placeholder="Model" aria-label="Filter by model" />
-        </label>
-        <Button variant="outline" disabled={!active} onClick={() => onChange({ ...EMPTY_RESOURCE_USAGE_FILTERS, resourceKind: lockedKind ?? RESOURCE_USAGE_ALL_FILTER })}>
-          <RotateCcw className="size-3.5" />Clear filters
+        <Select value={value.status} onValueChange={(next) => set("status", next)} options={[...RESOURCE_USAGE_STATUS_OPTIONS]} aria-label="Filter by outcome" className="lg:w-40" />
+        <Button
+          variant={expanded || activeCount > 0 ? "secondary" : "outline"}
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+        >
+          <SlidersHorizontal className="size-3.5" />
+          More filters
+          {activeCount > 0 && (
+            <span className="rounded-full bg-(--color-accent-soft) px-1.5 text-[0.65rem] text-(--color-accent)">
+              {activeCount}
+            </span>
+          )}
         </Button>
       </div>
+
+      {expanded && (
+        <div className="border-t border-(--border-soft) p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-medium">Advanced dimensions</div>
+              <p className="mt-0.5 text-[0.68rem] text-(--color-text-subtle)">
+                Narrow by delivery, version, role, relation, provider, model or tool.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!active}
+              onClick={() => onChange({ ...EMPTY_RESOURCE_USAGE_FILTERS, resourceKind: lockedKind ?? RESOURCE_USAGE_ALL_FILTER })}
+            >
+              <RotateCcw className="size-3.5" /> Clear all
+            </Button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <Select
+              value={value.installationId}
+              onValueChange={(next) => set("installationId", next)}
+              options={[
+                { value: RESOURCE_USAGE_ALL_FILTER, label: "All installations" },
+                ...installations.map((installation) => ({
+                  value: installation.id,
+                  label: `${installation.display_name} · ${installation.platform}`,
+                })),
+              ]}
+              disabled={value.memberId === RESOURCE_USAGE_ALL_FILTER}
+              aria-label="Filter by EvoFlux installation"
+            />
+            <Select value={value.primaryRole} onValueChange={(next) => set("primaryRole", next)} options={[...RESOURCE_USAGE_ROLE_OPTIONS]} aria-label="Filter by role" />
+            <Select
+              value={value.versionId}
+              onValueChange={(next) => set("versionId", next)}
+              options={[
+                { value: RESOURCE_USAGE_ALL_FILTER, label: "All versions" },
+                ...versions.map((version) => ({ value: version.id, label: `v${version.version} · ${version.status}` })),
+              ]}
+              disabled={value.resourceId === RESOURCE_USAGE_ALL_FILTER}
+              aria-label="Filter by resource version"
+            />
+            <Select value={value.relation} onValueChange={(next) => set("relation", next)} options={[...RESOURCE_USAGE_RELATION_OPTIONS]} aria-label="Filter by attribution relation" />
+            <SearchField value={value.provider} onChange={(next) => set("provider", next)} placeholder="Provider" ariaLabel="Filter by provider" />
+            <SearchField value={value.model} onChange={(next) => set("model", next)} placeholder="Model" ariaLabel="Filter by model" />
+            <SearchField value={value.toolName} onChange={(next) => set("toolName", next)} placeholder="Tool name" ariaLabel="Filter by tool name" />
+            {lockedKind && (
+              <div className="flex h-9 items-center rounded-md border border-(--border-soft) bg-(--bg-key) px-3 text-xs font-medium capitalize text-(--color-text-muted)">
+                Locked to {lockedKind}s
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+function SearchField({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  ariaLabel: string
+}) {
+  return (
+    <label className="relative">
+      <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--color-text-subtle)" />
+      <Input className="pl-8" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} aria-label={ariaLabel} />
+    </label>
   )
 }

@@ -1,15 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { Link } from "@tanstack/react-router"
 import {
   Check,
   ChevronRight,
   Copy,
+  KeyRound,
+  MoreHorizontal,
   Plus,
   RotateCcw,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   UserCheck,
   UserX,
+  Users,
   X,
 } from "lucide-react"
 import { useMemo, useState } from "react"
@@ -41,6 +45,7 @@ import {
   MultiSelect,
   type MultiSelectOption,
 } from "@/shared/ui/multi-select"
+import { Menu, MenuGroupLabel, MenuItem, MenuSeparator } from "@/shared/ui/menu"
 import { Select } from "@/shared/ui/select"
 import { SkeletonRows } from "@/shared/ui/skeleton"
 import {
@@ -57,7 +62,6 @@ export function MembersPage() {
   const actor = useAuthStore((s) => s.user)
   const isAdmin = actor?.primary_role === PRIMARY_ROLE.ADMIN
   const qc = useQueryClient()
-  const navigate = useNavigate()
 
   const [q, setQ] = useState("")
   const [status, setStatus] = useState<UserStatus | "">("")
@@ -99,6 +103,24 @@ export function MembersPage() {
         page,
         limit,
       }),
+  })
+  const portfolio = useQuery({
+    queryKey: ["members", "portfolio-summary"],
+    queryFn: async () => {
+      const [all, active, pending, invited, disabled] = await Promise.all([
+        api.members({ limit: 1 }),
+        api.members({ status: USER_STATUS.ACTIVE, limit: 1 }),
+        api.members({ status: USER_STATUS.PENDING, limit: 1 }),
+        api.members({ status: USER_STATUS.INVITED, limit: 1 }),
+        api.members({ status: USER_STATUS.DISABLED, limit: 1 }),
+      ])
+      return {
+        total: all.total,
+        active: active.total,
+        pending: pending.total + invited.total,
+        disabled: disabled.total,
+      }
+    },
   })
 
   const tagName = useMemo(() => {
@@ -158,11 +180,13 @@ export function MembersPage() {
     enable.error,
     resetPw.error,
   ].find((value): value is Error => value instanceof Error)
+  const memberSummary = portfolio.data ?? { total: 0, active: 0, pending: 0, disabled: 0 }
 
   return (
     <PageFrame
       title="Members"
       subtitle="Manage invitations, SSO approvals, account status, and project access."
+      className="max-w-7xl"
       action={
         isAdmin ? (
           <Button variant="gradient" onClick={() => setShowAdd(true)}>
@@ -178,6 +202,8 @@ export function MembersPage() {
           onDismiss={() => setTempPassword(null)}
         />
       )}
+
+      <MemberPortfolioSummary summary={memberSummary} loading={portfolio.isLoading} />
 
       <div className="mb-4 rounded-xl border border-(--border-card) bg-(--bg-card)">
         <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
@@ -307,8 +333,8 @@ export function MembersPage() {
               <TableHead>
                 <tr>
                   <TableTh>Member</TableTh>
-                  <TableTh>Role</TableTh>
-                  <TableTh>Tags</TableTh>
+                  <TableTh>Access profile</TableTh>
+                  <TableTh>Last seen</TableTh>
                   <TableTh>Status</TableTh>
                   {isAdmin && <TableTh />}
                 </tr>
@@ -317,25 +343,6 @@ export function MembersPage() {
                 {items.map((m) => (
                   <TableRow
                     key={m.id}
-                    tabIndex={0}
-                    aria-label={`View ${m.display_name} details`}
-                    className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-(--focus-ring)/40"
-                    onClick={(event) => {
-                      if ((event.target as HTMLElement).closest("a, button")) return
-                      void navigate({
-                        to: "/app/members/$userId",
-                        params: { userId: m.id },
-                      })
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) return
-                      if (event.key !== "Enter" && event.key !== " ") return
-                      event.preventDefault()
-                      void navigate({
-                        to: "/app/members/$userId",
-                        params: { userId: m.id },
-                      })
-                    }}
                   >
                     <TableTd>
                       <Link
@@ -357,16 +364,26 @@ export function MembersPage() {
                       )}
                     </TableTd>
                     <TableTd>
-                      <Badge tone="accent" className="capitalize">
-                        {m.primary_role}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone="accent" className="capitalize">{m.primary_role}</Badge>
+                        <BadgeList className="max-w-48" max={2} items={m.tag_ids.map(tagName)} />
+                      </div>
+                      <div className="mt-1 text-[0.68rem] text-(--color-text-subtle)">
+                        {m.sub_role_ids.length} sub-roles · {m.tag_ids.length} tags
+                      </div>
                     </TableTd>
                     <TableTd>
-                      <BadgeList
-                        className="max-w-48"
-                        max={2}
-                        items={m.tag_ids.map(tagName)}
-                      />
+                      <div className="text-xs text-(--color-text-muted)">
+                        {m.last_seen_at ? formatLastSeen(m.last_seen_at) : "Never"}
+                      </div>
+                      <div className="mt-1 inline-flex items-center gap-1 text-[0.68rem] text-(--color-text-subtle)">
+                        {m.must_change_password ? (
+                          <KeyRound className="size-3 text-(--color-warning)" />
+                        ) : (
+                          <ShieldCheck className="size-3 text-(--color-success)" />
+                        )}
+                        {m.must_change_password ? "Password change required" : "Account ready"}
+                      </div>
                     </TableTd>
                     <TableTd>
                       <span className="inline-flex items-center gap-1.5 capitalize text-(--color-text-muted)">
@@ -387,55 +404,34 @@ export function MembersPage() {
                             View
                             <ChevronRight className="size-3.5" />
                           </Link>
-                          {(m.status === USER_STATUS.PENDING ||
-                            m.status === USER_STATUS.INVITED) && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              title="Approve"
-                              onClick={() => approve.mutate(m.id)}
-                            >
-                              <UserCheck className="size-3.5" />
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            title="Edit"
-                            onClick={() => setEditUser(m)}
-                          >
-                            Edit
-                          </Button>
-                          {m.status === USER_STATUS.DISABLED ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => enable.mutate(m.id)}
-                            >
-                              Enable
-                            </Button>
-                          ) : m.id !== actor?.id ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              title="Disable"
-                              onClick={() =>
-                                setConfirmation({ action: "disable", member: m })
-                              }
-                            >
-                              <UserX className="size-3.5" />
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            title="Reset password"
-                            onClick={() =>
-                              setConfirmation({ action: "reset", member: m })
+                          <Menu
+                            side="bottom"
+                            align="end"
+                            trigger={
+                              <Button size="icon" variant="ghost" aria-label={`More actions for ${m.display_name}`}>
+                                <MoreHorizontal className="size-4" />
+                              </Button>
                             }
                           >
-                            <RotateCcw className="size-3.5" />
-                          </Button>
+                            <MenuGroupLabel>Member actions</MenuGroupLabel>
+                            <MenuItem onClick={() => setEditUser(m)}>Edit access profile</MenuItem>
+                            {(m.status === USER_STATUS.PENDING || m.status === USER_STATUS.INVITED) && (
+                              <MenuItem onClick={() => approve.mutate(m.id)}>
+                                <UserCheck className="size-4" /> Approve member
+                              </MenuItem>
+                            )}
+                            {m.status === USER_STATUS.DISABLED ? (
+                              <MenuItem onClick={() => enable.mutate(m.id)}>Enable member</MenuItem>
+                            ) : m.id !== actor?.id ? (
+                              <MenuItem tone="danger" onClick={() => setConfirmation({ action: "disable", member: m })}>
+                                <UserX className="size-4" /> Disable member
+                              </MenuItem>
+                            ) : null}
+                            <MenuSeparator />
+                            <MenuItem onClick={() => setConfirmation({ action: "reset", member: m })}>
+                              <RotateCcw className="size-4" /> Reset password
+                            </MenuItem>
+                          </Menu>
                         </div>
                       </TableTd>
                     )}
@@ -521,6 +517,48 @@ export function MembersPage() {
       />
     </PageFrame>
   )
+}
+
+function MemberPortfolioSummary({
+  summary,
+  loading,
+}: {
+  summary: { total: number; active: number; pending: number; disabled: number }
+  loading: boolean
+}) {
+  const items = [
+    { label: "Total members", value: summary.total, hint: "All project identities", icon: Users, tone: "text-(--color-accent) bg-(--color-accent-soft)" },
+    { label: "Active members", value: summary.active, hint: "Can sign in and connect", icon: Users, tone: "text-(--color-success) bg-(--color-success)/12" },
+    { label: "Approval queue", value: summary.pending, hint: "Pending or invited", icon: UserCheck, tone: "text-(--color-warning) bg-(--color-warning)/12" },
+    { label: "Disabled", value: summary.disabled, hint: "Sessions and tokens revoked", icon: UserX, tone: "text-(--color-text-subtle) bg-(--bg-key)" },
+  ]
+  return (
+    <section className="mb-4 grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-2 xl:grid-cols-4" aria-label="Member portfolio status">
+      {items.map(({ label, value, hint, icon: Icon, tone }) => (
+        <div key={label} className="flex items-start gap-3 border-b border-(--border-soft) p-4 last:border-b-0 sm:border-r xl:border-b-0">
+          <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}><Icon className="size-4" /></span>
+          <div>
+            <div className="text-xs font-medium text-(--color-text-muted)">{label}</div>
+            <div className="mt-1 text-xl font-semibold tabular-nums">{loading ? "—" : value.toLocaleString()}</div>
+            <p className="mt-0.5 text-[0.68rem] text-(--color-text-subtle)">{hint}</p>
+          </div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function formatLastSeen(value: string) {
+  const time = new Date(value).getTime()
+  const elapsed = Date.now() - time
+  const minutes = Math.max(0, Math.floor(elapsed / 60_000))
+  if (minutes < 1) return "Just now"
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(value).toLocaleDateString()
 }
 
 function TempPasswordBanner({

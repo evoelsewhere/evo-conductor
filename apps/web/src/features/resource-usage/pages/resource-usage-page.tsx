@@ -2,8 +2,6 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
   Activity,
-  Bot,
-  Boxes,
   CircleDollarSign,
   Clock3,
   Gauge,
@@ -22,6 +20,11 @@ import {
 } from "@/features/members/components/usage-formatters"
 import { ResourceUsageActivityTable } from "@/features/resource-usage/components/resource-usage-activity-table"
 import {
+  ResourceAnalyticsStudio,
+  TelemetryReadiness,
+  hasAnalyticsData,
+} from "@/features/resource-usage/components/resource-analytics-studio"
+import {
   ResourceBreakdownTable,
   ResourceMemberBreakdownTable,
   ResourceModelBreakdownTable,
@@ -29,13 +32,8 @@ import {
   ResourceToolBreakdownTable,
 } from "@/features/resource-usage/components/resource-usage-breakdown-tables"
 import {
-  ModelCallsChart,
-  MemberUsageChart,
   RequestOutcomeChart,
-  ResourceShareChart,
-  RoleCallsChart,
   TokenCostChart,
-  ToolCallsChart,
 } from "@/features/resource-usage/components/resource-usage-charts"
 import {
   EMPTY_RESOURCE_USAGE_FILTERS,
@@ -46,6 +44,7 @@ import { formatEstimatedCost } from "@/features/resource-usage/components/resour
 import { ResourceUsageNav } from "@/features/resource-usage/components/resource-usage-nav"
 import {
   api,
+  type AnalyticsQuery,
   type PrimaryRole,
   type ResourceUsageAnalytics,
   type ResourceUsageParams,
@@ -88,8 +87,8 @@ const PAGE_COPY: Record<ResourceUsageView, { title: string; subtitle: string }> 
     subtitle: "Audit who used each resource version, when it ran, and the request outcome.",
   },
   [RESOURCE_USAGE_VIEW.USAGE]: {
-    title: "Resource usage",
-    subtitle: "Analyze adoption, tokens, model and tool calls, estimated cost, and failures.",
+    title: "Analytics Studio",
+    subtitle: "Build and export custom views of adoption, reliability, tokens, cost, models and tools.",
   },
 }
 
@@ -140,7 +139,42 @@ export function ResourceUsagePage({
       ? RESOURCE_USAGE_OVERVIEW_ACTIVITY_LIMIT
       : RESOURCE_USAGE_PAGE_SIZE,
     offset: view === RESOURCE_USAGE_VIEW.ACTIVITY ? offset : 0,
-  }), [dates.range, deferredModel, deferredProvider, deferredToolName, filters, offset, view])
+  }), [dates.range, deferredModel, deferredProvider, deferredToolName, filters, offset, scopeKind, view])
+
+  const analyticsQuery = useMemo<AnalyticsQuery>(() => ({
+    date_range: analyticsDateRange(dates.preset),
+    from: dates.preset === UsageRangePreset.Custom ? dates.range.from ?? null : null,
+    to: dates.preset === UsageRangePreset.Custom ? dates.range.to ?? null : null,
+    member_id: params.member_id ?? null,
+    primary_role: params.primary_role ?? null,
+    resource_kind: params.resource_kind ?? null,
+    resource_id: params.resource_id ?? null,
+    version_id: params.version_id ?? null,
+    status: params.status ?? null,
+    provider: params.provider ?? null,
+    model: params.model ?? null,
+    installation_id: params.installation_id ?? null,
+    relation: params.relation ?? null,
+    tool_name: params.tool_name ?? null,
+  }), [dates.preset, dates.range.from, dates.range.to, params])
+
+  function applyAnalyticsQuery(query: AnalyticsQuery) {
+    applyAnalyticsDateRange(query, dates)
+    setFilters({
+      memberId: query.member_id ?? RESOURCE_USAGE_ALL_FILTER,
+      installationId: query.installation_id ?? RESOURCE_USAGE_ALL_FILTER,
+      primaryRole: query.primary_role ?? RESOURCE_USAGE_ALL_FILTER,
+      resourceKind: scopeKind ?? query.resource_kind ?? RESOURCE_USAGE_ALL_FILTER,
+      resourceId: query.resource_id ?? RESOURCE_USAGE_ALL_FILTER,
+      versionId: query.version_id ?? RESOURCE_USAGE_ALL_FILTER,
+      status: query.status ?? RESOURCE_USAGE_ALL_FILTER,
+      relation: query.relation ?? RESOURCE_USAGE_ALL_FILTER,
+      provider: query.provider ?? "",
+      model: query.model ?? "",
+      toolName: query.tool_name ?? "",
+    })
+    setOffset(0)
+  }
 
   const usage = useQuery({
     queryKey: [RESOURCE_USAGE_QUERY_KEY, params],
@@ -177,7 +211,15 @@ export function ResourceUsagePage({
       {view === RESOURCE_USAGE_VIEW.ACTIVITY && (
         <ActivityPanel data={usage.data} loading={usage.isLoading} offset={offset} onOffsetChange={setOffset} />
       )}
-      {view === RESOURCE_USAGE_VIEW.USAGE && <UsagePanel data={usage.data} loading={usage.isLoading} />}
+      {view === RESOURCE_USAGE_VIEW.USAGE && (
+        <UsagePanel
+          data={usage.data}
+          loading={usage.isLoading}
+          scopeKind={scopeKind}
+          query={analyticsQuery}
+          onApplyQuery={applyAnalyticsQuery}
+        />
+      )}
     </PageFrame>
   )
 }
@@ -191,20 +233,23 @@ function OverviewPanel({ data, loading, activityPath }: { data?: ResourceUsageAn
 
   return (
     <>
-      {loading ? <StatCardGridSkeleton count={6} className="mt-4 lg:grid-cols-3 xl:grid-cols-6" /> : (
-        <StatCardGrid className="mt-4 lg:grid-cols-3 xl:grid-cols-6">
+      {loading ? <StatCardGridSkeleton count={4} className="mt-4 lg:grid-cols-4" /> : (
+        <StatCardGrid className="mt-4 lg:grid-cols-4">
           <StatCard label="Requests" value={(totals?.requests ?? 0).toLocaleString()} hint={`${formatTokens(totals?.average_tokens_per_request ?? 0)} tokens/request`} icon={Gauge} />
-          <StatCard label="Resource uses" value={(totals?.resource_uses ?? 0).toLocaleString()} hint={`${data?.resources.length ?? 0} attributed versions`} icon={Boxes} tone="success" />
-          <StatCard label="Total tokens" value={formatTokens(totals?.total_tokens ?? 0)} hint={`${formatTokens(totals?.tokens_in ?? 0)} in · ${formatTokens(totals?.tokens_out ?? 0)} out`} icon={Activity} tone="accent" />
-          <StatCard label="Model / tool calls" value={`${totals?.model_calls ?? 0} / ${totals?.tool_calls ?? 0}`} hint="model calls / tool calls" icon={Bot} />
+          <StatCard label="Active members" value={(data?.members.length ?? 0).toLocaleString()} hint={`${totals?.installed_members ?? 0} members with an installation`} icon={Users} tone="accent" />
           <StatCard label="Success rate" value={`${successRate}%`} hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked · ${totals?.cancelled ?? 0} cancelled`} icon={Users} tone={successRate >= 90 ? "success" : "warning"} />
           <StatCard label="Estimated cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${formatEstimatedCost(averageCost)} avg · ${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} tone="warning" />
         </StatCardGrid>
       )}
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <RequestOutcomeChart daily={data?.daily ?? []} />
-        <TokenCostChart daily={data?.daily ?? []} />
-      </div>
+      {!loading && <OperationalHealthStrip data={data} />}
+      {!loading && !hasAnalyticsData(data) ? (
+        <TelemetryReadiness data={data} />
+      ) : (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <RequestOutcomeChart daily={data?.daily ?? []} />
+          <TokenCostChart daily={data?.daily ?? []} />
+        </div>
+      )}
       <Card className="mt-4">
         <CardHeader>
           <div><CardTitle>Recent attributed activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Server-received request metadata. Open any row for its privacy-safe event timeline.</p></div>
@@ -215,6 +260,43 @@ function OverviewPanel({ data, loading, activityPath }: { data?: ResourceUsageAn
         </CardContent>
       </Card>
     </>
+  )
+}
+
+function OperationalHealthStrip({ data }: { data?: ResourceUsageAnalytics }) {
+  const totals = data?.totals
+  const items = [
+    {
+      label: "Resource uses",
+      value: (totals?.resource_uses ?? 0).toLocaleString(),
+      hint: `${data?.resources.length ?? 0} immutable versions`,
+    },
+    {
+      label: "Total tokens",
+      value: formatTokens(totals?.total_tokens ?? 0),
+      hint: `${formatTokens(totals?.tokens_in ?? 0)} in · ${formatTokens(totals?.tokens_out ?? 0)} out`,
+    },
+    {
+      label: "Model / tool calls",
+      value: `${totals?.model_calls ?? 0} / ${totals?.tool_calls ?? 0}`,
+      hint: "model calls / tool calls",
+    },
+    {
+      label: "Average duration",
+      value: formatDuration(totals?.average_duration_ms ?? 0),
+      hint: "terminal request duration",
+    },
+  ]
+  return (
+    <div className="mt-3 grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-(--border-soft)">
+      {items.map((item) => (
+        <div key={item.label} className="border-b border-(--border-soft) px-4 py-3 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 lg:border-b-0">
+          <div className="text-[0.68rem] font-medium text-(--color-text-muted)">{item.label}</div>
+          <div className="mt-1 text-lg font-semibold tabular-nums">{item.value}</div>
+          <div className="mt-0.5 text-[0.68rem] text-(--color-text-subtle)">{item.hint}</div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -260,27 +342,31 @@ function ActivityPanel({
   )
 }
 
-function UsagePanel({ data, loading }: { data?: ResourceUsageAnalytics; loading: boolean }) {
-  const totals = data?.totals
+function UsagePanel({
+  data,
+  loading,
+  scopeKind,
+  query,
+  onApplyQuery,
+}: {
+  data?: ResourceUsageAnalytics
+  loading: boolean
+  scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
+  query: AnalyticsQuery
+  onApplyQuery: (query: AnalyticsQuery) => void
+}) {
+  const scopeLabel = scopeKind ? `${RESOURCE_KIND_LABEL[scopeKind]}s` : "Resources"
   return (
     <>
-      {loading ? <StatCardGridSkeleton count={6} className="mt-4 lg:grid-cols-3 xl:grid-cols-6" /> : (
-        <StatCardGrid className="mt-4 lg:grid-cols-3 xl:grid-cols-6">
-          <StatCard label="Input tokens" value={formatTokens(totals?.tokens_in ?? 0)} hint="model input" icon={Activity} />
-          <StatCard label="Output tokens" value={formatTokens(totals?.tokens_out ?? 0)} hint="model output" icon={Activity} tone="accent" />
-          <StatCard label="Cache read" value={formatTokens(totals?.cache_read_tokens ?? 0)} hint="reused context" icon={Gauge} />
-          <StatCard label="Reasoning" value={formatTokens(totals?.reasoning_tokens ?? 0)} hint="reported reasoning tokens" icon={Bot} />
-          <StatCard label="Tool-use tokens" value={formatTokens(totals?.tool_use_tokens ?? 0)} hint={`${totals?.tool_calls ?? 0} tool calls`} icon={Wrench} tone="success" />
-          <StatCard label="Estimated cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${totals?.unpriced_model_calls ?? 0} unpriced model calls`} icon={CircleDollarSign} tone="warning" />
-        </StatCardGrid>
-      )}
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <ResourceShareChart resources={data?.resources ?? []} />
-        <MemberUsageChart members={data?.members ?? []} />
-        <RoleCallsChart roles={data?.roles ?? []} />
-        <ToolCallsChart tools={data?.tools ?? []} />
-        <ModelCallsChart models={data?.models ?? []} />
-      </div>
+      <ResourceAnalyticsStudio
+        data={data}
+        loading={loading}
+        scopeLabel={scopeLabel}
+        storageKey={`conductor.resource-analytics.${scopeKind ?? "all"}.v1`}
+        scope={scopeKind ? { resourceKind: scopeKind } : undefined}
+        query={query}
+        onApplyQuery={onApplyQuery}
+      />
       <BreakdownCard title="Resource and version usage" description="Adoption, request outcomes, calls, token volume and cost by immutable resource version.">
         {data?.resources.length ? <ResourceBreakdownTable items={data.resources} /> : <ResourceUsageEmpty title="No resource usage" description="Resource-version breakdown appears after attributed telemetry arrives." />}
       </BreakdownCard>
@@ -349,9 +435,48 @@ function scopedPageCopy(
     return { title: `${name} activity`, subtitle: `Audit who used each ${kind} version, when it ran, and the request outcome.` }
   }
   if (view === RESOURCE_USAGE_VIEW.USAGE) {
-    return { title: `${name} usage`, subtitle: `Analyze ${kind} adoption, calls, tokens, cost, roles, and failure patterns.` }
+    return { title: `${name} Analytics Studio`, subtitle: `Build and export custom ${kind} adoption, reliability, cost, model and tool views.` }
   }
   return { title: `${name} monitoring`, subtitle: `Monitor governed ${kind} adoption and usage across this project.` }
+}
+
+function analyticsDateRange(preset: UsageRangePreset): AnalyticsQuery["date_range"] {
+  if (preset === UsageRangePreset.Day) return "last_24_hours"
+  if (preset === UsageRangePreset.Week) return "last_7_days"
+  if (preset === UsageRangePreset.Custom) return "custom"
+  return "last_30_days"
+}
+
+function applyAnalyticsDateRange(
+  query: AnalyticsQuery,
+  dates: ReturnType<typeof useUsageRange>,
+) {
+  if (query.date_range === "last_24_hours") {
+    dates.setPreset(UsageRangePreset.Day)
+    return
+  }
+  if (query.date_range === "last_7_days") {
+    dates.setPreset(UsageRangePreset.Week)
+    return
+  }
+  if (query.date_range === "last_30_days") {
+    dates.setPreset(UsageRangePreset.Month)
+    return
+  }
+  dates.setPreset(UsageRangePreset.Custom)
+  const from = query.date_range === "last_90_days"
+    ? dateInputDaysAgo(90)
+    : query.from?.slice(0, 10)
+  const to = query.date_range === "last_90_days"
+    ? dateInputDaysAgo(0)
+    : query.to?.slice(0, 10)
+  if (from) dates.setCustomFrom(from)
+  if (to) dates.setCustomTo(to)
+}
+
+function dateInputDaysAgo(days: number) {
+  const value = new Date(Date.now() - days * 86_400_000)
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
 }
 
 function readRangeFromUrl() {

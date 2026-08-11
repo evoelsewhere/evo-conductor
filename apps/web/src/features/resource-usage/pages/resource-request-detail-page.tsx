@@ -133,7 +133,7 @@ export function ResourceRequestDetailPage() {
                 <CardHeader><div><CardTitle>Governed resources</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">{resources.length} immutable resource attribution{resources.length === 1 ? "" : "s"} in this request.</p></div></CardHeader>
                 <CardContent className="space-y-2">
                   {resources.map((resource) => (
-                    <Link key={`${resource.resource_id}:${resource.version_id}:${resource.relation}`} to="/app/resources/$kind/$resourceId/edit" params={{ kind: resource.kind, resourceId: resource.resource_id }} className="flex items-center justify-between gap-3 rounded-lg border border-(--border-soft) bg-(--bg-key)/25 p-3 hover:border-(--color-accent)/50">
+                    <Link key={`${resource.resource_id}:${resource.version_id}:${resource.relation}`} to="/app/resources/$kind/$resourceId" params={{ kind: resource.kind, resourceId: resource.resource_id }} className="flex items-center justify-between gap-3 rounded-lg border border-(--border-soft) bg-(--bg-key)/25 p-3 hover:border-(--color-accent)/50">
                       <div className="min-w-0"><div className="truncate text-sm font-medium">{resource.name}</div><div className="mt-0.5 text-xs text-(--color-text-subtle)">{RESOURCE_KIND_LABEL[resource.kind]} · v{resource.version} · {formatRelation(resource.relation)}</div></div><ExternalLink className="size-3.5 shrink-0 text-(--color-text-subtle)" />
                     </Link>
                   ))}

@@ -9,9 +9,13 @@ export function ResourceUsageNav({ kind }: { kind?: Extract<ResourceKind, "plugi
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const paths = kind ? RESOURCE_KIND_USAGE_PATHS[kind] : RESOURCE_USAGE_PATHS
   const items = [
-    { view: RESOURCE_USAGE_VIEW.OVERVIEW, label: "Overview", to: paths.overview },
-    { view: RESOURCE_USAGE_VIEW.ACTIVITY, label: "Activity", to: paths.activity },
-    { view: RESOURCE_USAGE_VIEW.USAGE, label: "Usage", to: paths.usage },
+    {
+      view: RESOURCE_USAGE_VIEW.OVERVIEW,
+      label: kind ? "Catalog" : "Monitor",
+      to: paths.overview,
+    },
+    { view: RESOURCE_USAGE_VIEW.ACTIVITY, label: "Activity log", to: paths.activity },
+    { view: RESOURCE_USAGE_VIEW.USAGE, label: "Analytics Studio", to: paths.usage },
   ] as const
 
   return (
