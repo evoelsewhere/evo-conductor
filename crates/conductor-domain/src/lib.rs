@@ -15,6 +15,7 @@ pub mod client_installation;
 pub mod core;
 pub mod instance;
 pub mod resource;
+pub mod resource_semver;
 pub mod role;
 pub mod secret;
 pub mod telemetry;
@@ -32,13 +33,18 @@ pub use instance::{
     UpdateNetworkRequest, UpdateSsoRequest,
 };
 pub use resource::{
-    CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary, ManagedResource,
-    ResourceAccessPolicy, ResourceCounts, ResourceDailyUsage, ResourceFeedback, ResourceKind,
+    CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary, DiagnosticSeverity,
+    DraftFile, DraftFileTree, EffectiveResourceVersion, ManagedResource, ReleaseChannel,
+    ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy, ResourceChange,
+    ResourceChangePage, ResourceCounts, ResourceDailyUsage, ResourceDiagnostic, ResourceFeedback,
+    ResourceInventoryItem, ResourceInventoryRequest, ResourceInventoryResponse, ResourceKind,
     ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary, ResourceStatus,
     ResourceUsageBatchRequest, ResourceUsageBatchResponse, ResourceUsageEventRequest,
-    ResourceUsageRejection, ResourceVersion, ResourceVersionStatus, ResourceVisibility,
-    UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    ResourceUsageRejection, ResourceValidation, ResourceVersion, ResourceVersionStatus,
+    ResourceVisibility, SaveDraftFileRequest, UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    VersionMode,
 };
+pub use resource_semver::{SemanticVersion, SemanticVersionError};
 pub use role::{
     CreateSubRoleRequest, CreateTagRequest, PrimaryRole, SubRole, Tag, UpdateSubRoleRequest,
     UpdateTagRequest,
