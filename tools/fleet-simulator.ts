@@ -88,21 +88,26 @@ type ResourceFixture = {
   sha256?: string;
 };
 
-type ResourceChange = {
+type ResourceFetchEntry = {
   resource_id: string;
-  version_id: string | null;
+  version_id: string;
   kind: ResourceKind;
   slug: string;
-  version: string | null;
-  sha256: string | null;
-  artifact_sha256?: string | null;
-  tombstone: boolean;
+  version: string;
+  bundle: {
+    artifact_sha256: string;
+    artifact_size: number;
+    artifact_media_type: string;
+    tree_sha256: string;
+  };
 };
 
-type ResourceChangePage = {
-  next_cursor: string;
-  has_more: boolean;
-  changes: ResourceChange[];
+type ResourceFetchPlan = {
+  commit: { id: string; tree_sha256: string; sequence: number };
+  up_to_date: boolean;
+  entries: ResourceFetchEntry[];
+  tombstones: { resource_id: string }[];
+  objects: { artifact_sha256: string; href: string }[];
 };
 
 type RequestMetric = {
@@ -119,8 +124,8 @@ type Counters = {
   secretsCreated: number;
   secretsReused: number;
   installationsRegistered: number;
-  changePagesPulled: number;
-  versionPayloadsPulled: number;
+  fetchPlansPulled: number;
+  fetchUpToDateConfirmed: number;
   artifactsPulled: number;
   inventoryAccepted: number;
   usageAccepted: number;
@@ -502,36 +507,28 @@ async function registerInstallation(client: HttpClient, config: FleetConfig, mem
   return registered.installation.id;
 }
 
-async function pullChanges(client: HttpClient, token: string): Promise<ResourceChange[]> {
-  const changes: ResourceChange[] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    const query = new URLSearchParams({ limit: "500" });
-    if (cursor) query.set("cursor", cursor);
-    const page = await client.request<ResourceChangePage>("GET", `/v1/resources/changes?${query}`, undefined, { token });
-    changes.push(...page.changes.filter((change) => !change.tombstone && change.version_id));
-    if (!page.has_more) break;
-    cursor = page.next_cursor;
-  }
-  return changes;
+async function smartFetch(client: HttpClient, token: string, installationId: string, haveCommit: string | null, have: { resource_id: string; version_id: string; artifact_sha256: string }[]): Promise<ResourceFetchPlan> {
+  return client.request<ResourceFetchPlan>("POST", "/v1/resources/fetch", {
+    installation_id: installationId,
+    have_commit: haveCommit,
+    have,
+  }, { token });
 }
 
-async function pullResourcePayloads(client: HttpClient, token: string, fixtures: ResourceFixture[], changes: ResourceChange[], counters: Counters): Promise<ResourceFixture[]> {
+async function pullResourceObjects(client: HttpClient, token: string, fixtures: ResourceFixture[], plan: ResourceFetchPlan, counters: Counters): Promise<ResourceFixture[]> {
   const relevant = fixtures.map((fixture) => {
-    const change = changes.find((candidate) => candidate.resource_id === fixture.id && candidate.version_id);
-    if (!change) throw new Error(`resource ${fixture.slug} missing from member change feed`);
-    return { ...fixture, versionId: change.version_id!, version: change.version!, sha256: change.artifact_sha256 ?? change.sha256 ?? undefined };
+    const entry = plan.entries.find((candidate) => candidate.resource_id === fixture.id);
+    if (!entry) throw new Error(`resource ${fixture.slug} missing from smart fetch tree`);
+    return { ...fixture, versionId: entry.version_id, version: entry.version, sha256: entry.bundle.artifact_sha256 };
   });
   for (const resource of relevant) {
-    await client.request<JsonObject>("GET", `/v1/resources/${resource.id}/versions/${resource.versionId}`, undefined, { token });
-    counters.versionPayloadsPulled += 1;
-    if (resource.kind === "plugin") {
-      const bytes = await client.request<Uint8Array>("GET", `/v1/resources/${resource.id}/versions/${resource.versionId}/artifact`, undefined, { token, binary: true });
-      counters.artifactsPulled += 1;
-      if (resource.sha256) {
-        const actual = createHash("sha256").update(bytes).digest("hex");
-        if (actual !== resource.sha256) throw new Error(`plugin artifact digest mismatch for ${resource.slug}`);
-      }
+    const object = plan.objects.find((candidate) => candidate.artifact_sha256 === resource.sha256);
+    if (!object) throw new Error(`artifact ${resource.sha256} missing from fetch object plan`);
+    const bytes = await client.request<Uint8Array>("GET", object.href, undefined, { token, binary: true });
+    counters.artifactsPulled += 1;
+    if (resource.sha256) {
+      const actual = createHash("sha256").update(bytes).digest("hex");
+      if (actual !== resource.sha256) throw new Error(`artifact digest mismatch for ${resource.slug}`);
     }
   }
   return relevant;
@@ -682,7 +679,7 @@ async function inChunks<T>(items: T[], size: number, operation: (item: T) => Pro
 function emptyCounters(): Counters {
   return {
     membersFound: 0, membersCreated: 0, membersActivated: 0, secretsCreated: 0, secretsReused: 0,
-    installationsRegistered: 0, changePagesPulled: 0, versionPayloadsPulled: 0, artifactsPulled: 0,
+    installationsRegistered: 0, fetchPlansPulled: 0, fetchUpToDateConfirmed: 0, artifactsPulled: 0,
     inventoryAccepted: 0, usageAccepted: 0, usageDuplicates: 0, usageRejected: 0,
     telemetryAccepted: 0, telemetryDuplicates: 0, telemetryRejectedRequests: 0,
     expectedNegativeTests: 0, unexpectedErrors: 0,
@@ -748,9 +745,19 @@ async function run(config: FleetConfig): Promise<JsonObject> {
       memberState.installationId = installationId;
       state.members[email] = memberState;
       counters.installationsRegistered += 1;
-      const changes = await pullChanges(client, token);
-      counters.changePagesPulled += 1;
-      const resources = await pullResourcePayloads(client, token, fixtures, changes, counters);
+      const plan = await smartFetch(client, token, installationId, null, []);
+      counters.fetchPlansPulled += 1;
+      const resources = await pullResourceObjects(client, token, fixtures, plan, counters);
+      const repeated = await smartFetch(client, token, installationId, plan.commit.id, plan.entries.map((entry) => ({
+        resource_id: entry.resource_id,
+        version_id: entry.version_id,
+        artifact_sha256: entry.bundle.artifact_sha256,
+      })));
+      counters.fetchPlansPulled += 1;
+      if (!repeated.up_to_date || repeated.entries.length > 0 || repeated.objects.length > 0) {
+        throw new Error("smart fetch did not confirm an unchanged checkout");
+      }
+      counters.fetchUpToDateConfirmed += 1;
       counters.inventoryAccepted += await reportInventory(client, config, token, installationId, member.id, resources, index);
       await reportLegacyUsage(client, config, token, member.id, index, resources, counters);
       await reportTelemetry(client, config, token, installationId, member.id, index, resources, counters);
@@ -769,6 +776,7 @@ async function run(config: FleetConfig): Promise<JsonObject> {
   const invariants: Invariant[] = [
     { name: "fleet members exist", passed: memberList.total >= config.memberCount + 1, actual: memberList.total, expected: `>= ${config.memberCount + 1}` },
     { name: "all installations registered", passed: counters.installationsRegistered === config.memberCount, actual: counters.installationsRegistered, expected: `${config.memberCount}` },
+    { name: "all smart fetch checkouts confirmed", passed: counters.fetchUpToDateConfirmed === config.memberCount, actual: counters.fetchUpToDateConfirmed, expected: `${config.memberCount}` },
     // Inventory is an upsert. On an idempotent rerun the API may report only
     // changed rows, so the authoritative invariant is the analytics snapshot.
     { name: "all resources inventoried", passed: (analytics.totals.reported_installations ?? 0) >= config.memberCount * fixtures.length, actual: analytics.totals.reported_installations, expected: `>= ${config.memberCount * fixtures.length}` },

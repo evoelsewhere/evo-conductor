@@ -10,8 +10,8 @@ The simulator covers the full control/data path:
 2. create or reuse published Agent, Skill and Plugin fixtures;
 3. create/reuse members, activate them, and issue scoped connection secrets;
 4. idempotently register installations and heartbeat them;
-5. pull the resource change feed, version payloads and Plugin artifacts;
-6. verify Plugin SHA-256 and report current inventory;
+5. negotiate a Git-style smart fetch plan with the client's current commit and object `have` set;
+6. download only missing Agent, Skill and Plugin artifacts, verify SHA-256, confirm the new commit is up to date and report current inventory;
 7. emit privacy-safe request/model/tool telemetry attributed to immutable Agent,
    Skill and Plugin versions;
 8. replay batches to prove duplicate handling and submit sampled invalid batches
@@ -112,7 +112,7 @@ three request triplets per member. It completed in **463.56 seconds** with all
 | Signal | Result |
 |---|---:|
 | Fresh members / installations | 1,000 / 1,000 |
-| Version payloads / Plugin artifacts verified | 3,000 / 1,000 |
+| Legacy version payloads / artifacts verified | 3,000 / 1,000 |
 | Telemetry accepted / duplicate replay | 9,000 / 9,000 |
 | Expected invalid telemetry rejected | 20 / 20 |
 | Member flows / telemetry events per second | 2.16 / 19.41 |
