@@ -104,7 +104,7 @@ For all three bundle kinds, EvoFlux verifies `artifact_sha256` before extraction
 
 ## Change-feed descriptor
 
-`GET /api/v1/resources/changes` keeps legacy `sha256` and `size` fields and additively emits these optional fields for v2 releases:
+New clients negotiate the desired tree through `POST /api/v1/resources/fetch`; see [resource-fetch-protocol.md](resource-fetch-protocol.md). `GET /api/v1/resources/changes` remains a compatibility feed and keeps legacy `sha256` and `size` fields while additively emitting these optional fields for v2 releases:
 
 ```json
 {
@@ -134,4 +134,4 @@ The following work remains before claiming full binary bundle support:
 
 1. Preserve ZIP Unix mode bits and binary file bytes. The current editor/import path accepts UTF-8 text only, so Conductor truthfully emits `executable: false` for every file.
 2. Validate all SHA-256 fields and media-type grammar at the domain boundary instead of relying only on Conductor-generated values.
-3. Add EvoFlux staging, verification, atomic activation, rollback and inventory reporting. This repository intentionally does not modify EvoFlux yet.
+3. Implement the EvoFlux side of the [smart-fetch checkout protocol](resource-fetch-protocol.md): staging, verification, atomic activation, rollback and inventory reporting. This repository intentionally does not modify EvoFlux yet.

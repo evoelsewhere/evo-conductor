@@ -48,15 +48,15 @@
 
 ## EvoFlux realtime control plane
 
-- Transport: authenticated SSE at `/api/v1/realtime/events`; REST remains the authoritative reconnect fallback
+- Transport: authenticated SSE at `/api/v1/realtime/events` is an invalidation channel; authenticated smart HTTP at `POST /api/v1/resources/fetch` is the authoritative data plane
 - Fan-out: one bounded Tokio broadcast ring per Conductor process, not one polling task per client
-- Backpressure: a lagging receiver is resynchronized with a fresh owner-filtered snapshot
+- Backpressure: a lagging receiver is instructed to smart-fetch the current member-specific commit; no file payload is buffered in SSE
 - Lifecycle: heartbeat, token-expiry close, secret-revocation close, member-disable close, and server-drain signal
 - Admission control: configurable global and per-secret semaphores; overload returns `503` or `429` with `Retry-After`
 - Presence: the dashboard derives online members from active realtime owners in the local process
 - Horizontal scale boundary: the current hub is single-process. Multiple replicas require a shared broker plus transactional outbox; PostgreSQL and NATS JetStream are the recommended production path
 
-The complete client contract and scale-out design are in [evoflux-integration.md](evoflux-integration.md).
+The complete client contract and scale-out design are in [evoflux-integration.md](evoflux-integration.md). Git-style object negotiation and atomic checkout are normative in [resource-fetch-protocol.md](resource-fetch-protocol.md).
 
 ## Governed resource catalog
 
@@ -65,7 +65,7 @@ The complete client contract and scale-out design are in [evoflux-integration.md
 - `resource_access_rules` stores allow subjects resolved from primary role, sub-role, tag or member
 - `resource_usage_events` is an idempotent operational event log keyed by EvoFlux event ID
 - `resource_feedback` stores one current response per resource/member
-- Publishing commits storage first, then emits delete/upsert realtime deltas so clients converge without database polling
+- Publishing commits storage first, then emits a realtime head invalidation; clients converge by negotiating the authoritative desired commit
 - Usage identity is derived from the reporting connection secret; monitoring never trusts a client-provided member ID
 
 Product behavior and permission decisions are documented in [resource-catalog-product.md](resource-catalog-product.md).

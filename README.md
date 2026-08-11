@@ -89,9 +89,9 @@ Local and temporary passwords must be at least 12 characters. Password resets, p
 
 ## EvoFlux realtime integration
 
-Conductor exposes a server-sent events control plane at `GET /api/v1/realtime/events` and keeps `GET /api/v1/subscribe/resources` as the snapshot/fallback endpoint. Both use an `evc_…` bearer secret with the `subscribe_resources` scope. The realtime stream sends an authoritative initial snapshot, ordered resource deltas, heartbeats, lag-recovery snapshots, and immediate access-revocation notices.
+Conductor exposes a server-sent events invalidation plane at `GET /api/v1/realtime/events` and a Git-style smart-fetch data plane at `POST /api/v1/resources/fetch`. Both use an `evc_…` bearer secret with the `subscribe_resources` scope. EvoFlux negotiates its member-specific desired commit, downloads only missing immutable objects, verifies a complete staged tree, then switches generations atomically. The legacy full-snapshot endpoint remains temporarily for compatibility.
 
-See [docs/evoflux-integration.md](docs/evoflux-integration.md) for the protocol contract, reconnect state machine, capacity controls, reverse-proxy requirements, and the future EvoFlux implementation checklist.
+See [docs/resource-fetch-protocol.md](docs/resource-fetch-protocol.md) for the normative object/checkout contract and [docs/evoflux-integration.md](docs/evoflux-integration.md) for realtime, capacity, reverse-proxy and rollout details.
 
 The governed catalog supports draft/publish/archive lifecycle, version history, role/team/member access policies, idempotent member usage tracking, effectiveness charts and feedback. See [docs/resource-catalog-product.md](docs/resource-catalog-product.md) for the product model and permission matrix.
 
