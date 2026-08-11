@@ -9,10 +9,12 @@ use axum::Json;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use conductor_domain::{
-    ConductorError, DraftFileTree, EffectiveResourceVersion, PrimaryRole, ReleaseResourceRequest,
-    ReleaseResourceResult, ResourceChange, ResourceChangePage, ResourceInventoryRequest,
-    ResourceInventoryResponse, ResourceKind, ResourceValidation, SaveDraftFileRequest, SecretScope,
-    SemanticVersion, VersionMode,
+    ConductorError, CreateDraftFileRequest, CreateResourceRequest, DeleteDraftEntryRequest,
+    DraftFile, DraftFileTree, EffectiveResourceVersion, ManagedResource, MoveDraftEntryRequest,
+    PrimaryRole, ReleaseResourceRequest, ReleaseResourceResult, ResourceChange, ResourceChangePage,
+    ResourceInventoryRequest, ResourceInventoryResponse, ResourceKind, ResourceTargetMode,
+    ResourceValidation, ResourceVisibility, SaveDraftFileRequest, SecretScope, SemanticVersion,
+    VersionMode,
 };
 use conductor_storage::repos::{DraftWriteError, ReleaseContent, ReleaseResourceError};
 use hmac::{Hmac, Mac};
@@ -22,8 +24,8 @@ use uuid::Uuid;
 
 use crate::core::error::{ApiError, ApiResult};
 use crate::core::resource_authoring::{
-    import_zip, safe_relative_path, starter_files, validate_draft, versioned_plugin_files,
-    MAX_EDITABLE_FILE_BYTES,
+    archive_source_metadata, import_zip, safe_relative_path, set_target_modes, starter_files,
+    validate_draft, versioned_plugin_files, MAX_EDITABLE_FILE_BYTES,
 };
 use crate::core::state::AppState;
 use crate::http::extractors::{authenticate_connection_secret, AuthUser};
@@ -31,6 +33,9 @@ use crate::http::extractors::{authenticate_connection_secret, AuthUser};
 const CHANGE_SCHEMA_VERSION: u8 = 2;
 const DEFAULT_CHANGE_LIMIT: u32 = 100;
 const MAX_CHANGE_LIMIT: u32 = 500;
+const PLUGIN_IMPORT_CHANGELOG: &str = "Imported plugin package";
+const AGENT_IMPORT_CHANGELOG: &str = "Imported EvoFlux Agent package";
+const SKILL_IMPORT_CHANGELOG: &str = "Imported EvoFlux Skill bundle";
 
 #[derive(Debug, Serialize)]
 pub struct ResourceGuide {
@@ -138,6 +143,208 @@ pub async fn save_draft_file(
     }
 }
 
+pub async fn create_draft_file(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path(resource_id): Path<Uuid>,
+    Json(mut request): Json<CreateDraftFileRequest>,
+) -> ApiResult<Json<DraftFileTree>> {
+    authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    request.path = request.path.trim().trim_matches('/').to_string();
+    validate_editable_path(&request.path)?;
+    if request.content.len() > MAX_EDITABLE_FILE_BYTES {
+        return Err(ConductorError::msg("editable files are limited to 1 MiB").into());
+    }
+    let tree = current_draft(&state, resource_id).await?;
+    if tree.revision != request.draft_revision {
+        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+    }
+    if tree.files.len() >= crate::core::resource_authoring::MAX_DRAFT_FILES {
+        return Err(ConductorError::msg("draft file limit reached").into());
+    }
+    if tree
+        .files
+        .iter()
+        .any(|file| paths_overlap(&file.path, &request.path))
+    {
+        return Err(ConductorError::Conflict("draft_path_already_exists".into()).into());
+    }
+    replace_draft_files(
+        &state,
+        resource_id,
+        tree.files
+            .into_iter()
+            .chain(std::iter::once(DraftFile {
+                path: request.path,
+                content: request.content,
+            }))
+            .collect(),
+        request.draft_revision,
+    )
+    .await
+}
+
+pub async fn move_draft_entry(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path(resource_id): Path<Uuid>,
+    Json(mut request): Json<MoveDraftEntryRequest>,
+) -> ApiResult<Json<DraftFileTree>> {
+    let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    request.path = request.path.trim().trim_matches('/').to_string();
+    request.destination_path = request
+        .destination_path
+        .trim()
+        .trim_matches('/')
+        .to_string();
+    validate_editable_path(&request.path)?;
+    validate_editable_path(&request.destination_path)?;
+    if request.path == request.destination_path {
+        return Err(ConductorError::msg("destination path must be different").into());
+    }
+    if request
+        .destination_path
+        .starts_with(&format!("{}/", request.path))
+    {
+        return Err(ConductorError::msg("an entry cannot be moved inside itself").into());
+    }
+    protect_required_entry(&resource, &request.path)?;
+    let tree = current_draft(&state, resource_id).await?;
+    if tree.revision != request.draft_revision {
+        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+    }
+    let source_prefix = format!("{}/", request.path);
+    let destination_prefix = format!("{}/", request.destination_path);
+    let found = tree
+        .files
+        .iter()
+        .any(|file| file.path == request.path || file.path.starts_with(&source_prefix));
+    if !found {
+        return Err(ConductorError::NotFound("draft entry".into()).into());
+    }
+    let files: Vec<_> = tree
+        .files
+        .into_iter()
+        .map(|mut file| {
+            if file.path == request.path {
+                file.path.clone_from(&request.destination_path);
+            } else if let Some(suffix) = file.path.strip_prefix(&source_prefix) {
+                file.path = format!("{destination_prefix}{suffix}");
+            }
+            file
+        })
+        .collect();
+    ensure_unique_draft_paths(&files)?;
+    replace_draft_files(&state, resource_id, files, request.draft_revision).await
+}
+
+pub async fn delete_draft_entry(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path(resource_id): Path<Uuid>,
+    Json(mut request): Json<DeleteDraftEntryRequest>,
+) -> ApiResult<Json<DraftFileTree>> {
+    let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    request.path = request.path.trim().trim_matches('/').to_string();
+    validate_editable_path(&request.path)?;
+    protect_required_entry(&resource, &request.path)?;
+    let tree = current_draft(&state, resource_id).await?;
+    if tree.revision != request.draft_revision {
+        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+    }
+    let source_prefix = format!("{}/", request.path);
+    let previous_count = tree.files.len();
+    let files: Vec<_> = tree
+        .files
+        .into_iter()
+        .filter(|file| file.path != request.path && !file.path.starts_with(&source_prefix))
+        .collect();
+    if files.len() == previous_count {
+        return Err(ConductorError::NotFound("draft entry".into()).into());
+    }
+    replace_draft_files(&state, resource_id, files, request.draft_revision).await
+}
+
+async fn current_draft(state: &AppState, resource_id: Uuid) -> ApiResult<DraftFileTree> {
+    state
+        .db
+        .resources()
+        .draft_tree(resource_id)
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("resource".into()).into())
+}
+
+async fn replace_draft_files(
+    state: &AppState,
+    resource_id: Uuid,
+    mut files: Vec<DraftFile>,
+    draft_revision: u64,
+) -> ApiResult<Json<DraftFileTree>> {
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    match state
+        .db
+        .resources()
+        .replace_draft_files(resource_id, &files, draft_revision)
+        .await
+    {
+        Ok(tree) => Ok(Json(tree)),
+        Err(DraftWriteError::NotFound) => Err(ConductorError::NotFound("resource".into()).into()),
+        Err(DraftWriteError::Conflict) => {
+            Err(ConductorError::Conflict("draft_revision_conflict".into()).into())
+        }
+        Err(DraftWriteError::Database(error)) => Err(ApiError::from(error)),
+    }
+}
+
+fn validate_editable_path(path: &str) -> ApiResult<()> {
+    if !safe_relative_path(path) {
+        return Err(ConductorError::msg("unsafe draft path").into());
+    }
+    Ok(())
+}
+
+fn protect_required_entry(resource: &ManagedResource, path: &str) -> ApiResult<()> {
+    let required = match resource.kind {
+        ResourceKind::Plugin => "plugin.json".to_string(),
+        ResourceKind::Skill => "SKILL.md".to_string(),
+        ResourceKind::Agent => format!("{}.md", resource.slug),
+        ResourceKind::Workflow | ResourceKind::Command => format!("{}.json", resource.slug),
+    };
+    if required == path || required.starts_with(&format!("{path}/")) {
+        return Err(ConductorError::msg(format!(
+            "{required} is required and cannot be moved or deleted"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn ensure_unique_draft_paths(files: &[DraftFile]) -> ApiResult<()> {
+    let paths: Vec<_> = files.iter().map(|file| file.path.to_lowercase()).collect();
+    let mut unique = HashSet::new();
+    if paths.iter().any(|path| !unique.insert(path))
+        || paths.iter().enumerate().any(|(index, path)| {
+            paths
+                .iter()
+                .skip(index + 1)
+                .any(|other| paths_overlap(path, other))
+        })
+    {
+        return Err(ConductorError::Conflict("draft_path_already_exists".into()).into());
+    }
+    Ok(())
+}
+
+fn paths_overlap(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+        || left
+            .to_lowercase()
+            .starts_with(&format!("{}/", right.to_lowercase()))
+        || right
+            .to_lowercase()
+            .starts_with(&format!("{}/", left.to_lowercase()))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ImportQuery {
     draft_revision: u64,
@@ -147,6 +354,284 @@ pub struct ImportQuery {
 pub struct DraftImportResponse {
     tree: DraftFileTree,
     validation: ResourceValidation,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginArchiveManifest {
+    name: Option<String>,
+    version: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PluginArchiveInspection {
+    manifest: PluginArchiveManifest,
+    validation: ResourceValidation,
+    file_count: usize,
+    total_uncompressed_bytes: u64,
+    skill_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreatePluginArchiveQuery {
+    name: String,
+    visibility: ResourceVisibility,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PluginArchiveCreateResponse {
+    resource: ManagedResource,
+    validation: ResourceValidation,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceArchiveMetadata {
+    slug: Option<String>,
+    version: Option<String>,
+    description: Option<String>,
+    primary_source: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResourceArchiveInspection {
+    kind: ResourceKind,
+    metadata: ResourceArchiveMetadata,
+    validation: ResourceValidation,
+    file_count: usize,
+    total_uncompressed_bytes: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateResourceArchiveQuery {
+    slug: String,
+    name: String,
+    visibility: ResourceVisibility,
+    modes: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResourceArchiveCreateResponse {
+    resource: ManagedResource,
+    validation: ResourceValidation,
+}
+
+pub async fn inspect_resource_archive(
+    AuthUser(actor): AuthUser,
+    Path(kind): Path<String>,
+    body: Bytes,
+) -> ApiResult<Json<ResourceArchiveInspection>> {
+    require_author(actor.primary_role)?;
+    let kind = parse_import_kind(&kind)?;
+    let files = extract_resource_archive(body).await?;
+    Ok(Json(inspect_resource_files(kind, &files, None)))
+}
+
+fn parse_archive_modes(value: Option<&str>) -> ApiResult<Vec<ResourceTargetMode>> {
+    let Some(value) = value else {
+        return Ok(ResourceTargetMode::ALL.to_vec());
+    };
+    let mut selected = Vec::new();
+    for raw in value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let mode = ResourceTargetMode::parse(raw)
+            .ok_or_else(|| ConductorError::msg("modes may contain only work and coding"))?;
+        if !selected.contains(&mode) {
+            selected.push(mode);
+        }
+    }
+    if selected.is_empty() {
+        return Err(ConductorError::msg("select at least one resource mode").into());
+    }
+    Ok(ResourceTargetMode::ALL
+        .into_iter()
+        .filter(|mode| selected.contains(mode))
+        .collect())
+}
+
+pub async fn create_resource_archive(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path(kind): Path<String>,
+    Query(query): Query<CreateResourceArchiveQuery>,
+    body: Bytes,
+) -> ApiResult<Json<ResourceArchiveCreateResponse>> {
+    require_author(actor.primary_role)?;
+    let kind = parse_import_kind(&kind)?;
+    let mut files = extract_resource_archive(body).await?;
+    set_target_modes(&mut files, &parse_archive_modes(query.modes.as_deref())?);
+    let inspection = inspect_resource_files(kind, &files, Some(query.slug.trim()));
+    let changelog = match kind {
+        ResourceKind::Agent => AGENT_IMPORT_CHANGELOG,
+        ResourceKind::Skill => SKILL_IMPORT_CHANGELOG,
+        ResourceKind::Plugin | ResourceKind::Workflow | ResourceKind::Command => {
+            return Err(
+                ConductorError::msg("resource kind does not support this import route").into(),
+            )
+        }
+    };
+    let request = CreateResourceRequest {
+        kind,
+        slug: query.slug,
+        name: query.name,
+        description: inspection.metadata.description.clone(),
+        version: SemanticVersion::initial().to_string(),
+        visibility: query.visibility,
+        payload: serde_json::json!({ "files": files }),
+        changelog: Some(changelog.into()),
+    };
+    // A structurally safe archive always becomes an editable Draft. Kind
+    // diagnostics are returned to Resource Studio and block release there.
+    let resource = super::resources::create_imported_resource(&state, &actor, request).await?;
+    Ok(Json(ResourceArchiveCreateResponse {
+        resource,
+        validation: inspection.validation,
+    }))
+}
+
+pub async fn inspect_plugin_archive(
+    AuthUser(actor): AuthUser,
+    body: Bytes,
+) -> ApiResult<Json<PluginArchiveInspection>> {
+    require_author(actor.primary_role)?;
+    let files = extract_plugin_archive(body).await?;
+    Ok(Json(inspect_plugin_files(&files)))
+}
+
+pub async fn create_plugin_archive(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Query(query): Query<CreatePluginArchiveQuery>,
+    body: Bytes,
+) -> ApiResult<Json<PluginArchiveCreateResponse>> {
+    require_author(actor.primary_role)?;
+    let files = extract_plugin_archive(body).await?;
+    let inspection = inspect_plugin_files(&files);
+    if !inspection.validation.valid {
+        let codes = inspection
+            .validation
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == conductor_domain::DiagnosticSeverity::Error)
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        return Err(ConductorError::msg(format!("validation_failed:{codes}")).into());
+    }
+    let slug = inspection
+        .manifest
+        .name
+        .clone()
+        .ok_or_else(|| ConductorError::msg("plugin manifest name is required"))?;
+    let version = inspection
+        .manifest
+        .version
+        .clone()
+        .ok_or_else(|| ConductorError::msg("plugin manifest version is required"))?;
+    let request = CreateResourceRequest {
+        kind: ResourceKind::Plugin,
+        slug,
+        name: query.name,
+        description: inspection.manifest.description.clone(),
+        version,
+        visibility: query.visibility,
+        payload: serde_json::json!({ "files": files }),
+        changelog: Some(PLUGIN_IMPORT_CHANGELOG.into()),
+    };
+    let resource = super::resources::create_imported_resource(&state, &actor, request).await?;
+    Ok(Json(PluginArchiveCreateResponse {
+        resource,
+        validation: inspection.validation,
+    }))
+}
+
+async fn extract_plugin_archive(body: Bytes) -> ApiResult<Vec<DraftFile>> {
+    tokio::task::spawn_blocking(move || import_zip(body.to_vec()))
+        .await
+        .map_err(|_| ConductorError::Internal)?
+        .map_err(|message| ConductorError::msg(message).into())
+}
+
+async fn extract_resource_archive(body: Bytes) -> ApiResult<Vec<DraftFile>> {
+    tokio::task::spawn_blocking(move || import_zip(body.to_vec()))
+        .await
+        .map_err(|_| ConductorError::Internal)?
+        .map_err(|message| ConductorError::msg(message).into())
+}
+
+fn inspect_resource_files(
+    kind: ResourceKind,
+    files: &[DraftFile],
+    expected_slug: Option<&str>,
+) -> ResourceArchiveInspection {
+    let source = archive_source_metadata(kind, files);
+    let validation_slug = expected_slug
+        .filter(|slug| !slug.is_empty())
+        .map(str::to_string)
+        .or_else(|| source.slug.clone())
+        .unwrap_or_default();
+    ResourceArchiveInspection {
+        kind,
+        metadata: ResourceArchiveMetadata {
+            slug: source.slug,
+            version: source.version,
+            description: source.description,
+            primary_source: source.primary_source,
+        },
+        validation: validate_draft(kind, &validation_slug, 0, files),
+        file_count: files.len(),
+        total_uncompressed_bytes: files
+            .iter()
+            .map(|file| u64::try_from(file.content.len()).unwrap_or(u64::MAX))
+            .sum(),
+    }
+}
+
+fn inspect_plugin_files(files: &[DraftFile]) -> PluginArchiveInspection {
+    let manifest = files
+        .iter()
+        .find(|file| file.path == "plugin.json")
+        .and_then(|file| serde_json::from_str::<serde_json::Value>(&file.content).ok())
+        .and_then(|value| value.as_object().cloned())
+        .map(|object| PluginArchiveManifest {
+            name: manifest_string(&object, "name"),
+            version: manifest_string(&object, "version"),
+            description: manifest_string(&object, "description"),
+        })
+        .unwrap_or(PluginArchiveManifest {
+            name: None,
+            version: None,
+            description: None,
+        });
+    let slug = manifest.name.as_deref().unwrap_or_default();
+    let validation = validate_draft(ResourceKind::Plugin, slug, 0, files);
+    PluginArchiveInspection {
+        manifest,
+        validation,
+        file_count: files.len(),
+        total_uncompressed_bytes: files
+            .iter()
+            .map(|file| u64::try_from(file.content.len()).unwrap_or(u64::MAX))
+            .sum(),
+        skill_count: files
+            .iter()
+            .filter(|file| file.path.starts_with("skills/") && file.path.ends_with("/SKILL.md"))
+            .count(),
+    }
+}
+
+fn manifest_string(
+    object: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    object
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 pub async fn import_archive(
@@ -373,6 +858,9 @@ pub async fn changes(
                 kind: resource.kind,
                 slug: resource.slug,
                 version: None,
+                description: resource.description,
+                changelog: None,
+                version_history: Vec::new(),
                 release_channel: None,
                 sha256: None,
                 size: 0,
@@ -527,6 +1015,15 @@ fn parse_kind(value: &str) -> ApiResult<ResourceKind> {
     ResourceKind::parse(value).ok_or_else(|| ConductorError::msg("unknown resource kind").into())
 }
 
+fn parse_import_kind(value: &str) -> ApiResult<ResourceKind> {
+    match parse_kind(value)? {
+        kind @ (ResourceKind::Agent | ResourceKind::Skill) => Ok(kind),
+        ResourceKind::Plugin | ResourceKind::Workflow | ResourceKind::Command => {
+            Err(ConductorError::msg("only Agent and Skill ZIP imports use this route").into())
+        }
+    }
+}
+
 fn release_candidate(highest: Option<&str>, request: &ReleaseResourceRequest) -> ApiResult<String> {
     let highest = highest
         .map(SemanticVersion::from_str)
@@ -565,6 +1062,9 @@ fn to_change(version: EffectiveResourceVersion) -> ResourceChange {
         kind: version.kind,
         slug: version.slug,
         version: Some(version.version),
+        description: version.description,
+        changelog: version.changelog,
+        version_history: version.version_history,
         release_channel: Some(version.release_channel),
         sha256: Some(version.sha256),
         size: version.size,

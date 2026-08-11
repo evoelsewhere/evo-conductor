@@ -2,6 +2,7 @@
 
 pub const MIN_BATCH_SIZE: usize = 1;
 pub const MAX_BATCH_SIZE: usize = 100;
+pub const MAX_RESOURCE_ATTRIBUTIONS_PER_EVENT: usize = 16;
 pub const MIN_LABEL_LENGTH: usize = 1;
 pub const MAX_LABEL_LENGTH: usize = 256;
 pub const DEFAULT_RANGE_DAYS: i64 = 30;

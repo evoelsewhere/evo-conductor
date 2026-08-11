@@ -76,6 +76,30 @@ pub fn router() -> Router<AppState> {
         .route("/secrets", get(secrets::list).post(secrets::create))
         .route("/secrets/{id}/revoke", post(secrets::revoke))
         .route("/resources", get(resources::list).post(resources::create))
+        .route(
+            "/resources/plugins/inspect",
+            post(resource_delivery::inspect_plugin_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/plugins/import",
+            post(resource_delivery::create_plugin_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/imports/{kind}/inspect",
+            post(resource_delivery::inspect_resource_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/imports/{kind}",
+            post(resource_delivery::create_resource_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
         .route("/resources/guides/{kind}", get(resource_delivery::guide))
         .route(
             "/resources/templates/{kind}",
@@ -90,6 +114,12 @@ pub fn router() -> Router<AppState> {
         .route(
             "/resources/{id}/draft/files/{*path}",
             put(resource_delivery::save_draft_file),
+        )
+        .route(
+            "/resources/{id}/draft/entries",
+            post(resource_delivery::create_draft_file)
+                .patch(resource_delivery::move_draft_entry)
+                .delete(resource_delivery::delete_draft_entry),
         )
         .route(
             "/resources/{id}/draft/import",
@@ -111,10 +141,22 @@ pub fn router() -> Router<AppState> {
             post(resources::publish_version),
         )
         .route(
+            "/resources/{id}/versions/{version_id}/deprecate",
+            post(resources::deprecate_version),
+        )
+        .route(
+            "/resources/{id}/versions/{version_id}/restore-to-draft",
+            post(resources::restore_version_to_draft),
+        )
+        .route(
             "/resources/{id}/access",
             get(resources::get_access).put(resources::set_access),
         )
         .route("/resources/{id}/monitoring", get(resources::monitoring))
+        .route(
+            "/resources/{id}/inventory",
+            get(resources::inventory_monitoring),
+        )
         .route(
             "/resources/{id}/feedback",
             get(resources::feedback).put(resources::upsert_feedback),
@@ -141,5 +183,6 @@ pub fn router() -> Router<AppState> {
             get(telemetry::request_detail),
         )
         .route("/members/{id}/tools", get(telemetry::tools_summary))
+        .route("/analytics/resource-usage", get(telemetry::resource_usage))
         .route("/v1/realtime/events", get(realtime::events))
 }

@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::role::PrimaryRole;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
@@ -10,6 +12,32 @@ pub enum ResourceKind {
     Plugin,
     Workflow,
     Command,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceTargetMode {
+    Work,
+    Coding,
+}
+
+impl ResourceTargetMode {
+    pub const ALL: [Self; 2] = [Self::Work, Self::Coding];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Work => "work",
+            Self::Coding => "coding",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "work" => Some(Self::Work),
+            "coding" => Some(Self::Coding),
+            _ => None,
+        }
+    }
 }
 
 impl ResourceKind {
@@ -140,6 +168,7 @@ pub struct ResourceVersion {
     pub payload: serde_json::Value,
     pub changelog: Option<String>,
     pub release_channel: Option<ReleaseChannel>,
+    pub active_channel: Option<ReleaseChannel>,
     pub content_sha256: String,
     pub content_size: u64,
     pub artifact_key: Option<String>,
@@ -147,6 +176,48 @@ pub struct ResourceVersion {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub published_at: Option<DateTime<Utc>>,
+    pub deprecated_at: Option<DateTime<Utc>>,
+    pub deprecated_by: Option<Uuid>,
+    pub deprecation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceVersionNotice {
+    pub version_id: Uuid,
+    pub version: String,
+    pub status: ResourceVersionStatus,
+    pub release_channel: ReleaseChannel,
+    pub changelog: Option<String>,
+    pub published_at: Option<DateTime<Utc>>,
+    pub deprecation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeprecateResourceVersionRequest {
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreResourceVersionRequest {
+    pub draft_revision: u64,
+    #[serde(default)]
+    pub confirm_deprecated: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceVersionLifecycleAction {
+    Deprecate,
+    RestoreToDraft,
+}
+
+impl ResourceVersionLifecycleAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Deprecate => "deprecate",
+            Self::RestoreToDraft => "restore_to_draft",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +314,27 @@ pub struct SaveDraftFileRequest {
     pub draft_revision: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDraftFileRequest {
+    pub path: String,
+    #[serde(default)]
+    pub content: String,
+    pub draft_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveDraftEntryRequest {
+    pub path: String,
+    pub destination_path: String,
+    pub draft_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteDraftEntryRequest {
+    pub path: String,
+    pub draft_revision: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticSeverity {
@@ -274,6 +366,10 @@ pub struct ResourceChange {
     pub kind: ResourceKind,
     pub slug: String,
     pub version: Option<String>,
+    pub description: Option<String>,
+    pub changelog: Option<String>,
+    #[serde(default)]
+    pub version_history: Vec<ResourceVersionNotice>,
     pub release_channel: Option<ReleaseChannel>,
     pub sha256: Option<String>,
     pub size: u64,
@@ -299,6 +395,10 @@ pub struct EffectiveResourceVersion {
     pub kind: ResourceKind,
     pub slug: String,
     pub version: String,
+    pub description: Option<String>,
+    pub changelog: Option<String>,
+    #[serde(default)]
+    pub version_history: Vec<ResourceVersionNotice>,
     pub release_channel: ReleaseChannel,
     pub payload: serde_json::Value,
     pub sha256: String,
@@ -320,6 +420,50 @@ pub struct ResourceInventoryItem {
     pub observed_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceInventoryObservedState {
+    Pending,
+    Staged,
+    TrustPending,
+    UpdatePending,
+    Applied,
+    InSync,
+    Declined,
+    Incompatible,
+    OwnershipConflict,
+    ProjectScopeMismatch,
+    Error,
+    Removed,
+}
+
+impl ResourceInventoryObservedState {
+    pub const INSTALLED: [Self; 2] = [Self::Applied, Self::InSync];
+    pub const PENDING: [Self; 4] = [
+        Self::Pending,
+        Self::Staged,
+        Self::TrustPending,
+        Self::UpdatePending,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Staged => "staged",
+            Self::TrustPending => "trust_pending",
+            Self::UpdatePending => "update_pending",
+            Self::Applied => "applied",
+            Self::InSync => "in_sync",
+            Self::Declined => "declined",
+            Self::Incompatible => "incompatible",
+            Self::OwnershipConflict => "ownership_conflict",
+            Self::ProjectScopeMismatch => "project_scope_mismatch",
+            Self::Error => "error",
+            Self::Removed => "removed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceInventoryRequest {
     pub installation_id: Uuid,
@@ -329,6 +473,44 @@ pub struct ResourceInventoryRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceInventoryResponse {
     pub accepted: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResourceInventoryMonitoringSummary {
+    pub reported_installations: u64,
+    pub installed_installations: u64,
+    pub installed_members: u64,
+    pub pending_installations: u64,
+    pub attention_installations: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceInstallationState {
+    pub installation_id: Uuid,
+    pub installation_name: String,
+    pub platform: String,
+    pub evoflux_version: String,
+    pub user_id: Uuid,
+    pub member_name: String,
+    pub email: String,
+    pub primary_role: PrimaryRole,
+    pub desired_version_id: Option<Uuid>,
+    pub desired_version: Option<String>,
+    pub applied_version_id: Option<Uuid>,
+    pub applied_version: Option<String>,
+    pub release_channel: Option<ReleaseChannel>,
+    pub plugin_installation_id: Option<String>,
+    pub observed_state: String,
+    pub error_category: Option<String>,
+    pub observed_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceInventoryMonitoring {
+    pub resource_id: Uuid,
+    pub summary: ResourceInventoryMonitoringSummary,
+    pub installations: Vec<ResourceInstallationState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

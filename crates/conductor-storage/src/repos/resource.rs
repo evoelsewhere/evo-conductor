@@ -6,8 +6,10 @@ use conductor_domain::{
     CreateResourceRequest, CreateResourceVersionRequest, DraftFile, DraftFileTree,
     EffectiveResourceVersion, ManagedResource, PrimaryRole, ReleaseChannel, ReleaseResourceRequest,
     ReleaseResourceResult, ResourceAccessPolicy, ResourceDailyUsage, ResourceFeedback,
-    ResourceInventoryRequest, ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary,
-    ResourceUsageEventRequest, ResourceVersion, ResourceVersionStatus, SemanticVersion,
+    ResourceInstallationState, ResourceInventoryMonitoring, ResourceInventoryMonitoringSummary,
+    ResourceInventoryObservedState, ResourceInventoryRequest, ResourceMemberUsage,
+    ResourceMonitoring, ResourceMonitoringSummary, ResourceUsageEventRequest, ResourceVersion,
+    ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus, SemanticVersion,
     UpdateResourceRequest, UpsertResourceFeedbackRequest, VersionMode,
 };
 use sqlx::{Any, Pool, QueryBuilder, Row};
@@ -46,6 +48,28 @@ pub enum ReleaseResourceError {
     Conflict,
     #[error("semantic version is invalid or not greater than the current head")]
     InvalidVersion,
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ResourceVersionLifecycleError {
+    #[error("resource version was not found")]
+    NotFound,
+    #[error("resource is archived")]
+    ResourceArchived,
+    #[error("active release versions cannot be deprecated")]
+    ActiveRelease,
+    #[error("resource version is already deprecated")]
+    AlreadyDeprecated,
+    #[error("only immutable release versions support lifecycle actions")]
+    NotReleased,
+    #[error("deprecated version confirmation is required")]
+    DeprecatedConfirmationRequired,
+    #[error("draft revision is stale")]
+    DraftConflict,
+    #[error("resource version has no restorable source")]
+    InvalidSource,
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 }
@@ -180,6 +204,47 @@ impl ResourceRepo {
         row.map(|row| map_resource(&row)).transpose()
     }
 
+    pub async fn version_belongs_to(
+        &self,
+        resource_id: Uuid,
+        version_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_versions WHERE id = ? AND resource_id = ?",
+        )
+        .bind(version_id.to_string())
+        .bind(resource_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
+
+    pub async fn inventory_plugin_matches(
+        &self,
+        project_id: Uuid,
+        installation_id: Uuid,
+        resource_id: Uuid,
+        version_id: Uuid,
+        plugin_installation_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM installation_resource_inventory
+            WHERE project_id = ? AND installation_id = ? AND resource_id = ?
+              AND applied_version_id = ? AND plugin_installation_id = ?
+              AND observed_state IN ('applied', 'in_sync', 'trust_pending')
+            "#,
+        )
+        .bind(project_id.to_string())
+        .bind(installation_id.to_string())
+        .bind(resource_id.to_string())
+        .bind(version_id.to_string())
+        .bind(plugin_installation_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
+
     pub async fn create(
         &self,
         project_id: Uuid,
@@ -298,7 +363,12 @@ impl ResourceRepo {
             r#"
             SELECT id, project_id, resource_id, version, status, payload, changelog,
                    release_channel, content_sha256, content_size, artifact_key,
-                   minimum_evoflux_version, created_by, created_at, published_at
+                   minimum_evoflux_version, created_by, created_at, published_at,
+                   deprecated_at, deprecated_by, deprecation_reason,
+                   (SELECT channel FROM resource_release_channels active
+                    WHERE active.resource_id = resource_versions.resource_id
+                      AND active.version_id = resource_versions.id
+                    ORDER BY channel LIMIT 1) AS active_channel
             FROM resource_versions
             WHERE resource_id = ?
             ORDER BY created_at DESC
@@ -308,6 +378,209 @@ impl ResourceRepo {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(map_version).collect())
+    }
+
+    pub async fn deprecate_version(
+        &self,
+        resource_id: Uuid,
+        version_id: Uuid,
+        actor_id: Uuid,
+        reason: &str,
+    ) -> Result<ResourceVersion, ResourceVersionLifecycleError> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT rv.project_id, rv.status, r.status AS resource_status,
+                   (SELECT COUNT(*) FROM resource_release_channels active
+                       WHERE active.resource_id = rv.resource_id
+                         AND active.version_id = rv.id
+                   ) AS active_count
+            FROM resource_versions rv
+            JOIN resources r ON r.id = rv.resource_id
+            WHERE rv.id = ? AND rv.resource_id = ?
+            "#,
+        )
+        .bind(version_id.to_string())
+        .bind(resource_id.to_string())
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(ResourceVersionLifecycleError::NotFound)?;
+        if row.get::<String, _>("resource_status") == "archived" {
+            return Err(ResourceVersionLifecycleError::ResourceArchived);
+        }
+        if row.get::<i64, _>("active_count") != 0 {
+            return Err(ResourceVersionLifecycleError::ActiveRelease);
+        }
+        let status = ResourceVersionStatus::parse(row.get::<String, _>("status").as_str());
+        if status == ResourceVersionStatus::Draft {
+            return Err(ResourceVersionLifecycleError::NotReleased);
+        }
+        if status == ResourceVersionStatus::Deprecated {
+            return Err(ResourceVersionLifecycleError::AlreadyDeprecated);
+        }
+
+        let project_id: String = row.get("project_id");
+        let now = Utc::now().to_rfc3339();
+        let updated = sqlx::query(
+            r#"
+            UPDATE resource_versions
+            SET status = 'deprecated', deprecated_at = ?, deprecated_by = ?,
+                deprecation_reason = ?
+            WHERE id = ? AND resource_id = ? AND status <> 'deprecated'
+              AND NOT EXISTS (
+                  SELECT 1 FROM resource_release_channels active
+                  WHERE active.resource_id = resource_versions.resource_id
+                    AND active.version_id = resource_versions.id
+              )
+            "#,
+        )
+        .bind(&now)
+        .bind(actor_id.to_string())
+        .bind(reason)
+        .bind(version_id.to_string())
+        .bind(resource_id.to_string())
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(ResourceVersionLifecycleError::ActiveRelease);
+        }
+        insert_version_event(
+            &mut tx,
+            &project_id,
+            resource_id,
+            version_id,
+            ResourceVersionLifecycleAction::Deprecate.as_str(),
+            actor_id,
+            Some(reason),
+            false,
+            &now,
+        )
+        .await?;
+        insert_resource_change(
+            &mut tx,
+            &project_id,
+            resource_id,
+            "deprecate",
+            Some(version_id),
+            None,
+            &now,
+        )
+        .await?;
+        tx.commit().await?;
+        self.version_by_id(resource_id, version_id)
+            .await?
+            .ok_or(ResourceVersionLifecycleError::NotFound)
+    }
+
+    pub async fn restore_version_to_draft(
+        &self,
+        resource_id: Uuid,
+        version_id: Uuid,
+        actor_id: Uuid,
+        expected_revision: u64,
+        confirm_deprecated: bool,
+    ) -> Result<DraftFileTree, ResourceVersionLifecycleError> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT rv.project_id, rv.status, rv.payload,
+                   r.status AS resource_status, r.draft_revision
+            FROM resource_versions rv
+            JOIN resources r ON r.id = rv.resource_id
+            WHERE rv.id = ? AND rv.resource_id = ?
+            "#,
+        )
+        .bind(version_id.to_string())
+        .bind(resource_id.to_string())
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(ResourceVersionLifecycleError::NotFound)?;
+        if row.get::<String, _>("resource_status") == "archived" {
+            return Err(ResourceVersionLifecycleError::ResourceArchived);
+        }
+        let status = ResourceVersionStatus::parse(row.get::<String, _>("status").as_str());
+        if status == ResourceVersionStatus::Draft {
+            return Err(ResourceVersionLifecycleError::NotReleased);
+        }
+        if status == ResourceVersionStatus::Deprecated && !confirm_deprecated {
+            return Err(ResourceVersionLifecycleError::DeprecatedConfirmationRequired);
+        }
+        let current_revision = nonnegative_u64(row.get("draft_revision"));
+        if current_revision != expected_revision {
+            return Err(ResourceVersionLifecycleError::DraftConflict);
+        }
+        let payload_text: String = row.get("payload");
+        let payload = serde_json::from_str::<serde_json::Value>(&payload_text)
+            .map_err(|_| ResourceVersionLifecycleError::InvalidSource)?;
+        let files = draft_files(&payload);
+        if files.is_empty() {
+            return Err(ResourceVersionLifecycleError::InvalidSource);
+        }
+
+        let next_revision = expected_revision.saturating_add(1);
+        let now = Utc::now().to_rfc3339();
+        let updated = sqlx::query(
+            r#"
+            UPDATE resources
+            SET payload = ?, draft_revision = ?, updated_at = ?
+            WHERE id = ? AND draft_revision = ? AND status <> 'archived'
+            "#,
+        )
+        .bind(&payload_text)
+        .bind(saturating_i64(next_revision))
+        .bind(&now)
+        .bind(resource_id.to_string())
+        .bind(saturating_i64(expected_revision))
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(ResourceVersionLifecycleError::DraftConflict);
+        }
+        let project_id: String = row.get("project_id");
+        insert_version_event(
+            &mut tx,
+            &project_id,
+            resource_id,
+            version_id,
+            ResourceVersionLifecycleAction::RestoreToDraft.as_str(),
+            actor_id,
+            None,
+            status == ResourceVersionStatus::Deprecated,
+            &now,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(DraftFileTree {
+            resource_id,
+            revision: next_revision,
+            files,
+        })
+    }
+
+    async fn version_by_id(
+        &self,
+        resource_id: Uuid,
+        version_id: Uuid,
+    ) -> Result<Option<ResourceVersion>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, project_id, resource_id, version, status, payload, changelog,
+                   release_channel, content_sha256, content_size, artifact_key,
+                   minimum_evoflux_version, created_by, created_at, published_at,
+                   deprecated_at, deprecated_by, deprecation_reason,
+                   (SELECT channel FROM resource_release_channels active
+                    WHERE active.resource_id = resource_versions.resource_id
+                      AND active.version_id = resource_versions.id
+                    ORDER BY channel LIMIT 1) AS active_channel
+            FROM resource_versions
+            WHERE id = ? AND resource_id = ?
+            "#,
+        )
+        .bind(version_id.to_string())
+        .bind(resource_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(map_version))
     }
 
     pub async fn create_version(
@@ -359,6 +632,10 @@ impl ResourceRepo {
             created_by,
             created_at: now,
             published_at: None,
+            active_channel: None,
+            deprecated_at: None,
+            deprecated_by: None,
+            deprecation_reason: None,
         })
     }
 
@@ -858,8 +1135,8 @@ impl ResourceRepo {
         let preferred = if beta > 0 { "beta" } else { "published" };
         let row = sqlx::query(
             r#"
-            SELECT r.project_id, r.id AS resource_id, r.kind, r.slug,
-                   rv.id AS version_id, rv.version, rv.release_channel, rv.payload,
+            SELECT r.project_id, r.id AS resource_id, r.kind, r.slug, r.description,
+                   rv.id AS version_id, rv.version, rv.changelog, rv.release_channel, rv.payload,
                    rv.content_sha256, rv.content_size, rv.artifact_key,
                    rv.minimum_evoflux_version
             FROM resources r
@@ -875,8 +1152,8 @@ impl ResourceRepo {
         let row = if row.is_none() && preferred == "beta" {
             sqlx::query(
                 r#"
-                SELECT r.project_id, r.id AS resource_id, r.kind, r.slug,
-                       rv.id AS version_id, rv.version, rv.release_channel, rv.payload,
+                SELECT r.project_id, r.id AS resource_id, r.kind, r.slug, r.description,
+                       rv.id AS version_id, rv.version, rv.changelog, rv.release_channel, rv.payload,
                        rv.content_sha256, rv.content_size, rv.artifact_key,
                        rv.minimum_evoflux_version
                 FROM resources r
@@ -891,7 +1168,30 @@ impl ResourceRepo {
         } else {
             row
         };
-        Ok(row.map(map_effective_version))
+        let mut version = row.map(map_effective_version);
+        if let Some(version) = version.as_mut() {
+            let allowed_channel = if preferred == "beta" {
+                "beta"
+            } else {
+                "published"
+            };
+            let rows = sqlx::query(
+                r#"
+                SELECT id, version, status, release_channel, changelog,
+                       published_at, deprecation_reason
+                FROM resource_versions
+                WHERE resource_id = ? AND status <> 'draft'
+                  AND (release_channel = 'published' OR release_channel = ?)
+                ORDER BY created_at ASC
+                "#,
+            )
+            .bind(resource_id.to_string())
+            .bind(allowed_channel)
+            .fetch_all(&self.pool)
+            .await?;
+            version.version_history = rows.into_iter().filter_map(map_version_notice).collect();
+        }
+        Ok(version)
     }
 
     pub async fn change_sequences(
@@ -1134,6 +1434,91 @@ impl ResourceRepo {
         })
     }
 
+    pub async fn inventory_monitoring(
+        &self,
+        resource_id: Uuid,
+    ) -> Result<ResourceInventoryMonitoring, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT i.installation_id, c.display_name AS installation_name, c.platform,
+                   c.evoflux_version, c.user_id, c.last_seen_at,
+                   u.display_name AS member_name, u.email, u.primary_role,
+                   i.desired_version_id, desired.version AS desired_version,
+                   i.applied_version_id, applied.version AS applied_version,
+                   i.release_channel, i.plugin_installation_id, i.observed_state,
+                   i.error_category, i.observed_at
+            FROM installation_resource_inventory i
+            JOIN client_installations c ON c.id = i.installation_id
+            JOIN users u ON u.id = c.user_id
+            LEFT JOIN resource_versions desired ON desired.id = i.desired_version_id
+            LEFT JOIN resource_versions applied ON applied.id = i.applied_version_id
+            WHERE i.resource_id = ? AND i.observed_state <> ?
+            ORDER BY i.observed_at DESC, c.display_name
+            "#,
+        )
+        .bind(resource_id.to_string())
+        .bind(ResourceInventoryObservedState::Removed.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut summary = ResourceInventoryMonitoringSummary::default();
+        let mut installed_installations = HashSet::new();
+        let mut installed_members = HashSet::new();
+        let mut installations = Vec::with_capacity(rows.len());
+        for row in rows {
+            summary.reported_installations += 1;
+            let observed_state: String = row.get("observed_state");
+            let installation_id = parse_uuid(row.get("installation_id"));
+            let user_id = parse_uuid(row.get("user_id"));
+            if ResourceInventoryObservedState::INSTALLED
+                .iter()
+                .any(|candidate| candidate.as_str() == observed_state)
+            {
+                installed_installations.insert(installation_id);
+                installed_members.insert(user_id);
+            } else if ResourceInventoryObservedState::PENDING
+                .iter()
+                .any(|candidate| candidate.as_str() == observed_state)
+            {
+                summary.pending_installations += 1;
+            } else {
+                summary.attention_installations += 1;
+            }
+            let primary_role = PrimaryRole::parse(row.get::<String, _>("primary_role").as_str())
+                .unwrap_or(PrimaryRole::User);
+            installations.push(ResourceInstallationState {
+                installation_id,
+                installation_name: row.get("installation_name"),
+                platform: row.get("platform"),
+                evoflux_version: row.get("evoflux_version"),
+                user_id,
+                member_name: row.get("member_name"),
+                email: row.get("email"),
+                primary_role,
+                desired_version_id: optional_uuid(row.get("desired_version_id")),
+                desired_version: row.get("desired_version"),
+                applied_version_id: optional_uuid(row.get("applied_version_id")),
+                applied_version: row.get("applied_version"),
+                release_channel: row
+                    .get::<Option<String>, _>("release_channel")
+                    .as_deref()
+                    .and_then(ReleaseChannel::parse),
+                plugin_installation_id: row.get("plugin_installation_id"),
+                observed_state,
+                error_category: row.get("error_category"),
+                observed_at: parse_dt(row.get("observed_at")),
+                last_seen_at: parse_dt(row.get("last_seen_at")),
+            });
+        }
+        summary.installed_installations = installed_installations.len() as u64;
+        summary.installed_members = installed_members.len() as u64;
+        Ok(ResourceInventoryMonitoring {
+            resource_id,
+            summary,
+            installations,
+        })
+    }
+
     pub async fn feedback(&self, resource_id: Uuid) -> Result<Vec<ResourceFeedback>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
@@ -1278,6 +1663,9 @@ fn map_effective_version(row: sqlx::any::AnyRow) -> EffectiveResourceVersion {
             .unwrap_or(conductor_domain::ResourceKind::Agent),
         slug: row.get("slug"),
         version: row.get("version"),
+        description: row.get("description"),
+        changelog: row.get("changelog"),
+        version_history: Vec::new(),
         release_channel: row
             .get::<Option<String>, _>("release_channel")
             .as_deref()
@@ -1290,6 +1678,21 @@ fn map_effective_version(row: sqlx::any::AnyRow) -> EffectiveResourceVersion {
         artifact_key: row.get("artifact_key"),
         minimum_evoflux_version: row.get("minimum_evoflux_version"),
     }
+}
+
+fn map_version_notice(row: sqlx::any::AnyRow) -> Option<ResourceVersionNotice> {
+    Some(ResourceVersionNotice {
+        version_id: Uuid::parse_str(row.get::<String, _>("id").as_str()).ok()?,
+        version: row.get("version"),
+        status: ResourceVersionStatus::parse(row.get::<String, _>("status").as_str()),
+        release_channel: row
+            .get::<Option<String>, _>("release_channel")
+            .as_deref()
+            .and_then(ReleaseChannel::parse)?,
+        changelog: row.get("changelog"),
+        published_at: row.get::<Option<String>, _>("published_at").map(parse_dt),
+        deprecation_reason: row.get("deprecation_reason"),
+    })
 }
 
 fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
@@ -1306,6 +1709,10 @@ fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
             .get::<Option<String>, _>("release_channel")
             .as_deref()
             .and_then(ReleaseChannel::parse),
+        active_channel: row
+            .get::<Option<String>, _>("active_channel")
+            .as_deref()
+            .and_then(ReleaseChannel::parse),
         content_sha256: row.get("content_sha256"),
         content_size: nonnegative_u64(row.get("content_size")),
         artifact_key: row.get("artifact_key"),
@@ -1313,6 +1720,11 @@ fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
         created_by: parse_uuid(row.get("created_by")),
         created_at: parse_dt(row.get("created_at")),
         published_at: row.get::<Option<String>, _>("published_at").map(parse_dt),
+        deprecated_at: row.get::<Option<String>, _>("deprecated_at").map(parse_dt),
+        deprecated_by: row
+            .get::<Option<String>, _>("deprecated_by")
+            .map(parse_uuid),
+        deprecation_reason: row.get("deprecation_reason"),
     }
 }
 
@@ -1382,6 +1794,40 @@ async fn insert_resource_change(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn insert_version_event(
+    tx: &mut sqlx::Transaction<'_, Any>,
+    project_id: &str,
+    resource_id: Uuid,
+    version_id: Uuid,
+    action: &str,
+    actor_id: Uuid,
+    reason: Option<&str>,
+    confirmed_deprecated: bool,
+    created_at: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO resource_version_events (
+            id, project_id, resource_id, version_id, action, actor_id,
+            reason, confirmed_deprecated, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(project_id)
+    .bind(resource_id.to_string())
+    .bind(version_id.to_string())
+    .bind(action)
+    .bind(actor_id.to_string())
+    .bind(reason)
+    .bind(i64::from(confirmed_deprecated))
+    .bind(created_at)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 fn clean_optional(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -1391,6 +1837,10 @@ fn clean_optional(value: Option<&str>) -> Option<String> {
 
 fn parse_uuid(value: String) -> Uuid {
     Uuid::parse_str(&value).unwrap_or_else(|_| Uuid::nil())
+}
+
+fn optional_uuid(value: Option<String>) -> Option<Uuid> {
+    value.and_then(|value| Uuid::parse_str(&value).ok())
 }
 
 fn saturating_i64(value: u64) -> i64 {

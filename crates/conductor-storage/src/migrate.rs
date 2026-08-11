@@ -8,6 +8,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS telemetry_events (
             id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT,
             user_id TEXT NOT NULL,
             installation_id TEXT,
             request_id TEXT,
@@ -17,6 +18,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             agent_name TEXT,
             provider TEXT,
             model TEXT,
+            response_model TEXT,
             tokens_in INTEGER NOT NULL DEFAULT 0,
             tokens_out INTEGER NOT NULL DEFAULT 0,
             cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -27,6 +29,12 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             tool_category TEXT,
             status TEXT NOT NULL DEFAULT '{}',
             error_category TEXT,
+            estimated_cost_usd_micros INTEGER,
+            cost_source TEXT,
+            evoflux_version TEXT,
+            primary_role_snapshot TEXT,
+            sub_role_ids_snapshot TEXT,
+            tag_ids_snapshot TEXT,
             tool_calls INTEGER NOT NULL DEFAULT 0,
             active_agents INTEGER NOT NULL DEFAULT 0,
             reported_at TEXT NOT NULL,
@@ -217,6 +225,9 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             created_by TEXT NOT NULL,
             created_at TEXT NOT NULL,
             published_at TEXT,
+            deprecated_at TEXT,
+            deprecated_by TEXT,
+            deprecation_reason TEXT,
             UNIQUE(project_id, resource_id, version),
             FOREIGN KEY(project_id) REFERENCES instance(id),
             FOREIGN KEY(resource_id) REFERENCES resources(id)
@@ -277,6 +288,23 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         )
         "#,
         r#"
+        CREATE TABLE IF NOT EXISTS resource_version_events (
+            id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            reason TEXT,
+            confirmed_deprecated INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES instance(id),
+            FOREIGN KEY(resource_id) REFERENCES resources(id),
+            FOREIGN KEY(version_id) REFERENCES resource_versions(id),
+            FOREIGN KEY(actor_id) REFERENCES users(id)
+        )
+        "#,
+        r#"
         CREATE TABLE IF NOT EXISTS installation_resource_inventory (
             project_id TEXT NOT NULL,
             installation_id TEXT NOT NULL,
@@ -334,6 +362,21 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         )
         "#,
         telemetry_table.as_str(),
+        r#"
+        CREATE TABLE IF NOT EXISTS telemetry_resource_attributions (
+            event_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            relation TEXT NOT NULL,
+            plugin_installation_id TEXT,
+            PRIMARY KEY(event_id, resource_id, version_id, relation),
+            FOREIGN KEY(event_id) REFERENCES telemetry_events(id),
+            FOREIGN KEY(project_id) REFERENCES instance(id),
+            FOREIGN KEY(resource_id) REFERENCES resources(id),
+            FOREIGN KEY(version_id) REFERENCES resource_versions(id)
+        )
+        "#,
         "CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)",
         "CREATE INDEX IF NOT EXISTS idx_users_primary_role ON users(primary_role)",
         "CREATE INDEX IF NOT EXISTS idx_user_tags_tag ON user_tags(tag_id)",
@@ -347,7 +390,9 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "CREATE INDEX IF NOT EXISTS idx_resource_access_subject ON resource_access_rules(subject_type, subject_id)",
         "CREATE INDEX IF NOT EXISTS idx_resource_changes_audience ON resource_changes(project_id, effective_user_id, sequence)",
         "CREATE INDEX IF NOT EXISTS idx_resource_changes_resource ON resource_changes(project_id, resource_id, sequence)",
+        "CREATE INDEX IF NOT EXISTS idx_resource_version_events_resource ON resource_version_events(project_id, resource_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_resource_inventory_state ON installation_resource_inventory(project_id, observed_state, observed_at)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_resource_time ON telemetry_resource_attributions(project_id, resource_id, version_id)",
         "CREATE INDEX IF NOT EXISTS idx_resource_usage_resource_time ON resource_usage_events(resource_id, occurred_at)",
         "CREATE INDEX IF NOT EXISTS idx_resource_usage_user_time ON resource_usage_events(user_id, occurred_at)",
         "CREATE INDEX IF NOT EXISTS idx_resource_feedback_resource ON resource_feedback(resource_id, updated_at)",
@@ -392,15 +437,20 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE resource_versions ADD COLUMN artifact_key TEXT",
         "ALTER TABLE resource_versions ADD COLUMN artifact_schema_version TEXT",
         "ALTER TABLE resource_versions ADD COLUMN minimum_evoflux_version TEXT",
+        "ALTER TABLE resource_versions ADD COLUMN deprecated_at TEXT",
+        "ALTER TABLE resource_versions ADD COLUMN deprecated_by TEXT",
+        "ALTER TABLE resource_versions ADD COLUMN deprecation_reason TEXT",
         "ALTER TABLE resource_access_rules ADD COLUMN project_id TEXT",
         "ALTER TABLE resource_access_rules ADD COLUMN effect TEXT NOT NULL DEFAULT 'allow'",
         "ALTER TABLE telemetry_events ADD COLUMN installation_id TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN project_id TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN request_id TEXT",
         telemetry_event_type_alter.as_str(),
         "ALTER TABLE telemetry_events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE telemetry_events ADD COLUMN agent_name TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN provider TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN model TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN response_model TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE telemetry_events ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE telemetry_events ADD COLUMN tool_use_tokens INTEGER NOT NULL DEFAULT 0",
@@ -409,6 +459,12 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE telemetry_events ADD COLUMN tool_category TEXT",
         telemetry_status_alter.as_str(),
         "ALTER TABLE telemetry_events ADD COLUMN error_category TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN estimated_cost_usd_micros INTEGER",
+        "ALTER TABLE telemetry_events ADD COLUMN cost_source TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN evoflux_version TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN primary_role_snapshot TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN sub_role_ids_snapshot TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN tag_ids_snapshot TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN received_at TEXT",
     ];
     for sql in alters {
@@ -430,6 +486,8 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "CREATE INDEX IF NOT EXISTS idx_telemetry_user_time ON telemetry_events(user_id, reported_at)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_request ON telemetry_events(user_id, request_id)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_installation_time ON telemetry_events(installation_id, reported_at)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_project_received ON telemetry_events(project_id, received_at)",
+        "CREATE INDEX IF NOT EXISTS idx_telemetry_resource_time ON telemetry_resource_attributions(project_id, resource_id, version_id)",
     ] {
         sqlx::query(sql).execute(pool).await?;
     }

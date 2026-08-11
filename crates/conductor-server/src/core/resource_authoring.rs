@@ -1,11 +1,15 @@
 //! Static, non-executing validation for governed Agent, Skill and Plugin drafts.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read};
+use std::str::FromStr;
 
 use conductor_domain::{
-    DiagnosticSeverity, DraftFile, ResourceDiagnostic, ResourceKind, ResourceValidation,
+    DiagnosticSeverity, DraftFile, ResourceDiagnostic, ResourceKind, ResourceTargetMode,
+    ResourceValidation, SemanticVersion,
 };
+
+use crate::core::constants::resource::RESOURCE_MODE_SCOPE_FILENAME;
 
 pub const MAX_DRAFT_FILES: usize = 2_000;
 pub const MAX_EDITABLE_FILE_BYTES: usize = 1024 * 1024;
@@ -13,6 +17,16 @@ pub const MAX_DRAFT_BYTES: usize = 50 * 1024 * 1024;
 pub const MAX_IMPORT_ARCHIVE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 2_500;
 const MAX_COMPRESSION_RATIO: u64 = 100;
+const MAX_SKILL_MARKDOWN_BYTES: usize = 512 * 1024;
+const MAX_SKILL_DESCRIPTION_CHARS: usize = 1_024;
+
+#[derive(Debug, Clone, Default)]
+pub struct ArchiveSourceMetadata {
+    pub slug: Option<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    pub primary_source: Option<String>,
+}
 
 pub fn import_zip(bytes: Vec<u8>) -> Result<Vec<DraftFile>, String> {
     if bytes.is_empty() || bytes.len() > MAX_IMPORT_ARCHIVE_BYTES {
@@ -72,6 +86,7 @@ pub fn import_zip(bytes: Vec<u8>) -> Result<Vec<DraftFile>, String> {
             .map_err(|_| format!("ZIP entry must contain editable UTF-8 text: {path}"))?;
         files.push(DraftFile { path, content });
     }
+    let mut files = normalize_archive_root(files);
     files.sort_by(|left, right| left.path.cmp(&right.path));
     let diagnostics = validate_file_set(&files);
     if let Some(item) = diagnostics
@@ -85,18 +100,51 @@ pub fn import_zip(bytes: Vec<u8>) -> Result<Vec<DraftFile>, String> {
 
 pub fn starter_files(kind: ResourceKind, slug: &str, name: &str) -> Vec<DraftFile> {
     match kind {
-        ResourceKind::Agent => vec![DraftFile {
-            path: format!("{slug}.md"),
-            content: format!(
-                "---\nname: {slug}\ndescription: {name}\nrole: worker\n---\n\nYou are {name}.\n"
-            ),
-        }],
-        ResourceKind::Skill => vec![DraftFile {
-            path: "SKILL.md".into(),
-            content: format!(
-                "---\nname: {slug}\ndescription: {name}\n---\n\n# {name}\n\nDescribe when and how EvoFlux should use this skill.\n"
-            ),
-        }],
+        ResourceKind::Agent => vec![
+            DraftFile {
+                path: format!("{slug}.md"),
+                content: format!(
+                    "---\nname: {slug}\nrole: member\ndescription: {name}\n---\n\nYou are \"{name}\" — a focused EvoFlux team member.\n\n## Responsibilities\n\n- Define the work this Agent owns.\n- State its boundaries and hand-off conditions.\n"
+                ),
+            },
+            target_mode_file(&ResourceTargetMode::ALL),
+        ],
+        ResourceKind::Skill => {
+            let yaml_display_name =
+                serde_json::to_string(name).unwrap_or_else(|_| format!("\"{slug}\""));
+            vec![DraftFile {
+                path: "SKILL.md".into(),
+                content: format!(
+                    "---\nname: {slug}\ndescription: Describe what this skill does, when it should activate, and the nearby requests it must not handle.\n---\n\n# {name}\n\n## Use this skill when\n\n- Define the positive activation conditions.\n- Define important near-misses that should not activate it.\n\n## Workflow\n\n1. Define the required inputs and intended output.\n2. Perform the smallest reliable workflow for this specialty.\n3. Load bundled references only when a step needs them.\n4. Verify the result with observable checks.\n\n## Output contract\n\n- Specify the artifact, answer, or code change this skill produces.\n- Report evidence, uncertainty, and remaining risks.\n"
+                ),
+            }, DraftFile {
+                path: "agents/evoflux.yaml".into(),
+                content: format!(
+                    "interface:\n  display_name: {yaml_display_name}\n  short_description: A focused reusable workflow for EvoFlux\n  default_prompt: Use ${slug} for this task.\npolicy:\n  allow_implicit_invocation: true\n"
+                ),
+            },
+            DraftFile {
+                path: "evals/trigger-cases.json".into(),
+                content: serde_json::to_string_pretty(&serde_json::json!({
+                    "skill": slug,
+                    "cases": [
+                        {
+                            "prompt": "A realistic request that should activate this workflow.",
+                            "should_trigger": true,
+                            "reason": "Replace with the distinguishing activation signal."
+                        },
+                        {
+                            "prompt": "A nearby request the base agent can handle without this workflow.",
+                            "should_trigger": false,
+                            "reason": "Replace with the boundary that prevents over-triggering."
+                        }
+                    ]
+                }))
+                .unwrap_or_default()
+                    + "\n",
+            },
+            target_mode_file(&ResourceTargetMode::ALL)]
+        },
         ResourceKind::Plugin => vec![
             DraftFile {
                 path: "plugin.json".into(),
@@ -121,6 +169,51 @@ pub fn starter_files(kind: ResourceKind, slug: &str, name: &str) -> Vec<DraftFil
             path: format!("{slug}.json"),
             content: "{}\n".into(),
         }],
+    }
+}
+
+pub fn set_target_modes(files: &mut Vec<DraftFile>, modes: &[ResourceTargetMode]) {
+    let mode_file = target_mode_file(if modes.is_empty() {
+        &ResourceTargetMode::ALL
+    } else {
+        modes
+    });
+    if let Some(existing) = files
+        .iter_mut()
+        .find(|file| file.path == RESOURCE_MODE_SCOPE_FILENAME)
+    {
+        *existing = mode_file;
+    } else {
+        files.push(mode_file);
+    }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+}
+
+fn target_mode_file(modes: &[ResourceTargetMode]) -> DraftFile {
+    DraftFile {
+        path: RESOURCE_MODE_SCOPE_FILENAME.into(),
+        content: serde_json::to_string_pretty(&serde_json::json!({
+            "modes": modes.iter().map(|mode| mode.as_str()).collect::<Vec<_>>(),
+        }))
+        .unwrap_or_default()
+            + "\n",
+    }
+}
+
+pub fn archive_source_metadata(kind: ResourceKind, files: &[DraftFile]) -> ArchiveSourceMetadata {
+    match kind {
+        ResourceKind::Agent => files
+            .iter()
+            .find(|file| !file.path.contains('/') && file.path.ends_with(".md"))
+            .map(|file| markdown_source_metadata(file, None))
+            .unwrap_or_default(),
+        ResourceKind::Skill => files
+            .iter()
+            .find(|file| file.path == "SKILL.md")
+            .map(|file| markdown_source_metadata(file, None))
+            .unwrap_or_default(),
+        ResourceKind::Plugin => plugin_source_metadata(files),
+        ResourceKind::Workflow | ResourceKind::Command => ArchiveSourceMetadata::default(),
     }
 }
 
@@ -246,19 +339,72 @@ fn validate_file_set(files: &[DraftFile]) -> Vec<ResourceDiagnostic> {
 }
 
 fn validate_agent(slug: &str, files: &[DraftFile], diagnostics: &mut Vec<ResourceDiagnostic>) {
-    let markdown = files.iter().find(|file| file.path.ends_with(".md"));
-    let Some(markdown) = markdown else {
+    let root_markdown = files
+        .iter()
+        .filter(|file| !file.path.contains('/') && file.path.ends_with(".md"))
+        .collect::<Vec<_>>();
+    let supported_file_count = files
+        .iter()
+        .filter(|file| {
+            (!file.path.contains('/') && file.path.ends_with(".md"))
+                || file.path == RESOURCE_MODE_SCOPE_FILENAME
+        })
+        .count();
+    if root_markdown.len() != 1 || supported_file_count != files.len() {
         diagnostics.push(diagnostic(
-            "agent_markdown_missing",
-            "An Agent draft requires one Markdown definition.",
+            "agent_source_count_invalid",
+            "An EvoFlux Agent archive must contain one root Markdown definition and may include only .evoflux.json deployment metadata.",
             "",
         ));
+    }
+    validate_target_modes(files, diagnostics);
+    let Some(markdown) = root_markdown.first().copied() else {
         return;
     };
-    validate_frontmatter(slug, markdown, diagnostics);
+    let expected_path = format!("{slug}.md");
+    if markdown.path != expected_path {
+        diagnostics.push(diagnostic(
+            "agent_filename_mismatch",
+            "The root Agent filename must match the resource slug.",
+            &markdown.path,
+        ));
+    }
+    let Some(document) = parse_markdown_document(markdown, diagnostics) else {
+        return;
+    };
+    validate_frontmatter_name(slug, markdown, &document.fields, diagnostics);
+    let role = document.fields.get("role").map(String::as_str);
+    if !matches!(role, Some("lead" | "member")) {
+        diagnostics.push(diagnostic(
+            "agent_role_invalid",
+            "Agent frontmatter role must be either 'lead' or 'member'.",
+            &markdown.path,
+        ));
+    }
+    if document
+        .fields
+        .get("description")
+        .is_some_and(|value| value.len() > MAX_SKILL_DESCRIPTION_CHARS)
+    {
+        diagnostics.push(diagnostic(
+            "agent_description_too_long",
+            "Agent frontmatter description must be at most 1024 characters.",
+            &markdown.path,
+        ));
+    }
+    if document.fields.get("model").is_some_and(|model| {
+        !model.is_empty() && model != "__PROVIDER_MODEL__" && !valid_model_id(model)
+    }) {
+        diagnostics.push(diagnostic(
+            "agent_model_invalid",
+            "Agent model must use provider:model syntax when it is set.",
+            &markdown.path,
+        ));
+    }
 }
 
 fn validate_skill(slug: &str, files: &[DraftFile], diagnostics: &mut Vec<ResourceDiagnostic>) {
+    validate_target_modes(files, diagnostics);
     let Some(skill) = files.iter().find(|file| file.path == "SKILL.md") else {
         diagnostics.push(diagnostic(
             "skill_manifest_missing",
@@ -267,7 +413,97 @@ fn validate_skill(slug: &str, files: &[DraftFile], diagnostics: &mut Vec<Resourc
         ));
         return;
     };
-    validate_frontmatter(slug, skill, diagnostics);
+    if skill.content.len() > MAX_SKILL_MARKDOWN_BYTES {
+        diagnostics.push(diagnostic(
+            "skill_markdown_too_large",
+            "SKILL.md must not exceed the EvoFlux 512 KiB runtime limit.",
+            &skill.path,
+        ));
+    }
+    let Some(document) = parse_markdown_document(skill, diagnostics) else {
+        return;
+    };
+    validate_frontmatter_name(slug, skill, &document.fields, diagnostics);
+    if slug.len() > 64 || !valid_portable_skill_name(slug) {
+        diagnostics.push(diagnostic(
+            "skill_name_invalid",
+            "Skill names must use 1–64 lowercase letters or digits joined by single hyphens.",
+            &skill.path,
+        ));
+    }
+    let description = document.fields.get("description");
+    if description.is_none_or(String::is_empty) {
+        diagnostics.push(diagnostic(
+            "frontmatter_description_missing",
+            "SKILL.md frontmatter requires a non-empty description.",
+            &skill.path,
+        ));
+    } else if description.is_some_and(|value| value.len() > MAX_SKILL_DESCRIPTION_CHARS) {
+        diagnostics.push(diagnostic(
+            "skill_description_too_long",
+            "Skill frontmatter description must be at most 1024 characters.",
+            &skill.path,
+        ));
+    }
+    for key in document.fields.keys() {
+        if key != "name" && key != "description" {
+            diagnostics.push(diagnostic(
+                "skill_frontmatter_field_unsupported",
+                "Portable SKILL.md frontmatter may contain only 'name' and 'description'.",
+                &skill.path,
+            ));
+            break;
+        }
+    }
+    if document.body.trim().is_empty() {
+        diagnostics.push(diagnostic(
+            "skill_instructions_missing",
+            "SKILL.md must contain non-empty workflow instructions after the frontmatter.",
+            &skill.path,
+        ));
+    }
+}
+
+fn validate_target_modes(files: &[DraftFile], diagnostics: &mut Vec<ResourceDiagnostic>) {
+    let Some(scope) = files
+        .iter()
+        .find(|file| file.path == RESOURCE_MODE_SCOPE_FILENAME)
+    else {
+        return;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&scope.content) else {
+        diagnostics.push(diagnostic(
+            "resource_modes_json_invalid",
+            ".evoflux.json must contain valid JSON.",
+            RESOURCE_MODE_SCOPE_FILENAME,
+        ));
+        return;
+    };
+    let Some(modes) = value.get("modes").and_then(serde_json::Value::as_array) else {
+        diagnostics.push(diagnostic(
+            "resource_modes_missing",
+            ".evoflux.json requires a non-empty modes array.",
+            RESOURCE_MODE_SCOPE_FILENAME,
+        ));
+        return;
+    };
+    let mut selected = HashSet::new();
+    if modes.is_empty()
+        || modes.iter().any(|mode| {
+            mode.as_str()
+                .is_none_or(|mode| !matches!(mode, "work" | "coding"))
+        })
+        || modes
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .any(|mode| !selected.insert(mode))
+    {
+        diagnostics.push(diagnostic(
+            "resource_modes_invalid",
+            "modes must contain work and/or coding exactly once.",
+            RESOURCE_MODE_SCOPE_FILENAME,
+        ));
+    }
 }
 
 fn validate_plugin(slug: &str, files: &[DraftFile], diagnostics: &mut Vec<ResourceDiagnostic>) {
@@ -304,10 +540,52 @@ fn validate_plugin(slug: &str, files: &[DraftFile], diagnostics: &mut Vec<Resour
             "plugin.json",
         ));
     }
-    if object.get("name").and_then(serde_json::Value::as_str) != Some(slug) {
+    let manifest_name = object.get("name").and_then(serde_json::Value::as_str);
+    if manifest_name.is_none_or(str::is_empty) {
+        diagnostics.push(diagnostic(
+            "manifest_name_missing",
+            "plugin.json requires a non-empty name.",
+            "plugin.json",
+        ));
+    } else if manifest_name.is_some_and(|name| {
+        name.len() > 80
+            || !name.chars().all(|character| {
+                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+            })
+    }) {
+        diagnostics.push(diagnostic(
+            "manifest_name_invalid",
+            "plugin.json name must use 1–80 lowercase letters, numbers, or hyphens.",
+            "plugin.json",
+        ));
+    } else if manifest_name != Some(slug) {
         diagnostics.push(diagnostic(
             "manifest_name_mismatch",
             "plugin.json name must match the Conductor resource slug.",
+            "plugin.json",
+        ));
+    }
+    let manifest_version = object.get("version").and_then(serde_json::Value::as_str);
+    if manifest_version.is_none_or(|version| SemanticVersion::from_str(version).is_err()) {
+        diagnostics.push(diagnostic(
+            "manifest_version_invalid",
+            "plugin.json version must follow strict SemVer 2.0.",
+            "plugin.json",
+        ));
+    }
+    let description = object
+        .get("description")
+        .and_then(serde_json::Value::as_str);
+    if description.is_none_or(str::is_empty) {
+        diagnostics.push(diagnostic(
+            "manifest_description_missing",
+            "plugin.json requires a non-empty description.",
+            "plugin.json",
+        ));
+    } else if description.is_some_and(|value| value.len() > 1_000) {
+        diagnostics.push(diagnostic(
+            "manifest_description_too_long",
+            "plugin.json description must be at most 1000 characters.",
             "plugin.json",
         ));
     }
@@ -326,54 +604,221 @@ fn validate_plugin(slug: &str, files: &[DraftFile], diagnostics: &mut Vec<Resour
         .filter(|file| file.path.starts_with("skills/") && file.path.ends_with("/SKILL.md"))
     {
         let expected = skill.path.split('/').nth(1).unwrap_or_default();
-        validate_frontmatter(expected, skill, diagnostics);
+        validate_named_markdown(expected, skill, diagnostics);
     }
 }
 
-fn validate_frontmatter(
+fn validate_named_markdown(
     expected_name: &str,
     file: &DraftFile,
     diagnostics: &mut Vec<ResourceDiagnostic>,
 ) {
-    if !file.content.starts_with("---\n") {
-        diagnostics.push(diagnostic(
-            "frontmatter_missing",
-            "Markdown must start with YAML frontmatter.",
-            &file.path,
-        ));
-        return;
-    }
-    let Some(end) = file.content[4..].find("\n---") else {
-        diagnostics.push(diagnostic(
-            "frontmatter_unclosed",
-            "YAML frontmatter must end with ---. ",
-            &file.path,
-        ));
+    let Some(document) = parse_markdown_document(file, diagnostics) else {
         return;
     };
-    let frontmatter = &file.content[4..4 + end];
-    let name = frontmatter.lines().find_map(|line| {
-        line.strip_prefix("name:")
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-    });
-    if name != Some(expected_name) {
-        diagnostics.push(diagnostic(
-            "frontmatter_name_mismatch",
-            "Frontmatter name must match the resource or component directory.",
-            &file.path,
-        ));
-    }
-    if !frontmatter.lines().any(|line| {
-        line.strip_prefix("description:")
-            .is_some_and(|value| !value.trim().is_empty())
-    }) {
+    validate_frontmatter_name(expected_name, file, &document.fields, diagnostics);
+    if document
+        .fields
+        .get("description")
+        .is_none_or(String::is_empty)
+    {
         diagnostics.push(diagnostic(
             "frontmatter_description_missing",
             "Frontmatter requires a non-empty description.",
             &file.path,
         ));
     }
+}
+
+fn validate_frontmatter_name(
+    expected_name: &str,
+    file: &DraftFile,
+    fields: &HashMap<String, String>,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) {
+    if fields.get("name").map(String::as_str) != Some(expected_name) {
+        diagnostics.push(diagnostic(
+            "frontmatter_name_mismatch",
+            "Frontmatter name must match the resource or component directory.",
+            &file.path,
+        ));
+    }
+}
+
+struct MarkdownDocument {
+    fields: HashMap<String, String>,
+    body: String,
+}
+
+fn parse_markdown_document(
+    file: &DraftFile,
+    diagnostics: &mut Vec<ResourceDiagnostic>,
+) -> Option<MarkdownDocument> {
+    let normalized = file.content.replace("\r\n", "\n");
+    let Some(rest) = normalized.trim_start().strip_prefix("---\n") else {
+        diagnostics.push(diagnostic(
+            "frontmatter_missing",
+            "Markdown must start with YAML frontmatter.",
+            &file.path,
+        ));
+        return None;
+    };
+    let document = rest
+        .split_once("\n---\n")
+        .map(|(frontmatter, body)| (frontmatter, body.to_string()))
+        .or_else(|| {
+            rest.strip_suffix("\n---")
+                .map(|frontmatter| (frontmatter, String::new()))
+        });
+    let Some((frontmatter, body)) = document else {
+        diagnostics.push(diagnostic(
+            "frontmatter_unclosed",
+            "YAML frontmatter must end with a standalone --- delimiter.",
+            &file.path,
+        ));
+        return None;
+    };
+    let mut fields = HashMap::new();
+    let mut current_key = None;
+    for line in frontmatter.lines() {
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        if line.starts_with(char::is_whitespace) {
+            if current_key.is_none() {
+                diagnostics.push(diagnostic(
+                    "frontmatter_yaml_invalid",
+                    "Frontmatter must be a YAML mapping with top-level fields.",
+                    &file.path,
+                ));
+                return None;
+            }
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            diagnostics.push(diagnostic(
+                "frontmatter_yaml_invalid",
+                "Frontmatter contains an invalid YAML field.",
+                &file.path,
+            ));
+            return None;
+        };
+        let key = key.trim();
+        if key.is_empty()
+            || !key.chars().all(|character| {
+                character.is_ascii_alphanumeric() || character == '_' || character == '-'
+            })
+            || fields.contains_key(key)
+        {
+            diagnostics.push(diagnostic(
+                "frontmatter_yaml_invalid",
+                "Frontmatter fields must be unique YAML mapping keys.",
+                &file.path,
+            ));
+            return None;
+        }
+        fields.insert(key.to_string(), unquote_yaml_scalar(value.trim()));
+        current_key = Some(key.to_string());
+    }
+    Some(MarkdownDocument { fields, body })
+}
+
+fn unquote_yaml_scalar(value: &str) -> String {
+    if value.len() >= 2 {
+        let bytes = value.as_bytes();
+        if matches!(
+            (bytes[0], bytes[value.len() - 1]),
+            (b'"', b'"') | (b'\'', b'\'')
+        ) {
+            return value[1..value.len() - 1].to_string();
+        }
+    }
+    value
+        .split_once(" #")
+        .map(|(scalar, _)| scalar)
+        .unwrap_or(value)
+        .trim()
+        .to_string()
+}
+
+fn valid_model_id(value: &str) -> bool {
+    value.split_once(':').is_some_and(|(provider, model)| {
+        !provider.is_empty() && !model.is_empty() && !value.contains(char::is_whitespace)
+    })
+}
+
+fn valid_portable_skill_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+        })
+}
+
+fn markdown_source_metadata(file: &DraftFile, version: Option<String>) -> ArchiveSourceMetadata {
+    let mut ignored = Vec::new();
+    let document = parse_markdown_document(file, &mut ignored);
+    ArchiveSourceMetadata {
+        slug: document
+            .as_ref()
+            .and_then(|item| item.fields.get("name").cloned()),
+        version,
+        description: document
+            .as_ref()
+            .and_then(|item| item.fields.get("description").cloned()),
+        primary_source: Some(file.path.clone()),
+    }
+}
+
+fn plugin_source_metadata(files: &[DraftFile]) -> ArchiveSourceMetadata {
+    let manifest = files
+        .iter()
+        .find(|file| file.path == "plugin.json")
+        .and_then(|file| serde_json::from_str::<serde_json::Value>(&file.content).ok());
+    ArchiveSourceMetadata {
+        slug: manifest
+            .as_ref()
+            .and_then(|value| value.get("name"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        version: manifest
+            .as_ref()
+            .and_then(|value| value.get("version"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        description: manifest
+            .as_ref()
+            .and_then(|value| value.get("description"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        primary_source: manifest.map(|_| "plugin.json".to_string()),
+    }
+}
+
+fn normalize_archive_root(files: Vec<DraftFile>) -> Vec<DraftFile> {
+    let wrapper = files
+        .iter()
+        .filter_map(|file| file.path.split_once('/').map(|(root, _)| root))
+        .next()
+        .map(str::to_string);
+    let Some(wrapper) = wrapper else {
+        return files;
+    };
+    if files
+        .iter()
+        .any(|file| !file.path.starts_with(&format!("{wrapper}/")))
+    {
+        return files;
+    }
+    files
+        .into_iter()
+        .map(|mut file| {
+            file.path = file.path[wrapper.len() + 1..].to_string();
+            file
+        })
+        .collect()
 }
 
 fn diagnostic(code: &str, message: &str, path: &str) -> ResourceDiagnostic {
@@ -453,6 +898,80 @@ mod tests {
         .unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].path, "plugin.json");
+    }
+
+    #[test]
+    fn agent_validation_matches_evoflux_role_and_single_file_contract() {
+        let files = vec![
+            DraftFile {
+                path: "reviewer.md".into(),
+                content: "---\nname: reviewer\nrole: worker\ndescription: Review changes.\n---\n\nReview.\n"
+                    .into(),
+            },
+            DraftFile {
+                path: "notes.md".into(),
+                content: "Not part of an EvoFlux Agent definition.\n".into(),
+            },
+        ];
+        let result = validate_draft(ResourceKind::Agent, "reviewer", 0, &files);
+        assert!(!result.valid);
+        assert!(result
+            .diagnostics
+            .iter()
+            .any(|item| item.code == "agent_source_count_invalid"));
+        assert!(result
+            .diagnostics
+            .iter()
+            .any(|item| item.code == "agent_role_invalid"));
+    }
+
+    #[test]
+    fn skill_validation_rejects_non_portable_frontmatter() {
+        let files = vec![DraftFile {
+            path: "SKILL.md".into(),
+            content: "---\nname: release-audit\ndescription: Audit a release.\nmode: coding\n---\n\nAudit it.\n"
+                .into(),
+        }];
+        let result = validate_draft(ResourceKind::Skill, "release-audit", 0, &files);
+        assert!(!result.valid);
+        assert!(result
+            .diagnostics
+            .iter()
+            .any(|item| item.code == "skill_frontmatter_field_unsupported"));
+    }
+
+    #[test]
+    fn target_modes_use_evoflux_work_and_coding_contract() {
+        let mut files = starter_files(ResourceKind::Agent, "reviewer", "Reviewer");
+        set_target_modes(&mut files, &[ResourceTargetMode::Coding]);
+        let result = validate_draft(ResourceKind::Agent, "reviewer", 0, &files);
+        assert!(result.valid, "{:?}", result.diagnostics);
+        let scope = files
+            .iter()
+            .find(|file| file.path == RESOURCE_MODE_SCOPE_FILENAME)
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&scope.content).unwrap(),
+            serde_json::json!({ "modes": ["coding"] })
+        );
+    }
+
+    #[test]
+    fn target_modes_reject_unknown_or_empty_values() {
+        for content in [r#"{"modes":[]}"#, r#"{"modes":["cowork"]}"#] {
+            let mut files = starter_files(ResourceKind::Skill, "release-audit", "Audit");
+            files
+                .iter_mut()
+                .find(|file| file.path == RESOURCE_MODE_SCOPE_FILENAME)
+                .unwrap()
+                .content = content.into();
+            let result = validate_draft(ResourceKind::Skill, "release-audit", 0, &files);
+            assert!(!result.valid);
+            assert!(result
+                .diagnostics
+                .iter()
+                .any(|item| item.code == "resource_modes_invalid"));
+        }
     }
 
     #[test]

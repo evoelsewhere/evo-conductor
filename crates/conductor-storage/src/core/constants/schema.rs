@@ -20,9 +20,11 @@ pub const TABLES: &[&str] = &[
     "resource_release_channels",
     "resource_beta_members",
     "resource_changes",
+    "resource_version_events",
     "installation_resource_inventory",
     "member_inventory",
     "telemetry_events",
+    "telemetry_resource_attributions",
 ];
 
 /// Every index the migration declares. These run after the tables, so they fail
@@ -40,7 +42,10 @@ pub const INDEXES: &[&str] = &[
     "idx_telemetry_user_time",
     "idx_telemetry_request",
     "idx_telemetry_installation_time",
+    "idx_telemetry_project_received",
+    "idx_telemetry_resource_time",
     "idx_resource_changes_audience",
     "idx_resource_changes_resource",
+    "idx_resource_version_events_resource",
     "idx_resource_inventory_state",
 ];
