@@ -4,6 +4,7 @@ mod client;
 mod dashboard;
 mod health;
 mod realtime;
+mod resource_delivery;
 mod resources;
 mod secrets;
 mod settings;
@@ -12,6 +13,7 @@ mod sso;
 mod telemetry;
 mod users;
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, patch, post, put};
 use axum::Router;
 
@@ -74,8 +76,32 @@ pub fn router() -> Router<AppState> {
         .route("/secrets", get(secrets::list).post(secrets::create))
         .route("/secrets/{id}/revoke", post(secrets::revoke))
         .route("/resources", get(resources::list).post(resources::create))
+        .route("/resources/guides/{kind}", get(resource_delivery::guide))
+        .route(
+            "/resources/templates/{kind}",
+            get(resource_delivery::template),
+        )
         .route("/resources/{id}", patch(resources::update))
         .route("/resources/{id}/archive", post(resources::archive))
+        .route(
+            "/resources/{id}/draft/files",
+            get(resource_delivery::draft_tree),
+        )
+        .route(
+            "/resources/{id}/draft/files/{*path}",
+            put(resource_delivery::save_draft_file),
+        )
+        .route(
+            "/resources/{id}/draft/import",
+            post(resource_delivery::import_archive).layer(DefaultBodyLimit::max(
+                crate::core::resource_authoring::MAX_IMPORT_ARCHIVE_BYTES,
+            )),
+        )
+        .route(
+            "/resources/{id}/draft/validate",
+            post(resource_delivery::validate),
+        )
+        .route("/resources/{id}/release", post(resource_delivery::release))
         .route(
             "/resources/{id}/versions",
             get(resources::versions).post(resources::create_version),
@@ -94,6 +120,16 @@ pub fn router() -> Router<AppState> {
             get(resources::feedback).put(resources::upsert_feedback),
         )
         .route("/v1/subscribe/resources", get(resources::subscribe))
+        .route("/v1/resources/changes", get(resource_delivery::changes))
+        .route(
+            "/v1/resources/{id}/versions/{version_id}",
+            get(resource_delivery::version_payload),
+        )
+        .route(
+            "/v1/resources/{id}/versions/{version_id}/artifact",
+            get(resource_delivery::artifact),
+        )
+        .route("/v1/client/inventory", put(resource_delivery::inventory))
         .route("/v1/client/register", post(client::register))
         .route("/v1/client/heartbeat", post(client::heartbeat))
         .route("/v1/telemetry/batch", post(telemetry::ingest))

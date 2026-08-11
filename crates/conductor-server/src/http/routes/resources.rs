@@ -10,9 +10,11 @@ use conductor_domain::{
     ConductorError, CreateResourceRequest, CreateResourceVersionRequest, ManagedResource,
     PrimaryRole, ResourceAccessPolicy, ResourceFeedback, ResourceMonitoring, ResourceStatus,
     ResourceUsageBatchRequest, ResourceUsageBatchResponse, ResourceUsageRejection, ResourceVersion,
-    ResourceVisibility, SecretScope, UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    ResourceVisibility, SecretScope, SemanticVersion, UpdateResourceRequest,
+    UpsertResourceFeedbackRequest,
 };
 use serde::Deserialize;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::core::error::{ApiError, ApiResult};
@@ -40,6 +42,19 @@ pub async fn create(
 ) -> ApiResult<Json<ManagedResource>> {
     require_catalog_manager(actor.primary_role)?;
     normalize_create_request(&mut request);
+    if request
+        .payload
+        .as_object()
+        .is_some_and(serde_json::Map::is_empty)
+    {
+        request.payload = serde_json::json!({
+            "files": crate::core::resource_authoring::starter_files(
+                request.kind,
+                &request.slug,
+                &request.name,
+            )
+        });
+    }
     validate_resource_request(
         &request.slug,
         &request.name,
@@ -49,7 +64,18 @@ pub async fn create(
         request.changelog.as_deref(),
     )?;
 
-    match state.db.resources().create(&request, actor.id).await {
+    let project_id = state
+        .db
+        .instance()
+        .project_id()
+        .await?
+        .ok_or(ConductorError::NotFound("project".into()))?;
+    match state
+        .db
+        .resources()
+        .create(project_id, &request, actor.id)
+        .await
+    {
         Ok(resource) => Ok(Json(resource)),
         Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
             Err(ConductorError::Conflict("kind and slug already exist".into()).into())
@@ -416,7 +442,7 @@ async fn publish_catalog_state(state: &AppState, resource: &ManagedResource) -> 
     };
     state.realtime.publish(RealtimeSignal::ResourceUpsert {
         audience,
-        resource: resource.clone(),
+        resource: Box::new(resource.clone()),
     });
     Ok(())
 }
@@ -504,19 +530,9 @@ fn validate_resource_request(
 }
 
 fn validate_version(version: &str) -> ApiResult<()> {
-    if version.is_empty() || version.len() > 64 {
-        return Err(ConductorError::msg("version must be valid semantic version text").into());
-    }
-    let core = version.split_once('-').map_or(version, |(core, _)| core);
-    let parts: Vec<_> = core.split('.').collect();
-    if parts.len() != 3
-        || parts.iter().any(|part| {
-            part.is_empty() || !part.chars().all(|character| character.is_ascii_digit())
-        })
-    {
-        return Err(ConductorError::msg("version must follow major.minor.patch").into());
-    }
-    Ok(())
+    SemanticVersion::from_str(version)
+        .map(|_| ())
+        .map_err(|_| ConductorError::msg("version must follow strict SemVer 2.0").into())
 }
 
 fn validate_payload(payload: &serde_json::Value) -> ApiResult<()> {
