@@ -41,10 +41,10 @@ The unit of governance is a stable **resource**. The unit of delivery is an immu
 
 ### Catalog management
 
-- Resource kinds: agent, skill, MCP, workflow and command.
+- Resource kinds: agent, skill, plugin, workflow and command.
 - Stable metadata: slug, name, description, owner and visibility.
 - Lifecycle: `draft → published → archived`.
-- Draft resource creation with an initial semantic version and JSON payload.
+- Draft resource creation with an initial semantic version and file bundle stored in project object storage.
 - Metadata editing without rewriting version history.
 - Archive instead of destructive delete; history and monitoring remain queryable.
 
@@ -53,7 +53,8 @@ The unit of governance is a stable **resource**. The unit of delivery is an immu
 - Multiple immutable version records per resource.
 - Version lifecycle: `draft → published → deprecated`.
 - Exactly one published version per resource.
-- Publishing atomically replaces the payload served to EvoFlux.
+- Publishing creates an immutable content-addressed ZIP and atomically advances the selected release channel.
+- SQL stores only object keys, digests, sizes and manifests; authored files and logos use Local, S3 or Azure Blob storage.
 - Changelog required by product workflow, optional at API level for migration compatibility.
 
 ### Access model

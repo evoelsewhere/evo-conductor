@@ -28,7 +28,7 @@ New immutable versions expose `bundle_v2` on the version descriptor returned by 
   "version": "1.4.0",
   "artifact_sha256": "64 lowercase hexadecimal characters",
   "artifact_size": 2741,
-  "artifact_media_type": "application/vnd.evoflux.resource+json",
+  "artifact_media_type": "application/vnd.evoflux.resource+zip",
   "tree_sha256": "64 lowercase hexadecimal characters",
   "files": [
     {
@@ -96,11 +96,11 @@ No trailing normalization, Unicode normalization, newline conversion or path sep
 | Kind | `artifact_media_type` | Current artifact semantics |
 |---|---|---|
 | Plugin | `application/vnd.evoflux.plugin+zip` | SHA-256 and size of the immutable ZIP returned by the artifact endpoint |
-| Agent / Skill | `application/vnd.evoflux.resource+json` | SHA-256 and size of Conductor's canonical content-only JSON before the descriptor is attached |
+| Agent / Skill | `application/vnd.evoflux.resource+zip` | SHA-256 and size of the immutable ZIP returned by the artifact endpoint |
 
 For Plugin, EvoFlux must verify `artifact_sha256` before extraction and then verify every extracted file against `files` and `tree_sha256`. Plugins still require local trust review before enablement.
 
-For Agent and Skill, `tree_sha256` plus each file digest is the interoperable verification contract. Conductor does not yet expose their canonical JSON as a separate byte-for-byte artifact; therefore EvoFlux must not hash a reserialized HTTP object and compare it with `artifact_sha256`.
+For all three bundle kinds, EvoFlux verifies `artifact_sha256` before extraction, then verifies every file and `tree_sha256`. The version JSON endpoint hydrates `payload.files` from object storage only for compatibility; those bytes are never stored in SQL.
 
 ## Change-feed descriptor
 
@@ -111,7 +111,7 @@ For Agent and Skill, `tree_sha256` plus each file digest is the interoperable ve
   "bundle_schema_version": 2,
   "artifact_sha256": "...",
   "tree_sha256": "...",
-  "artifact_media_type": "application/vnd.evoflux.resource+json",
+  "artifact_media_type": "application/vnd.evoflux.resource+zip",
   "file_count": 4
 }
 ```
@@ -120,7 +120,7 @@ The change feed intentionally omits the full file manifest to keep polling bound
 
 ## Backward compatibility
 
-- Existing `sha256`, `size`, `payload` and artifact routes are unchanged.
+- Existing `sha256`, `size`, `payload` and artifact routes remain available. Agent and Skill artifacts now return ZIP bytes rather than an implicit JSON digest.
 - All new delivery fields are optional on outer descriptors and omitted for legacy records, tombstones, Workflow and Command.
 - Change-feed consumers must ignore unknown optional object fields; only an unsupported `schema_version` is a protocol incompatibility.
 - EvoFlux may continue its v1 path when `bundle_schema_version` or `bundle_v2` is absent.
@@ -128,10 +128,10 @@ The change feed intentionally omits the full file manifest to keep polling bound
 
 ## Current implementation gaps
 
-The v2 schema is additive and requires no database migration because Conductor stores the descriptor with the immutable version payload. The following work remains before claiming full binary bundle support:
+Conductor migrates legacy inline `files[].content` values at startup. SQL retains only a manifest, object key, digest, size and release metadata; draft and release bytes live in the project-selected Local, S3 or Azure Blob backend.
+
+The following work remains before claiming full binary bundle support:
 
 1. Preserve ZIP Unix mode bits and binary file bytes. The current editor/import path accepts UTF-8 text only, so Conductor truthfully emits `executable: false` for every file.
-2. Expose immutable Agent and Skill artifact bytes through the artifact endpoint, with the same pre-extraction size and digest guarantees as Plugin.
-3. Validate all SHA-256 fields and media-type grammar at the domain boundary instead of relying only on Conductor-generated values.
-4. Add EvoFlux staging, verification, atomic activation, rollback and inventory reporting. This repository intentionally does not modify EvoFlux yet.
-5. Move bundle metadata into dedicated storage columns only if querying by tree digest becomes a demonstrated need; the current payload-backed representation avoids a premature artifact-store migration.
+2. Validate all SHA-256 fields and media-type grammar at the domain boundary instead of relying only on Conductor-generated values.
+3. Add EvoFlux staging, verification, atomic activation, rollback and inventory reporting. This repository intentionally does not modify EvoFlux yet.

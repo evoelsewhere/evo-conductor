@@ -10,7 +10,7 @@ This document is the implementation contract for adding Conductor connectivity t
 Use two independent paths:
 
 - **Control plane, Conductor → EvoFlux:** long-lived Server-Sent Events (SSE).
-- **Data plane, EvoFlux → Conductor:** short, retryable HTTPS batches for inventory and telemetry in a later phase.
+- **Data plane, EvoFlux → Conductor:** short, retryable HTTPS registration, inventory and telemetry batches.
 
 SSE is preferred over WebSocket for the current one-way catalog stream: it has native HTTP proxy behavior, a smaller protocol surface, simple heartbeats/reconnects, and no per-connection polling task. EvoFlux must use an SSE client that supports custom headers; browser `EventSource` cannot attach the required bearer token.
 
@@ -37,6 +37,10 @@ flowchart LR
 |---|---|---|
 | `GET /api/v1/realtime/events` | Realtime SSE stream | `subscribe_resources` |
 | `GET /api/v1/subscribe/resources` | Full snapshot and reconnect fallback | `subscribe_resources` |
+| `POST /api/v1/client/register` | Idempotent installation registration and project policy bootstrap | `subscribe_resources` |
+| `POST /api/v1/client/heartbeat` | Installation presence heartbeat | `subscribe_resources` |
+| `PUT /api/v1/client/inventory` | Authoritative applied/drift/trust inventory | `subscribe_resources` |
+| `POST /api/v1/telemetry/batch` | Privacy-safe request/model/tool telemetry | `report_telemetry` |
 | `POST /api/v1/usage/resources` | Idempotent resource outcome batch | `report_telemetry` |
 
 Request:
@@ -265,6 +269,22 @@ Recommended retry delay: `random(0, min(30s, 500ms × 2^attempt))`. Reset the at
 - Preserve the last known-good catalog during reconnect. Mark it stale after the liveness timeout.
 - Reject unexpectedly large payloads according to an EvoFlux-side configured limit.
 
+## Resource artifact data plane
+
+Realtime and `/v1/resources/changes` carry invalidation metadata, not authored file bytes. For each accessible `version_id`, EvoFlux:
+
+1. Fetches `GET /api/v1/resources/{resource_id}/versions/{version_id}`.
+2. Validates `bundle_v2`, the kind, version, artifact size and SHA-256.
+3. Downloads `GET /api/v1/resources/{resource_id}/versions/{version_id}/artifact`.
+4. Verifies the ZIP digest before extraction.
+5. Verifies every extracted file and the tree digest.
+6. Stages dependencies and the resource, then activates with an atomic directory swap.
+7. Persists the cursor and reports inventory only after activation succeeds.
+
+Agent and Skill now use `application/vnd.evoflux.resource+zip`; Plugin uses `application/vnd.evoflux.plugin+zip`. Conductor may hydrate `payload.files` in the authenticated version response for older clients, but source bytes live only in project object storage and are not stored in SQL. New clients should prefer the immutable artifact endpoint.
+
+The active Local, S3 or Azure Blob provider is an operator detail and never changes canonical object keys or digests. See [object-storage.md](object-storage.md) and [resource-bundle-v2.md](resource-bundle-v2.md).
+
 ## Conductor performance and backpressure
 
 The implemented single-process path has these properties:
@@ -363,4 +383,18 @@ The canonical Agent, Skill and Plugin file-manifest, integrity and Work/Coding/A
 - Never include member identity or execution content in usage payloads.
 - Run the shared load/soak acceptance suite before enabling realtime by default.
 
-Inventory heartbeat and general telemetry endpoints remain intentionally undeclared. Resource outcome reporting is the only implemented EvoFlux → Conductor data-plane contract. Define other batch schemas, idempotency keys, size limits and retention policies before EvoFlux sends them.
+## Project data policy
+
+`POST /api/v1/client/register` returns the current project collection level in
+`policy.collection_level`:
+
+- `L0`: telemetry ingestion is disabled; registration, heartbeat, resource delivery and inventory remain available.
+- `L1`: operational metadata is enabled: outcomes, latency, tokens and resource attribution.
+- `L2`: reserves the extended privacy-safe diagnostics contract for richer model, tool and failure analysis.
+
+Conductor rejects `/api/v1/telemetry/batch` when the current project setting is
+`L0`. EvoFlux must re-read the policy when it registers and must stop enqueueing
+telemetry if the server returns `403`. None of the collection levels authorize
+prompt text, model responses, tool arguments, credentials or local file
+contents. The Admin UI manages this value under **Project settings → Data &
+privacy**.
