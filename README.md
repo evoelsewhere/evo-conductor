@@ -95,6 +95,9 @@ See [docs/evoflux-integration.md](docs/evoflux-integration.md) for the protocol 
 
 The governed catalog supports draft/publish/archive lifecycle, version history, role/team/member access policies, idempotent member usage tracking, effectiveness charts and feedback. See [docs/resource-catalog-product.md](docs/resource-catalog-product.md) for the product model and permission matrix.
 
+For a deterministic public-API load test covering 1,000 members, resource sync,
+inventory and attributed telemetry, see [docs/fleet-simulator.md](docs/fleet-simulator.md).
+
 ## Env
 
 See `.env.example`.

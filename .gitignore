@@ -13,6 +13,7 @@ apps/web/playwright-report/
 
 # Data / runtime
 data/
+.fleet-simulator/
 *.db
 *.db-shm
 *.db-wal
