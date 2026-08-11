@@ -4,6 +4,7 @@ use std::io::{Cursor, Write};
 
 use axum::http::StatusCode;
 use conductor_domain::{PrimaryRole, SetupRequest};
+use sqlx::Row;
 use support::test_app;
 
 fn archive(entries: &[(&str, &str)]) -> Vec<u8> {
@@ -134,13 +135,54 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
     assert_eq!(bundle["artifact_size"], released["size"]);
     assert_eq!(
         bundle["artifact_media_type"],
-        "application/vnd.evoflux.resource+json"
+        "application/vnd.evoflux.resource+zip"
     );
     assert_eq!(bundle["files"].as_array().map(Vec::len), Some(2));
     assert_eq!(bundle["files"][0]["path"], ".evoflux.json");
     assert_eq!(bundle["files"][0]["media_type"], "application/json");
     assert_eq!(bundle["files"][0]["executable"], false);
     assert_eq!(bundle["tree_sha256"].as_str().map(str::len), Some(64));
+
+    let resource_row = sqlx::query(
+        "SELECT payload, draft_artifact_key, draft_content_sha256 FROM resources WHERE id = ?",
+    )
+    .bind(resource_id)
+    .fetch_one(app.state.db.pool())
+    .await
+    .unwrap();
+    let resource_payload: String = resource_row.get("payload");
+    assert!(!resource_payload.contains("\"content\""));
+    let draft_key: String = resource_row.get("draft_artifact_key");
+    assert_eq!(draft_key, tree_artifact_key(&resource_payload));
+    assert_eq!(
+        resource_row.get::<String, _>("draft_content_sha256").len(),
+        64
+    );
+    assert!(!app
+        .state
+        .artifacts
+        .read(&draft_key)
+        .await
+        .unwrap()
+        .is_empty());
+
+    let version_row =
+        sqlx::query("SELECT payload, artifact_key FROM resource_versions WHERE resource_id = ?")
+            .bind(resource_id)
+            .fetch_one(app.state.db.pool())
+            .await
+            .unwrap();
+    let version_payload: String = version_row.get("payload");
+    assert!(!version_payload.contains("\"content\""));
+    let version_key: String = version_row.get("artifact_key");
+    assert_eq!(version_key, tree_artifact_key(&version_payload));
+}
+
+fn tree_artifact_key(payload: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(payload).unwrap()["artifact"]["key"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 #[tokio::test]

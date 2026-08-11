@@ -41,13 +41,22 @@ impl AppState {
         // Limits saved via the network settings override the environment config.
         let overrides = db.instance().network_overrides().await?;
         let realtime_config = realtime_config.with_overrides(&overrides);
+        let storage_settings = db.instance().storage_settings().await?;
+        let artifacts = ArtifactStore::from_settings(storage_settings).await?;
+        let migrated_payloads = artifacts.externalize_legacy_payloads(&db).await?;
+        if migrated_payloads > 0 {
+            tracing::info!(
+                migrated_payloads,
+                "externalized legacy resource file payloads"
+            );
+        }
 
         Ok(Self {
             db,
             jwt,
             oidc_pending: Arc::new(DashMap::new()),
             realtime: RealtimeHub::new(realtime_config),
-            artifacts: ArtifactStore::from_env(),
+            artifacts,
         })
     }
 

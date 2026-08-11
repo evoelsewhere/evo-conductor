@@ -1,7 +1,7 @@
 use chrono::Utc;
 use conductor_domain::{
     InstanceConfig, PrimaryRole, RealtimeSettings, SetupRequest, SetupStatus, SsoConfig,
-    SsoProvider, User, UserStatus,
+    SsoProvider, StorageBackend, StorageSettings, User, UserStatus,
 };
 use sqlx::Row;
 use sqlx::{Any, Pool};
@@ -22,6 +22,14 @@ pub struct SsoConfigUpdate<'a> {
     pub client_secret: Option<&'a str>,
     pub redirect_uri: Option<&'a str>,
     pub scopes: Option<&'a [String]>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LogoArtifact {
+    pub key: String,
+    pub sha256: String,
+    pub size: u64,
+    pub media_type: String,
 }
 
 /// Realtime limits stored on the instance row. `None` means the server falls
@@ -45,9 +53,37 @@ impl InstanceRepo {
         Ok(value.and_then(|value| Uuid::parse_str(&value).ok()))
     }
 
+    pub async fn storage_settings(&self) -> Result<StorageSettings, sqlx::Error> {
+        let row = sqlx::query("SELECT storage_backend, storage_config FROM instance LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(row) = row else {
+            return Ok(StorageSettings::default());
+        };
+        let backend: String = row.get("storage_backend");
+        let config: String = row.get("storage_config");
+        let mut settings = serde_json::from_str::<StorageSettings>(&config).unwrap_or_default();
+        settings.backend = StorageBackend::parse(&backend);
+        Ok(settings)
+    }
+
+    pub async fn update_storage_settings(
+        &self,
+        settings: &StorageSettings,
+    ) -> Result<(), sqlx::Error> {
+        let config = serde_json::to_string(settings).unwrap_or_else(|_| "{}".into());
+        sqlx::query("UPDATE instance SET storage_backend = ?, storage_config = ?, updated_at = ?")
+            .bind(settings.backend.as_str())
+            .bind(config)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn setup_status(&self) -> Result<SetupStatus, sqlx::Error> {
         let row = sqlx::query(
-            "SELECT project_name, display_name, logo_url, public_url, setup_completed FROM instance LIMIT 1",
+            "SELECT project_name, display_name, logo_url, logo_artifact_key, logo_content_sha256, public_url, setup_completed FROM instance LIMIT 1",
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -66,7 +102,7 @@ impl InstanceRepo {
                     configured: completed == 1,
                     project_name: Some(r.get("project_name")),
                     display_name: r.get("display_name"),
-                    logo_url: r.get("logo_url"),
+                    logo_url: effective_logo_url(&r),
                     public_url: r.get("public_url"),
                     sso_enabled,
                 }
@@ -226,6 +262,7 @@ impl InstanceRepo {
         let row = sqlx::query(
             r#"
             SELECT id, project_name, display_name, bind_host, bind_port, public_url, logo_url,
+                   logo_artifact_key, logo_content_sha256,
                    setup_completed, created_at, updated_at
             FROM instance LIMIT 1
             "#,
@@ -240,7 +277,7 @@ impl InstanceRepo {
             bind_host: r.get("bind_host"),
             bind_port: r.get::<i64, _>("bind_port") as u16,
             public_url: r.get("public_url"),
-            logo_url: r.get("logo_url"),
+            logo_url: effective_logo_url(&r),
             setup_completed: r.get::<i64, _>("setup_completed") == 1,
             created_at: parse_dt(r.get("created_at")),
             updated_at: parse_dt(r.get("updated_at")),
@@ -254,6 +291,15 @@ impl InstanceRepo {
                 .await?
                 .unwrap_or_else(|| "L1".to_string()),
         )
+    }
+
+    pub async fn update_collection_level(&self, level: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE instance SET collection_level = ?, updated_at = ?")
+            .bind(level)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn sso_config(&self) -> Result<SsoConfig, sqlx::Error> {
@@ -397,6 +443,46 @@ impl InstanceRepo {
         .await?;
 
         self.get().await
+    }
+
+    pub async fn logo_artifact(&self) -> Result<Option<LogoArtifact>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT logo_artifact_key, logo_content_sha256, logo_content_size, logo_media_type
+            FROM instance LIMIT 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(|row| {
+            Some(LogoArtifact {
+                key: row.get::<Option<String>, _>("logo_artifact_key")?,
+                sha256: row.get::<Option<String>, _>("logo_content_sha256")?,
+                size: row.get::<i64, _>("logo_content_size").max(0) as u64,
+                media_type: row.get::<Option<String>, _>("logo_media_type")?,
+            })
+        }))
+    }
+
+    pub async fn update_logo_artifact(
+        &self,
+        logo: Option<&LogoArtifact>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE instance
+            SET logo_url = NULL, logo_artifact_key = ?, logo_content_sha256 = ?,
+                logo_content_size = ?, logo_media_type = ?, updated_at = ?
+            "#,
+        )
+        .bind(logo.map(|value| value.key.as_str()))
+        .bind(logo.map(|value| value.sha256.as_str()))
+        .bind(logo.map(|value| i64::try_from(value.size).unwrap_or(i64::MAX)))
+        .bind(logo.map(|value| value.media_type.as_str()))
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn update_sso(&self, update: SsoConfigUpdate<'_>) -> Result<SsoConfig, sqlx::Error> {
@@ -549,4 +635,16 @@ pub struct SsoRuntime {
     pub client_secret: String,
     pub redirect_uri: String,
     pub scopes: Vec<String>,
+}
+
+fn effective_logo_url(row: &sqlx::any::AnyRow) -> Option<String> {
+    let key: Option<String> = row.get("logo_artifact_key");
+    if key.as_ref().is_some_and(|value| !value.is_empty()) {
+        let digest: Option<String> = row.get("logo_content_sha256");
+        return Some(match digest.filter(|value| !value.is_empty()) {
+            Some(value) => format!("/api/project/logo?v={}", &value[..value.len().min(12)]),
+            None => "/api/project/logo".into(),
+        });
+    }
+    row.get("logo_url")
 }

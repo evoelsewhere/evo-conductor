@@ -6,7 +6,7 @@ use conductor_domain::{
     CreateResourceRequest, PrimaryRole, ReleaseChannel, ReleaseResourceRequest, ResourceKind,
     ResourceVisibility, SetupRequest, VersionMode,
 };
-use conductor_storage::repos::{ReleaseContent, ResourceVersionLifecycleError};
+use conductor_storage::repos::{DraftContent, ReleaseContent, ResourceVersionLifecycleError};
 use sqlx::Row;
 use support::{connect_test_db, seed_active_user, PLACEHOLDER_PASSWORD_HASH};
 
@@ -50,13 +50,14 @@ async fn beta_release_changes_are_scoped_to_current_and_removed_beta_members() {
                 changelog: None,
             },
             admin.id,
+            &draft_content('0'),
         )
         .await
         .expect("create resource");
     let content = ReleaseContent {
         sha256: "a".repeat(64),
         size: 2,
-        artifact_key: None,
+        artifact_key: Some(content_key('a')),
         updated_payload: None,
     };
 
@@ -136,12 +137,6 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
         )
         .await
         .expect("complete setup");
-    let first_payload = serde_json::json!({
-        "files": [{"path": "SKILL.md", "content": "first release"}]
-    });
-    let second_payload = serde_json::json!({
-        "files": [{"path": "SKILL.md", "content": "second release"}]
-    });
     let resource = db
         .resources()
         .create(
@@ -153,10 +148,11 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
                 description: None,
                 version: "0.1.0".into(),
                 visibility: ResourceVisibility::Shared,
-                payload: first_payload.clone(),
+                payload: metadata_payload('0'),
                 changelog: None,
             },
             admin.id,
+            &draft_content('0'),
         )
         .await
         .expect("create resource");
@@ -177,8 +173,8 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
             &ReleaseContent {
                 sha256: "a".repeat(64),
                 size: 13,
-                artifact_key: None,
-                updated_payload: Some(first_payload.to_string()),
+                artifact_key: Some(content_key('a')),
+                updated_payload: Some(metadata_payload('a').to_string()),
             },
             admin.id,
         )
@@ -200,8 +196,8 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
             &ReleaseContent {
                 sha256: "b".repeat(64),
                 size: 14,
-                artifact_key: None,
-                updated_payload: Some(second_payload.to_string()),
+                artifact_key: Some(content_key('b')),
+                updated_payload: Some(metadata_payload('b').to_string()),
             },
             admin.id,
         )
@@ -283,7 +279,8 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
         .await
         .expect("restore deprecated source after confirmation");
     assert_eq!(restored.revision, 3);
-    assert_eq!(restored.files[0].content, "first release");
+    assert_eq!(restored.artifact_key, content_key('a'));
+    assert_eq!(restored.sha256, "a".repeat(64));
 
     let current = db
         .resources()
@@ -293,7 +290,7 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
         .expect("resource exists");
     assert_eq!(current.highest_version.as_deref(), Some("0.1.1"));
     assert_eq!(current.version, "0.1.1");
-    assert_eq!(current.payload, first_payload);
+    assert_eq!(current.payload, metadata_payload('a'));
     let versions = db
         .resources()
         .versions(resource.id)
@@ -315,4 +312,37 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
             .await
             .expect("count lifecycle audit events");
     assert_eq!(events, 2);
+}
+
+fn content_key(marker: char) -> String {
+    let digest = marker.to_string().repeat(64);
+    format!("sha256/{}/{}", &digest[..2], digest)
+}
+
+fn metadata_payload(marker: char) -> serde_json::Value {
+    serde_json::json!({
+        "storage_schema_version": 1,
+        "artifact": {
+            "key": content_key(marker),
+            "sha256": marker.to_string().repeat(64),
+            "size": 13,
+            "media_type": "application/vnd.evoflux.resource+zip"
+        },
+        "files": [{
+            "path": "SKILL.md",
+            "sha256": marker.to_string().repeat(64),
+            "size": 13,
+            "media_type": "text/markdown",
+            "executable": false
+        }]
+    })
+}
+
+fn draft_content(marker: char) -> DraftContent {
+    DraftContent {
+        artifact_key: content_key(marker),
+        sha256: marker.to_string().repeat(64),
+        size: 13,
+        metadata_payload: metadata_payload(marker),
+    }
 }

@@ -12,10 +12,10 @@ pub mod user;
 pub use analytics_view::{AnalyticsViewRepo, AnalyticsViewWriteError};
 pub use client_installation::{ClientInstallationRepo, RegisterInstallationError};
 pub use dashboard::DashboardRepo;
-pub use instance::{InstanceRepo, NetworkOverrides, SsoConfigUpdate, SsoRuntime};
+pub use instance::{InstanceRepo, LogoArtifact, NetworkOverrides, SsoConfigUpdate, SsoRuntime};
 pub use resource::{
-    DraftWriteError, ReleaseContent, ReleaseResourceError, ResourceRepo,
-    ResourceVersionLifecycleError,
+    DraftArtifact, DraftContent, DraftWriteError, ReleaseContent, ReleaseResourceError,
+    ResourceRepo, ResourceVersionLifecycleError,
 };
 pub use resource_usage::{ResourceUsageQuery, ResourceUsageRepo};
 pub use role::RoleRepo;

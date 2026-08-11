@@ -2,10 +2,13 @@ mod support;
 
 use axum::http::StatusCode;
 use conductor_domain::{
-    CreateResourceRequest, PrimaryRole, ReleaseChannel, ReleaseResourceRequest, ResourceKind,
-    ResourceVisibility, SetupRequest, VersionMode,
+    CreateResourceRequest, DraftFile, PrimaryRole, ReleaseChannel, ReleaseResourceRequest,
+    ResourceKind, ResourceVisibility, SetupRequest, VersionMode,
 };
-use conductor_storage::repos::ReleaseContent;
+use conductor_server::core::resource_authoring::{
+    resource_archive_media_type, resource_storage_payload,
+};
+use conductor_storage::repos::{DraftContent, ReleaseContent};
 use support::test_app;
 
 #[tokio::test]
@@ -54,12 +57,10 @@ async fn version_lifecycle_endpoints_cover_agent_and_skill_source_shapes() {
     for (kind, slug, name, source_path) in cases {
         let first_content = format!("first {} API release", kind.as_str());
         let second_content = format!("second {} API release", kind.as_str());
-        let first_payload = serde_json::json!({
-            "files": [{"path": source_path, "content": first_content}]
-        });
-        let second_payload = serde_json::json!({
-            "files": [{"path": source_path, "content": second_content}]
-        });
+        let first_stored =
+            stored_content(&app, kind, slug, "0.1.0", source_path, &first_content).await;
+        let second_stored =
+            stored_content(&app, kind, slug, "0.1.1", source_path, &second_content).await;
         let resource = app
             .state
             .db
@@ -73,10 +74,11 @@ async fn version_lifecycle_endpoints_cover_agent_and_skill_source_shapes() {
                     description: None,
                     version: "0.1.0".into(),
                     visibility: ResourceVisibility::Shared,
-                    payload: first_payload.clone(),
+                    payload: first_stored.metadata_payload.clone(),
                     changelog: None,
                 },
                 admin.id,
+                &first_stored,
             )
             .await
             .expect("create resource");
@@ -87,7 +89,7 @@ async fn version_lifecycle_endpoints_cover_agent_and_skill_source_shapes() {
             .release(
                 resource.id,
                 &release_request(0),
-                &release_content('a', &first_payload),
+                &release_content(&first_stored),
                 admin.id,
             )
             .await
@@ -99,7 +101,7 @@ async fn version_lifecycle_endpoints_cover_agent_and_skill_source_shapes() {
             .release(
                 resource.id,
                 &release_request(1),
-                &release_content('b', &second_payload),
+                &release_content(&second_stored),
                 admin.id,
             )
             .await
@@ -197,11 +199,41 @@ fn release_request(draft_revision: u64) -> ReleaseResourceRequest {
     }
 }
 
-fn release_content(marker: char, payload: &serde_json::Value) -> ReleaseContent {
+fn release_content(stored: &DraftContent) -> ReleaseContent {
     ReleaseContent {
-        sha256: marker.to_string().repeat(64),
-        size: payload.to_string().len().try_into().unwrap_or(u64::MAX),
-        artifact_key: None,
-        updated_payload: Some(payload.to_string()),
+        sha256: stored.sha256.clone(),
+        size: stored.size,
+        artifact_key: Some(stored.artifact_key.clone()),
+        updated_payload: Some(stored.metadata_payload.to_string()),
+    }
+}
+
+async fn stored_content(
+    app: &support::TestApp,
+    kind: ResourceKind,
+    slug: &str,
+    version: &str,
+    path: &str,
+    content: &str,
+) -> DraftContent {
+    let files = vec![DraftFile {
+        path: path.into(),
+        content: content.into(),
+    }];
+    let artifact = app.state.artifacts.put_bundle(&files).await.unwrap();
+    DraftContent {
+        metadata_payload: resource_storage_payload(
+            kind,
+            slug,
+            version,
+            &artifact.key,
+            &artifact.sha256,
+            artifact.size,
+            resource_archive_media_type(kind),
+            &files,
+        ),
+        artifact_key: artifact.key,
+        sha256: artifact.sha256,
+        size: artifact.size,
     }
 }

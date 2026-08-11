@@ -3,10 +3,9 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
-    CreateResourceRequest, CreateResourceVersionRequest, DraftFile, DraftFileTree,
-    EffectiveResourceVersion, ManagedResource, PrimaryRole, ReleaseChannel, ReleaseResourceRequest,
-    ReleaseResourceResult, ResourceAccessPolicy, ResourceBundleV2, ResourceDailyUsage,
-    ResourceFeedback, ResourceInstallationState, ResourceInventoryMonitoring,
+    CreateResourceRequest, EffectiveResourceVersion, ManagedResource, PrimaryRole, ReleaseChannel,
+    ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy, ResourceBundleV2,
+    ResourceDailyUsage, ResourceFeedback, ResourceInstallationState, ResourceInventoryMonitoring,
     ResourceInventoryMonitoringSummary, ResourceInventoryObservedState, ResourceInventoryRequest,
     ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary, ResourceUsageEventRequest,
     ResourceVersion, ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus,
@@ -28,6 +27,24 @@ pub struct ReleaseContent {
     pub size: u64,
     pub artifact_key: Option<String>,
     pub updated_payload: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DraftContent {
+    pub artifact_key: String,
+    pub sha256: String,
+    pub size: u64,
+    pub metadata_payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct DraftArtifact {
+    pub resource_id: Uuid,
+    pub revision: u64,
+    pub artifact_key: String,
+    pub sha256: String,
+    pub size: u64,
+    pub metadata_payload: serde_json::Value,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -77,6 +94,21 @@ pub enum ResourceVersionLifecycleError {
 impl ResourceRepo {
     pub fn new(pool: Pool<Any>) -> Self {
         Self { pool }
+    }
+
+    pub async fn object_keys(&self) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT draft_artifact_key FROM resources
+            WHERE draft_artifact_key IS NOT NULL AND draft_artifact_key <> ''
+            UNION
+            SELECT artifact_key FROM resource_versions
+            WHERE artifact_key IS NOT NULL AND artifact_key <> ''
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 
     pub async fn list_for_actor(
@@ -250,19 +282,22 @@ impl ResourceRepo {
         project_id: Uuid,
         request: &CreateResourceRequest,
         owner_user_id: Uuid,
+        draft: &DraftContent,
     ) -> Result<ManagedResource, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let id = Uuid::new_v4();
         let now = Utc::now().to_rfc3339();
-        let payload = serde_json::to_string(&request.payload).unwrap_or_else(|_| "{}".into());
+        let payload =
+            serde_json::to_string(&draft.metadata_payload).unwrap_or_else(|_| "{}".into());
 
         sqlx::query(
             r#"
             INSERT INTO resources (
                 id, project_id, kind, slug, name, description, version, owner_user_id,
                 visibility, status, payload, draft_revision, highest_semver,
-                release_channel, published_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, 0, NULL, NULL, NULL, ?, ?)
+                release_channel, published_at, draft_artifact_key,
+                draft_content_sha256, draft_content_size, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, 0, NULL, NULL, NULL, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(id.to_string())
@@ -275,6 +310,9 @@ impl ResourceRepo {
         .bind(owner_user_id.to_string())
         .bind(request.visibility.as_str())
         .bind(&payload)
+        .bind(&draft.artifact_key)
+        .bind(&draft.sha256)
+        .bind(saturating_i64(draft.size))
         .bind(&now)
         .bind(&now)
         .execute(&mut *tx)
@@ -479,11 +517,12 @@ impl ResourceRepo {
         actor_id: Uuid,
         expected_revision: u64,
         confirm_deprecated: bool,
-    ) -> Result<DraftFileTree, ResourceVersionLifecycleError> {
+    ) -> Result<DraftArtifact, ResourceVersionLifecycleError> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
             r#"
-            SELECT rv.project_id, rv.status, rv.payload,
+            SELECT rv.project_id, rv.status, rv.payload, rv.artifact_key,
+                   rv.content_sha256, rv.content_size,
                    r.status AS resource_status, r.draft_revision
             FROM resource_versions rv
             JOIN resources r ON r.id = rv.resource_id
@@ -512,22 +551,28 @@ impl ResourceRepo {
         let payload_text: String = row.get("payload");
         let payload = serde_json::from_str::<serde_json::Value>(&payload_text)
             .map_err(|_| ResourceVersionLifecycleError::InvalidSource)?;
-        let files = draft_files(&payload);
-        if files.is_empty() {
-            return Err(ResourceVersionLifecycleError::InvalidSource);
-        }
+        let artifact_key: String = row
+            .get::<Option<String>, _>("artifact_key")
+            .filter(|value| !value.is_empty())
+            .ok_or(ResourceVersionLifecycleError::InvalidSource)?;
+        let sha256: String = row.get("content_sha256");
+        let size = nonnegative_u64(row.get("content_size"));
 
         let next_revision = expected_revision.saturating_add(1);
         let now = Utc::now().to_rfc3339();
         let updated = sqlx::query(
             r#"
             UPDATE resources
-            SET payload = ?, draft_revision = ?, updated_at = ?
+            SET payload = ?, draft_revision = ?, draft_artifact_key = ?,
+                draft_content_sha256 = ?, draft_content_size = ?, updated_at = ?
             WHERE id = ? AND draft_revision = ? AND status <> 'archived'
             "#,
         )
         .bind(&payload_text)
         .bind(saturating_i64(next_revision))
+        .bind(&artifact_key)
+        .bind(&sha256)
+        .bind(saturating_i64(size))
         .bind(&now)
         .bind(resource_id.to_string())
         .bind(saturating_i64(expected_revision))
@@ -550,10 +595,13 @@ impl ResourceRepo {
         )
         .await?;
         tx.commit().await?;
-        Ok(DraftFileTree {
+        Ok(DraftArtifact {
             resource_id,
             revision: next_revision,
-            files,
+            artifact_key,
+            sha256,
+            size,
+            metadata_payload: payload,
         })
     }
 
@@ -581,125 +629,6 @@ impl ResourceRepo {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(map_version))
-    }
-
-    pub async fn create_version(
-        &self,
-        resource_id: Uuid,
-        request: &CreateResourceVersionRequest,
-        created_by: Uuid,
-    ) -> Result<ResourceVersion, sqlx::Error> {
-        let id = Uuid::new_v4();
-        let now = Utc::now();
-        let project_id = self
-            .find_by_id(resource_id)
-            .await?
-            .map(|resource| resource.project_id)
-            .unwrap_or_else(Uuid::nil);
-        let payload = serde_json::to_string(&request.payload).unwrap_or_else(|_| "{}".into());
-        sqlx::query(
-            r#"
-            INSERT INTO resource_versions (
-                id, project_id, resource_id, version, status, payload, changelog,
-                release_channel, content_sha256, content_size, created_by,
-                created_at, published_at
-            ) VALUES (?, ?, ?, ?, 'draft', ?, ?, NULL, '', 0, ?, ?, NULL)
-            "#,
-        )
-        .bind(id.to_string())
-        .bind(project_id.to_string())
-        .bind(resource_id.to_string())
-        .bind(request.version.trim())
-        .bind(payload)
-        .bind(clean_optional(request.changelog.as_deref()))
-        .bind(created_by.to_string())
-        .bind(now.to_rfc3339())
-        .execute(&self.pool)
-        .await?;
-        Ok(ResourceVersion {
-            id,
-            project_id,
-            resource_id,
-            version: request.version.trim().to_string(),
-            status: ResourceVersionStatus::Draft,
-            payload: request.payload.clone(),
-            changelog: clean_optional(request.changelog.as_deref()),
-            release_channel: None,
-            content_sha256: String::new(),
-            content_size: 0,
-            artifact_key: None,
-            bundle_v2: bundle_v2_from_payload(&request.payload),
-            minimum_evoflux_version: None,
-            created_by,
-            created_at: now,
-            published_at: None,
-            active_channel: None,
-            deprecated_at: None,
-            deprecated_by: None,
-            deprecation_reason: None,
-        })
-    }
-
-    pub async fn publish_version(
-        &self,
-        resource_id: Uuid,
-        version_id: Uuid,
-    ) -> Result<Option<ManagedResource>, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            r#"
-            SELECT rv.version, rv.payload, r.updated_at
-            FROM resource_versions rv
-            JOIN resources r ON r.id = rv.resource_id
-            WHERE rv.id = ? AND rv.resource_id = ? AND rv.status = 'draft'
-            "#,
-        )
-        .bind(version_id.to_string())
-        .bind(resource_id.to_string())
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        let version: String = row.get("version");
-        let version_payload: String = row.get("payload");
-        let previous_updated_at: String = row.get("updated_at");
-        let now = Utc::now().to_rfc3339();
-
-        let updated = sqlx::query(
-            r#"
-            UPDATE resources
-            SET version = ?, payload = ?, status = 'published',
-                published_at = ?, updated_at = ?
-            WHERE id = ? AND updated_at = ?
-            "#,
-        )
-        .bind(version)
-        .bind(version_payload)
-        .bind(&now)
-        .bind(&now)
-        .bind(resource_id.to_string())
-        .bind(previous_updated_at)
-        .execute(&mut *tx)
-        .await?;
-        if updated.rows_affected() == 0 {
-            return Ok(None);
-        }
-        sqlx::query(
-            "UPDATE resource_versions SET status = 'deprecated' WHERE resource_id = ? AND status = 'published'",
-        )
-        .bind(resource_id.to_string())
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "UPDATE resource_versions SET status = 'published', published_at = ? WHERE id = ?",
-        )
-        .bind(&now)
-        .bind(version_id.to_string())
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        self.find_by_id(resource_id).await
     }
 
     pub async fn access_policy(
@@ -779,80 +708,52 @@ impl ResourceRepo {
         Ok(())
     }
 
-    pub async fn draft_tree(
+    pub async fn draft_artifact(
         &self,
         resource_id: Uuid,
-    ) -> Result<Option<DraftFileTree>, sqlx::Error> {
-        let Some(resource) = self.find_by_id(resource_id).await? else {
-            return Ok(None);
-        };
-        Ok(Some(DraftFileTree {
-            resource_id,
-            revision: resource.draft_revision,
-            files: draft_files(&resource.payload),
+    ) -> Result<Option<DraftArtifact>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, draft_revision, draft_artifact_key, draft_content_sha256,
+                   draft_content_size, payload
+            FROM resources WHERE id = ?
+            "#,
+        )
+        .bind(resource_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(|row| {
+            Some(DraftArtifact {
+                resource_id: parse_uuid(row.get("id")),
+                revision: nonnegative_u64(row.get("draft_revision")),
+                artifact_key: row.get::<Option<String>, _>("draft_artifact_key")?,
+                sha256: row.get("draft_content_sha256"),
+                size: nonnegative_u64(row.get("draft_content_size")),
+                metadata_payload: serde_json::from_str(row.get::<String, _>("payload").as_str())
+                    .unwrap_or_else(|_| serde_json::json!({})),
+            })
         }))
     }
 
-    pub async fn save_draft_file(
+    pub async fn replace_draft_artifact(
         &self,
         resource_id: Uuid,
-        path: &str,
-        content: &str,
+        draft: &DraftContent,
         expected_revision: u64,
-    ) -> Result<DraftFileTree, DraftWriteError> {
-        let Some(resource) = self.find_by_id(resource_id).await? else {
-            return Err(DraftWriteError::NotFound);
-        };
-        if resource.draft_revision != expected_revision {
-            return Err(DraftWriteError::Conflict);
-        }
-        let mut files = draft_files(&resource.payload);
-        if let Some(file) = files.iter_mut().find(|file| file.path == path) {
-            file.content = content.to_string();
-        } else {
-            files.push(DraftFile {
-                path: path.to_string(),
-                content: content.to_string(),
-            });
-        }
-        files.sort_by(|left, right| left.path.cmp(&right.path));
+    ) -> Result<DraftArtifact, DraftWriteError> {
         let next_revision = expected_revision.saturating_add(1);
-        let payload = serde_json::json!({ "files": files });
+        let payload =
+            serde_json::to_string(&draft.metadata_payload).unwrap_or_else(|_| "{}".into());
         let updated = sqlx::query(
-            "UPDATE resources SET payload = ?, draft_revision = ?, updated_at = ? \
-             WHERE id = ? AND draft_revision = ?",
-        )
-        .bind(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into()))
-        .bind(saturating_i64(next_revision))
-        .bind(Utc::now().to_rfc3339())
-        .bind(resource_id.to_string())
-        .bind(saturating_i64(expected_revision))
-        .execute(&self.pool)
-        .await?;
-        if updated.rows_affected() == 0 {
-            return Err(DraftWriteError::Conflict);
-        }
-        Ok(DraftFileTree {
-            resource_id,
-            revision: next_revision,
-            files: draft_files(&payload),
-        })
-    }
-
-    pub async fn replace_draft_files(
-        &self,
-        resource_id: Uuid,
-        files: &[DraftFile],
-        expected_revision: u64,
-    ) -> Result<DraftFileTree, DraftWriteError> {
-        let next_revision = expected_revision.saturating_add(1);
-        let payload = serde_json::json!({ "files": files });
-        let updated = sqlx::query(
-            "UPDATE resources SET payload = ?, draft_revision = ?, updated_at = ? \
+            "UPDATE resources SET payload = ?, draft_revision = ?, draft_artifact_key = ?, \
+             draft_content_sha256 = ?, draft_content_size = ?, updated_at = ? \
              WHERE id = ? AND draft_revision = ? AND status <> 'archived'",
         )
-        .bind(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into()))
+        .bind(&payload)
         .bind(saturating_i64(next_revision))
+        .bind(&draft.artifact_key)
+        .bind(&draft.sha256)
+        .bind(saturating_i64(draft.size))
         .bind(Utc::now().to_rfc3339())
         .bind(resource_id.to_string())
         .bind(saturating_i64(expected_revision))
@@ -869,10 +770,13 @@ impl ResourceRepo {
                 DraftWriteError::Conflict
             });
         }
-        Ok(DraftFileTree {
+        Ok(DraftArtifact {
             resource_id,
             revision: next_revision,
-            files: files.to_vec(),
+            artifact_key: draft.artifact_key.clone(),
+            sha256: draft.sha256.clone(),
+            size: draft.size,
+            metadata_payload: draft.metadata_payload.clone(),
         })
     }
 
@@ -1637,21 +1541,6 @@ fn visible_resources_query(select: &str) -> String {
 fn map_resources(rows: Vec<sqlx::any::AnyRow>) -> Vec<ManagedResource> {
     rows.into_iter()
         .filter_map(|row| map_resource(&row).ok())
-        .collect()
-}
-
-fn draft_files(payload: &serde_json::Value) -> Vec<DraftFile> {
-    payload
-        .get("files")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|item| {
-            Some(DraftFile {
-                path: item.get("path")?.as_str()?.to_string(),
-                content: item.get("content")?.as_str()?.to_string(),
-            })
-        })
         .collect()
 }
 

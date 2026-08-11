@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::CollectionLevel;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
     pub id: Uuid,
@@ -115,7 +117,119 @@ pub struct ProjectSettings {
     pub public_url: Option<String>,
     pub logo_url: Option<String>,
     pub realtime: RealtimeSettings,
+    pub data_policy: DataPolicySettings,
     pub sso: SsoConfig,
+    pub storage: StorageSettings,
+}
+
+/// Project policy advertised to every registered EvoFlux installation.
+/// L0 disables usage telemetry, L1 collects operational metadata, and L2
+/// allows the richer privacy-safe resource attribution contract.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct DataPolicySettings {
+    pub collection_level: CollectionLevel,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct UpdateDataPolicyRequest {
+    pub collection_level: CollectionLevel,
+}
+
+/// Project-scoped object storage selection. Credentials are deliberately not
+/// part of this contract: S3 uses the AWS credential chain and Azure Blob uses
+/// the Azure credential chain exposed to the Conductor process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageBackend {
+    #[default]
+    Local,
+    S3,
+    AzureBlob,
+}
+
+impl StorageBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::S3 => "s3",
+            Self::AzureBlob => "azure_blob",
+        }
+    }
+
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "s3" => Self::S3,
+            "azure_blob" | "azure" => Self::AzureBlob,
+            _ => Self::Local,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct LocalStorageSettings {
+    /// Absolute path, or a path relative to CONDUCTOR_DATA_DIR.
+    pub root: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct S3StorageSettings {
+    pub bucket: String,
+    pub region: String,
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub prefix: String,
+    #[serde(default)]
+    pub path_style: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AzureBlobStorageSettings {
+    pub account: String,
+    pub container: String,
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub prefix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageSettings {
+    pub backend: StorageBackend,
+    #[serde(default)]
+    pub local: LocalStorageSettings,
+    #[serde(default)]
+    pub s3: S3StorageSettings,
+    #[serde(default)]
+    pub azure_blob: AzureBlobStorageSettings,
+}
+
+impl Default for StorageSettings {
+    fn default() -> Self {
+        Self {
+            backend: StorageBackend::Local,
+            local: LocalStorageSettings::default(),
+            s3: S3StorageSettings::default(),
+            azure_blob: AzureBlobStorageSettings::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateStorageRequest {
+    pub storage: StorageSettings,
+    /// Backend changes are rejected unless existing objects are migrated.
+    #[serde(default = "default_true")]
+    pub migrate_existing: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageMigrationResult {
+    pub storage: StorageSettings,
+    pub objects_copied: u64,
+    pub bytes_copied: u64,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Operator-tunable realtime (SSE) limits. Values unset in the database fall

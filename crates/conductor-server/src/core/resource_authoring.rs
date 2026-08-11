@@ -216,17 +216,7 @@ pub fn resource_bundle_v2(
     files: &[DraftFile],
 ) -> Option<ResourceBundleV2> {
     let kind = ResourceBundleKind::from_resource_kind(kind)?;
-    let mut manifest = files
-        .iter()
-        .map(|file| FileManifestEntry {
-            path: file.path.clone(),
-            sha256: hex::encode(Sha256::digest(file.content.as_bytes())),
-            size: file.content.len().try_into().unwrap_or(u64::MAX),
-            media_type: resource_file_media_type(&file.path).to_string(),
-            executable: false,
-        })
-        .collect::<Vec<_>>();
-    manifest.sort_by(|left, right| left.path.cmp(&right.path));
+    let manifest = file_manifest(files);
 
     Some(ResourceBundleV2 {
         schema_version: ResourceBundleV2::SCHEMA_VERSION,
@@ -238,6 +228,63 @@ pub fn resource_bundle_v2(
         artifact_media_type: artifact_media_type.to_string(),
         tree_sha256: manifest_tree_sha256(&manifest),
         files: manifest,
+    })
+}
+
+pub fn file_manifest(files: &[DraftFile]) -> Vec<FileManifestEntry> {
+    let mut manifest = files
+        .iter()
+        .map(|file| FileManifestEntry {
+            path: file.path.clone(),
+            sha256: hex::encode(Sha256::digest(file.content.as_bytes())),
+            size: file.content.len().try_into().unwrap_or(u64::MAX),
+            media_type: resource_file_media_type(&file.path).to_string(),
+            executable: false,
+        })
+        .collect::<Vec<_>>();
+    manifest.sort_by(|left, right| left.path.cmp(&right.path));
+    manifest
+}
+
+pub fn resource_archive_media_type(kind: ResourceKind) -> &'static str {
+    if kind == ResourceKind::Plugin {
+        "application/vnd.evoflux.plugin+zip"
+    } else {
+        "application/vnd.evoflux.resource+zip"
+    }
+}
+
+/// Metadata persisted in SQL for a file bundle. It contains no authored file
+/// bytes; the complete source lives at `artifact_key` in object storage.
+pub fn resource_storage_payload(
+    kind: ResourceKind,
+    slug: &str,
+    version: &str,
+    artifact_key: &str,
+    artifact_sha256: &str,
+    artifact_size: u64,
+    artifact_media_type: &str,
+    files: &[DraftFile],
+) -> serde_json::Value {
+    let bundle = resource_bundle_v2(
+        kind,
+        slug,
+        version,
+        artifact_sha256,
+        artifact_size,
+        artifact_media_type,
+        files,
+    );
+    serde_json::json!({
+        "storage_schema_version": 1,
+        "artifact": {
+            "key": artifact_key,
+            "sha256": artifact_sha256,
+            "size": artifact_size,
+            "media_type": artifact_media_type,
+        },
+        "files": file_manifest(files),
+        "bundle_v2": bundle,
     })
 }
 

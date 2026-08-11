@@ -1,10 +1,20 @@
-use axum::{extract::State, Json};
+use axum::{
+    body::{Body, Bytes},
+    extract::State,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::Response,
+    Json,
+};
 use conductor_auth::{validate_oidc_redirect_uri, validate_oidc_url};
 use conductor_domain::{
-    ConductorError, ProjectBranding, ProjectSettings, RealtimeSettings, SsoProvider,
-    UpdateInstanceRequest, UpdateNetworkRequest, UpdateSsoRequest,
+    CollectionLevel, ConductorError, DataPolicySettings, ProjectBranding, ProjectSettings,
+    RealtimeSettings, SsoProvider, StorageMigrationResult, UpdateDataPolicyRequest,
+    UpdateInstanceRequest, UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
 };
-use conductor_storage::repos::SsoConfigUpdate;
+use conductor_storage::repos::{LogoArtifact, SsoConfigUpdate};
+use sha2::{Digest, Sha256};
+
+const MAX_LOGO_BYTES: usize = 512 * 1024;
 
 use crate::core::error::ApiResult;
 use crate::core::state::AppState;
@@ -28,6 +38,40 @@ pub async fn get_project(
     }))
 }
 
+pub async fn get_project_logo(State(state): State<AppState>) -> ApiResult<Response> {
+    let logo = state
+        .db
+        .instance()
+        .logo_artifact()
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("project logo".into()))?;
+    let bytes = state
+        .artifacts
+        .read(&logo.key)
+        .await
+        .map_err(|error| ConductorError::msg(format!("object storage read failed: {error}")))?;
+    if hex::encode(Sha256::digest(&bytes)) != logo.sha256
+        || u64::try_from(bytes.len()).unwrap_or(u64::MAX) != logo.size
+    {
+        return Err(ConductorError::msg("project logo integrity check failed").into());
+    }
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&logo.media_type).map_err(|_| ConductorError::Internal)?,
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
 pub async fn get_settings(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -42,6 +86,8 @@ pub async fn get_settings(
         .await?
         .ok_or(ConductorError::SetupRequired)?;
     let sso = state.db.instance().sso_config().await?;
+    let storage = state.db.instance().storage_settings().await?;
+    let collection_level = CollectionLevel::parse(&state.db.instance().collection_level().await?);
     let realtime_config = state.realtime.config();
     Ok(Json(ProjectSettings {
         project_name: instance.project_name,
@@ -55,8 +101,26 @@ pub async fn get_settings(
             max_connections_per_secret: realtime_config.max_connections_per_secret as u32,
             heartbeat_seconds: realtime_config.heartbeat_seconds as u32,
         },
+        data_policy: DataPolicySettings { collection_level },
         sso,
+        storage,
     }))
+}
+
+pub async fn update_data_policy(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(request): Json<UpdateDataPolicyRequest>,
+) -> ApiResult<Json<ProjectSettings>> {
+    if !user.primary_role.can_manage_settings() {
+        return Err(ConductorError::Forbidden.into());
+    }
+    state
+        .db
+        .instance()
+        .update_collection_level(request.collection_level.as_str())
+        .await?;
+    get_settings(State(state), AuthUser(user)).await
 }
 
 pub async fn update_settings(
@@ -78,6 +142,16 @@ pub async fn update_settings(
         .filter(|url| !url.trim().is_empty())
     {
         validate_oidc_url(public_url, "public URL")?;
+    }
+    if req
+        .logo_url
+        .as_deref()
+        .is_some_and(|value| value.trim_start().starts_with("data:"))
+    {
+        return Err(ConductorError::msg(
+            "inline logo data is not allowed; upload the image through /settings/logo",
+        )
+        .into());
     }
 
     state
@@ -143,6 +217,109 @@ pub async fn update_network(
     state.realtime.update_config(realtime);
 
     get_settings(State(state), AuthUser(user)).await
+}
+
+pub async fn update_storage(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(request): Json<UpdateStorageRequest>,
+) -> ApiResult<Json<StorageMigrationResult>> {
+    if !user.primary_role.can_manage_settings() {
+        return Err(ConductorError::Forbidden.into());
+    }
+    let current = state.db.instance().storage_settings().await?;
+    let mut keys = state.db.resources().object_keys().await?;
+    if let Some(logo) = state.db.instance().logo_artifact().await? {
+        keys.push(logo.key);
+    }
+    if current != request.storage && !request.migrate_existing && !keys.is_empty() {
+        return Err(ConductorError::Conflict(
+            "existing resource objects must be migrated before changing storage".into(),
+        )
+        .into());
+    }
+
+    let settings = request.storage;
+    let persisted = settings.clone();
+    let instance = state.db.instance();
+    let stats = state
+        .artifacts
+        .reconfigure(settings.clone(), keys, move || async move {
+            instance
+                .update_storage_settings(&persisted)
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .await
+        .map_err(|error| ConductorError::msg(format!("storage migration failed: {error}")))?;
+
+    Ok(Json(StorageMigrationResult {
+        storage: settings,
+        objects_copied: stats.objects_copied,
+        bytes_copied: stats.bytes_copied,
+    }))
+}
+
+pub async fn upload_logo(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<ProjectSettings>> {
+    if !user.primary_role.can_manage_settings() {
+        return Err(ConductorError::Forbidden.into());
+    }
+    if body.is_empty() || body.len() > MAX_LOGO_BYTES {
+        return Err(ConductorError::msg("logo must be between 1 byte and 512 KiB").into());
+    }
+    let media_type = validated_logo_media_type(&headers, &body)?;
+    let artifact =
+        state.artifacts.put(&body).await.map_err(|error| {
+            ConductorError::msg(format!("object storage write failed: {error}"))
+        })?;
+    state
+        .db
+        .instance()
+        .update_logo_artifact(Some(&LogoArtifact {
+            key: artifact.key,
+            sha256: artifact.sha256,
+            size: artifact.size,
+            media_type: media_type.into(),
+        }))
+        .await?;
+    get_settings(State(state), AuthUser(user)).await
+}
+
+pub async fn delete_logo(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> ApiResult<Json<ProjectSettings>> {
+    if !user.primary_role.can_manage_settings() {
+        return Err(ConductorError::Forbidden.into());
+    }
+    state.db.instance().update_logo_artifact(None).await?;
+    get_settings(State(state), AuthUser(user)).await
+}
+
+fn validated_logo_media_type(headers: &HeaderMap, bytes: &[u8]) -> ApiResult<&'static str> {
+    let declared = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim);
+    let observed = if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        "image/png"
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        "image/jpeg"
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        return Err(ConductorError::msg("logo must be PNG, JPEG or WebP").into());
+    };
+    if declared.is_some_and(|value| value != observed && value != "application/octet-stream") {
+        return Err(ConductorError::msg("logo content type does not match its bytes").into());
+    }
+    Ok(observed)
 }
 
 pub async fn update_sso(

@@ -104,6 +104,14 @@ impl CollectionLevel {
     pub fn telemetry_enabled(self) -> bool {
         !matches!(self, Self::L0)
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::L0 => "L0",
+            Self::L1 => "L1",
+            Self::L2 => "L2",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

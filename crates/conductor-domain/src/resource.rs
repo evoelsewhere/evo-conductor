@@ -605,14 +605,6 @@ pub struct UpdateResourceRequest {
     pub visibility: Option<ResourceVisibility>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateResourceVersionRequest {
-    pub version: String,
-    #[serde(default)]
-    pub payload: serde_json::Value,
-    pub changelog: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ResourceAccessPolicy {
     pub all_members: bool,

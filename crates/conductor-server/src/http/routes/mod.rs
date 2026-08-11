@@ -32,11 +32,20 @@ pub fn router() -> Router<AppState> {
         .route("/auth/sso/callback", get(auth::sso_callback))
         .route("/sso", get(sso::get_config).put(settings::update_sso))
         .route("/project", get(settings::get_project))
+        .route("/project/logo", get(settings::get_project_logo))
         .route(
             "/settings",
             get(settings::get_settings).patch(settings::update_settings),
         )
         .route("/settings/network", put(settings::update_network))
+        .route("/settings/data-policy", put(settings::update_data_policy))
+        .route("/settings/storage", put(settings::update_storage))
+        .route(
+            "/settings/logo",
+            put(settings::upload_logo)
+                .delete(settings::delete_logo)
+                .layer(DefaultBodyLimit::max(512 * 1024)),
+        )
         .route("/dashboard", get(dashboard::summary))
         .route("/members", get(users::list).post(users::create))
         .route("/members/pending/count", get(users::pending_count))
@@ -133,14 +142,7 @@ pub fn router() -> Router<AppState> {
             post(resource_delivery::validate),
         )
         .route("/resources/{id}/release", post(resource_delivery::release))
-        .route(
-            "/resources/{id}/versions",
-            get(resources::versions).post(resources::create_version),
-        )
-        .route(
-            "/resources/{id}/versions/{version_id}/publish",
-            post(resources::publish_version),
-        )
+        .route("/resources/{id}/versions", get(resources::versions))
         .route(
             "/resources/{id}/versions/{version_id}/deprecate",
             post(resources::deprecate_version),

@@ -36,25 +36,27 @@ pub use client_installation::{
 };
 pub use core::error::{ConductorError, Result};
 pub use instance::{
-    InstanceConfig, ProjectBranding, ProjectSettings, RealtimeSettings, SetupRequest,
-    SetupSsoRequest, SetupStatus, SsoConfig, SsoProvider, UpdateInstanceRequest,
-    UpdateNetworkRequest, UpdateSsoRequest,
+    AzureBlobStorageSettings, DataPolicySettings, InstanceConfig, LocalStorageSettings,
+    ProjectBranding, ProjectSettings, RealtimeSettings, S3StorageSettings, SetupRequest,
+    SetupSsoRequest, SetupStatus, SsoConfig, SsoProvider, StorageBackend, StorageMigrationResult,
+    StorageSettings, UpdateDataPolicyRequest, UpdateInstanceRequest, UpdateNetworkRequest,
+    UpdateSsoRequest, UpdateStorageRequest,
 };
 pub use resource::{
-    CreateDraftFileRequest, CreateResourceRequest, CreateResourceVersionRequest, DashboardSummary,
-    DeleteDraftEntryRequest, DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile,
-    DraftFileTree, EffectiveResourceVersion, FileManifestEntry, ManagedResource,
-    MoveDraftEntryRequest, ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult,
-    ResourceAccessPolicy, ResourceBundleKind, ResourceBundleV2, ResourceChange, ResourceChangePage,
-    ResourceCounts, ResourceDailyUsage, ResourceDiagnostic, ResourceFeedback,
-    ResourceInstallationState, ResourceInventoryItem, ResourceInventoryMonitoring,
-    ResourceInventoryMonitoringSummary, ResourceInventoryObservedState, ResourceInventoryRequest,
-    ResourceInventoryResponse, ResourceKind, ResourceMemberUsage, ResourceMonitoring,
-    ResourceMonitoringSummary, ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest,
-    ResourceUsageBatchResponse, ResourceUsageEventRequest, ResourceUsageRejection,
-    ResourceValidation, ResourceVersion, ResourceVersionLifecycleAction, ResourceVersionNotice,
-    ResourceVersionStatus, ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest,
-    UpdateResourceRequest, UpsertResourceFeedbackRequest, VersionMode,
+    CreateDraftFileRequest, CreateResourceRequest, DashboardSummary, DeleteDraftEntryRequest,
+    DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile, DraftFileTree,
+    EffectiveResourceVersion, FileManifestEntry, ManagedResource, MoveDraftEntryRequest,
+    ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy,
+    ResourceBundleKind, ResourceBundleV2, ResourceChange, ResourceChangePage, ResourceCounts,
+    ResourceDailyUsage, ResourceDiagnostic, ResourceFeedback, ResourceInstallationState,
+    ResourceInventoryItem, ResourceInventoryMonitoring, ResourceInventoryMonitoringSummary,
+    ResourceInventoryObservedState, ResourceInventoryRequest, ResourceInventoryResponse,
+    ResourceKind, ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary,
+    ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest, ResourceUsageBatchResponse,
+    ResourceUsageEventRequest, ResourceUsageRejection, ResourceValidation, ResourceVersion,
+    ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus,
+    ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest, UpdateResourceRequest,
+    UpsertResourceFeedbackRequest, VersionMode,
 };
 pub use resource_semver::{SemanticVersion, SemanticVersionError};
 pub use role::{

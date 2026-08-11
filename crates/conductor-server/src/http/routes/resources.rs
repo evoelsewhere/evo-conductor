@@ -7,14 +7,14 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use conductor_domain::{
-    ConductorError, CreateResourceRequest, CreateResourceVersionRequest,
-    DeprecateResourceVersionRequest, DraftFileTree, ManagedResource, PrimaryRole,
-    ResourceAccessPolicy, ResourceFeedback, ResourceInventoryMonitoring, ResourceMonitoring,
-    ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest, ResourceUsageBatchResponse,
-    ResourceUsageRejection, ResourceVersion, ResourceVisibility, RestoreResourceVersionRequest,
-    SecretScope, SemanticVersion, UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    ConductorError, CreateResourceRequest, DeprecateResourceVersionRequest, DraftFile,
+    DraftFileTree, ManagedResource, PrimaryRole, ResourceAccessPolicy, ResourceFeedback,
+    ResourceInventoryMonitoring, ResourceMonitoring, ResourceStatus, ResourceTargetMode,
+    ResourceUsageBatchRequest, ResourceUsageBatchResponse, ResourceUsageRejection, ResourceVersion,
+    ResourceVisibility, RestoreResourceVersionRequest, SecretScope, SemanticVersion,
+    UpdateResourceRequest, UpsertResourceFeedbackRequest,
 };
-use conductor_storage::repos::ResourceVersionLifecycleError;
+use conductor_storage::repos::{DraftContent, ResourceVersionLifecycleError};
 use serde::Deserialize;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -26,6 +26,7 @@ use crate::core::constants::resource::{
     MAX_DEPRECATION_REASON_LENGTH,
 };
 use crate::core::error::{ApiError, ApiResult};
+use crate::core::resource_authoring::{resource_archive_media_type, resource_storage_payload};
 use crate::core::state::AppState;
 use crate::http::extractors::{authenticate_connection_secret, AuthUser};
 use crate::http::realtime::{RealtimeAudience, RealtimeSignal};
@@ -85,6 +86,29 @@ async fn persist_resource(
     actor_id: Uuid,
     request: &CreateResourceRequest,
 ) -> ApiResult<ManagedResource> {
+    let files = source_files(&request.payload)?;
+    let artifact =
+        state.artifacts.put_bundle(&files).await.map_err(|error| {
+            ConductorError::msg(format!("object storage write failed: {error}"))
+        })?;
+    let metadata_payload = resource_storage_payload(
+        request.kind,
+        &request.slug,
+        &request.version,
+        &artifact.key,
+        &artifact.sha256,
+        artifact.size,
+        resource_archive_media_type(request.kind),
+        &files,
+    );
+    let draft = DraftContent {
+        artifact_key: artifact.key,
+        sha256: artifact.sha256,
+        size: artifact.size,
+        metadata_payload: metadata_payload.clone(),
+    };
+    let mut stored_request = request.clone();
+    stored_request.payload = metadata_payload;
     let project_id = state
         .db
         .instance()
@@ -94,7 +118,7 @@ async fn persist_resource(
     match state
         .db
         .resources()
-        .create(project_id, request, actor_id)
+        .create(project_id, &stored_request, actor_id, &draft)
         .await
     {
         Ok(resource) => Ok(resource),
@@ -103,6 +127,16 @@ async fn persist_resource(
         }
         Err(error) => Err(ApiError::from(error)),
     }
+}
+
+fn source_files(payload: &serde_json::Value) -> ApiResult<Vec<DraftFile>> {
+    let files = payload
+        .get("files")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<Vec<DraftFile>>(value).ok())
+        .filter(|files| !files.is_empty())
+        .ok_or_else(|| ConductorError::msg("resource source must contain at least one file"))?;
+    Ok(files)
 }
 
 pub async fn update(
@@ -214,58 +248,11 @@ pub async fn restore_version_to_draft(
         )
         .await
     {
-        Ok(tree) => Ok(Json(tree)),
+        Ok(draft) => Ok(Json(
+            super::resource_delivery::hydrate_draft(&state, draft).await?,
+        )),
         Err(error) => Err(map_version_lifecycle_error(error)),
     }
-}
-
-pub async fn create_version(
-    State(state): State<AppState>,
-    AuthUser(actor): AuthUser,
-    Path(resource_id): Path<Uuid>,
-    Json(mut request): Json<CreateResourceVersionRequest>,
-) -> ApiResult<Json<ResourceVersion>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
-    request.version = request.version.trim().to_string();
-    request.changelog = clean_optional(request.changelog);
-    validate_version(&request.version)?;
-    validate_payload(&request.payload)?;
-    if request
-        .changelog
-        .as_ref()
-        .is_some_and(|changelog| changelog.len() > 2_000)
-    {
-        return Err(ConductorError::msg("changelog must be at most 2000 characters").into());
-    }
-
-    match state
-        .db
-        .resources()
-        .create_version(resource_id, &request, actor.id)
-        .await
-    {
-        Ok(version) => Ok(Json(version)),
-        Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
-            Err(ConductorError::Conflict("version already exists".into()).into())
-        }
-        Err(error) => Err(ApiError::from(error)),
-    }
-}
-
-pub async fn publish_version(
-    State(state): State<AppState>,
-    AuthUser(actor): AuthUser,
-    Path((resource_id, version_id)): Path<(Uuid, Uuid)>,
-) -> ApiResult<Json<ManagedResource>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
-    let resource = state
-        .db
-        .resources()
-        .publish_version(resource_id, version_id)
-        .await?
-        .ok_or_else(|| ConductorError::Conflict("only a draft version can be published".into()))?;
-    publish_catalog_state(&state, &resource).await?;
-    Ok(Json(resource))
 }
 
 pub async fn get_access(

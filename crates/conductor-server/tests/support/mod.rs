@@ -219,6 +219,49 @@ impl TestApp {
             .await
     }
 
+    pub async fn put_bytes(
+        &self,
+        path: &str,
+        token: Option<&str>,
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder()
+            .method("PUT")
+            .uri(path)
+            .header("Content-Type", content_type);
+        if let Some(token) = token {
+            builder = builder.header("Authorization", format!("{AUTH_SCHEME_BEARER}{token}"));
+        }
+        self.send_request(builder.body(Body::from(body)).expect("build request"))
+            .await
+    }
+
+    pub async fn get_bytes(&self, path: &str) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let response = self
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("router response");
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes()
+            .to_vec();
+        (status, headers, bytes)
+    }
+
     async fn send(
         &self,
         mut builder: axum::http::request::Builder,

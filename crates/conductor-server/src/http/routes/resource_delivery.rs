@@ -16,7 +16,9 @@ use conductor_domain::{
     ResourceValidation, ResourceVisibility, SaveDraftFileRequest, SecretScope, SemanticVersion,
     VersionMode,
 };
-use conductor_storage::repos::{DraftWriteError, ReleaseContent, ReleaseResourceError};
+use conductor_storage::repos::{
+    DraftArtifact, DraftContent, DraftWriteError, ReleaseContent, ReleaseResourceError,
+};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -24,8 +26,9 @@ use uuid::Uuid;
 
 use crate::core::error::{ApiError, ApiResult};
 use crate::core::resource_authoring::{
-    archive_source_metadata, import_zip, resource_bundle_v2, safe_relative_path, set_target_modes,
-    starter_files, validate_draft, versioned_plugin_files, MAX_EDITABLE_FILE_BYTES,
+    archive_source_metadata, import_zip, resource_archive_media_type, resource_storage_payload,
+    safe_relative_path, set_target_modes, starter_files, validate_draft, versioned_plugin_files,
+    MAX_EDITABLE_FILE_BYTES,
 };
 use crate::core::state::AppState;
 use crate::http::extractors::{authenticate_connection_secret, AuthUser};
@@ -106,12 +109,7 @@ pub async fn draft_tree(
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<DraftFileTree>> {
     authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
-    let tree = state
-        .db
-        .resources()
-        .draft_tree(resource_id)
-        .await?
-        .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
+    let tree = current_draft(&state, resource_id).await?;
     Ok(Json(tree))
 }
 
@@ -128,19 +126,19 @@ pub async fn save_draft_file(
     if request.content.len() > MAX_EDITABLE_FILE_BYTES {
         return Err(ConductorError::msg("editable files are limited to 1 MiB").into());
     }
-    match state
-        .db
-        .resources()
-        .save_draft_file(resource_id, &path, &request.content, request.draft_revision)
-        .await
-    {
-        Ok(tree) => Ok(Json(tree)),
-        Err(DraftWriteError::NotFound) => Err(ConductorError::NotFound("resource".into()).into()),
-        Err(DraftWriteError::Conflict) => {
-            Err(ConductorError::Conflict("draft_revision_conflict".into()).into())
-        }
-        Err(DraftWriteError::Database(error)) => Err(ApiError::from(error)),
+    let mut tree = current_draft(&state, resource_id).await?;
+    if tree.revision != request.draft_revision {
+        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
     }
+    if let Some(file) = tree.files.iter_mut().find(|file| file.path == path) {
+        file.content = request.content;
+    } else {
+        tree.files.push(DraftFile {
+            path,
+            content: request.content,
+        });
+    }
+    replace_draft_files(&state, resource_id, tree.files, request.draft_revision).await
 }
 
 pub async fn create_draft_file(
@@ -266,12 +264,13 @@ pub async fn delete_draft_entry(
 }
 
 async fn current_draft(state: &AppState, resource_id: Uuid) -> ApiResult<DraftFileTree> {
-    state
+    let draft = state
         .db
         .resources()
-        .draft_tree(resource_id)
+        .draft_artifact(resource_id)
         .await?
-        .ok_or_else(|| ConductorError::NotFound("resource".into()).into())
+        .ok_or_else(|| ConductorError::NotFound("resource source".into()))?;
+    hydrate_draft(state, draft).await
 }
 
 async fn replace_draft_files(
@@ -281,19 +280,74 @@ async fn replace_draft_files(
     draft_revision: u64,
 ) -> ApiResult<Json<DraftFileTree>> {
     files.sort_by(|left, right| left.path.cmp(&right.path));
+    let resource = state
+        .db
+        .resources()
+        .find_by_id(resource_id)
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
+    let artifact =
+        state.artifacts.put_bundle(&files).await.map_err(|error| {
+            ConductorError::msg(format!("object storage write failed: {error}"))
+        })?;
+    let metadata_payload = resource_storage_payload(
+        resource.kind,
+        &resource.slug,
+        &resource.version,
+        &artifact.key,
+        &artifact.sha256,
+        artifact.size,
+        resource_archive_media_type(resource.kind),
+        &files,
+    );
+    let draft = DraftContent {
+        artifact_key: artifact.key,
+        sha256: artifact.sha256,
+        size: artifact.size,
+        metadata_payload,
+    };
     match state
         .db
         .resources()
-        .replace_draft_files(resource_id, &files, draft_revision)
+        .replace_draft_artifact(resource_id, &draft, draft_revision)
         .await
     {
-        Ok(tree) => Ok(Json(tree)),
+        Ok(stored) => Ok(Json(DraftFileTree {
+            resource_id,
+            revision: stored.revision,
+            files,
+        })),
         Err(DraftWriteError::NotFound) => Err(ConductorError::NotFound("resource".into()).into()),
         Err(DraftWriteError::Conflict) => {
             Err(ConductorError::Conflict("draft_revision_conflict".into()).into())
         }
         Err(DraftWriteError::Database(error)) => Err(ApiError::from(error)),
     }
+}
+
+pub(super) async fn hydrate_draft(
+    state: &AppState,
+    draft: DraftArtifact,
+) -> ApiResult<DraftFileTree> {
+    let bytes = state
+        .artifacts
+        .read(&draft.artifact_key)
+        .await
+        .map_err(|error| ConductorError::msg(format!("object storage read failed: {error}")))?;
+    if hex::encode(Sha256::digest(&bytes)) != draft.sha256
+        || u64::try_from(bytes.len()).unwrap_or(u64::MAX) != draft.size
+    {
+        return Err(ConductorError::msg("draft artifact integrity check failed").into());
+    }
+    let files = tokio::task::spawn_blocking(move || import_zip(bytes))
+        .await
+        .map_err(|_| ConductorError::Internal)?
+        .map_err(ConductorError::msg)?;
+    Ok(DraftFileTree {
+        resource_id: draft.resource_id,
+        revision: draft.revision,
+        files,
+    })
 }
 
 fn validate_editable_path(path: &str) -> ApiResult<()> {
@@ -646,21 +700,9 @@ pub async fn import_archive(
         .await
         .map_err(|_| ConductorError::Internal)?
         .map_err(ConductorError::msg)?;
-    let tree = match state
-        .db
-        .resources()
-        .replace_draft_files(resource_id, &files, query.draft_revision)
-        .await
-    {
-        Ok(tree) => tree,
-        Err(DraftWriteError::NotFound) => {
-            return Err(ConductorError::NotFound("resource".into()).into())
-        }
-        Err(DraftWriteError::Conflict) => {
-            return Err(ConductorError::Conflict("draft_revision_conflict".into()).into())
-        }
-        Err(DraftWriteError::Database(error)) => return Err(ApiError::from(error)),
-    };
+    let tree = replace_draft_files(&state, resource_id, files, query.draft_revision)
+        .await?
+        .0;
     let validation = validate_draft(resource.kind, &resource.slug, tree.revision, &tree.files);
     Ok(Json(DraftImportResponse { tree, validation }))
 }
@@ -671,12 +713,7 @@ pub async fn validate(
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<ResourceValidation>> {
     let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
-    let tree = state
-        .db
-        .resources()
-        .draft_tree(resource_id)
-        .await?
-        .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
+    let tree = current_draft(&state, resource_id).await?;
     Ok(Json(validate_draft(
         resource.kind,
         &resource.slug,
@@ -714,12 +751,7 @@ pub async fn release(
             ConductorError::msg("minimum_evoflux_version must follow strict SemVer 2.0")
         })?;
     }
-    let tree = state
-        .db
-        .resources()
-        .draft_tree(resource_id)
-        .await?
-        .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
+    let tree = current_draft(&state, resource_id).await?;
     if tree.revision != request.draft_revision {
         return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
     }
@@ -756,54 +788,29 @@ pub async fn release(
             .join(",");
         return Err(ConductorError::msg(format!("validation_failed:{codes}")).into());
     }
-    // `source_payload` remains the artifact-hash input for Agent and Skill so
-    // the new descriptor is additive and cannot make its own digest circular.
-    let source_payload = serde_json::to_string(&serde_json::json!({ "files": &release_files }))
-        .map_err(|_| ConductorError::Internal)?;
-    let (artifact_sha256, artifact_size, artifact_key, artifact_media_type) =
-        if resource.kind == ResourceKind::Plugin {
-            let artifact = state
-                .artifacts
-                .put_plugin(&release_files)
-                .map_err(|_| ConductorError::Internal)?;
-            (
-                artifact.sha256,
-                artifact.size,
-                Some(artifact.key),
-                "application/vnd.evoflux.plugin+zip",
-            )
-        } else {
-            let bytes = source_payload.as_bytes();
-            (
-                hex::encode(Sha256::digest(bytes)),
-                bytes.len().try_into().unwrap_or(u64::MAX),
-                None,
-                "application/vnd.evoflux.resource+json",
-            )
-        };
-    let bundle_v2 = resource_bundle_v2(
+    let artifact = state
+        .artifacts
+        .put_bundle(&release_files)
+        .await
+        .map_err(|error| ConductorError::msg(format!("object storage write failed: {error}")))?;
+    let artifact_media_type = resource_archive_media_type(resource.kind);
+    let updated_payload = resource_storage_payload(
         resource.kind,
         &resource.slug,
         &candidate,
-        &artifact_sha256,
-        artifact_size,
+        &artifact.key,
+        &artifact.sha256,
+        artifact.size,
         artifact_media_type,
         &release_files,
     );
-    let updated_payload = if let Some(bundle_v2) = bundle_v2 {
-        serde_json::to_string(&serde_json::json!({
-            "files": &release_files,
-            "bundle_v2": bundle_v2,
-        }))
-        .map_err(|_| ConductorError::Internal)?
-    } else {
-        source_payload
-    };
     let content = ReleaseContent {
-        sha256: artifact_sha256,
-        size: artifact_size,
-        artifact_key,
-        updated_payload: Some(updated_payload),
+        sha256: artifact.sha256,
+        size: artifact.size,
+        artifact_key: Some(artifact.key),
+        updated_payload: Some(
+            serde_json::to_string(&updated_payload).map_err(|_| ConductorError::Internal)?,
+        ),
     };
     match state
         .db
@@ -922,13 +929,30 @@ pub async fn version_payload(
 ) -> ApiResult<Json<EffectiveResourceVersion>> {
     let principal =
         authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
-    let version = state
+    let mut version = state
         .db
         .resources()
         .effective_version(resource_id, principal.user.id)
         .await?
         .filter(|version| version.version_id == version_id)
         .ok_or(ConductorError::Forbidden)?;
+    let key = version
+        .artifact_key
+        .as_deref()
+        .ok_or(ConductorError::Forbidden)?;
+    let bytes = state
+        .artifacts
+        .read(key)
+        .await
+        .map_err(|error| ConductorError::msg(format!("object storage read failed: {error}")))?;
+    if hex::encode(Sha256::digest(&bytes)) != version.sha256 {
+        return Err(ConductorError::msg("release artifact integrity check failed").into());
+    }
+    let files = tokio::task::spawn_blocking(move || import_zip(bytes))
+        .await
+        .map_err(|_| ConductorError::Internal)?
+        .map_err(ConductorError::msg)?;
+    version.payload["files"] = serde_json::to_value(files).map_err(|_| ConductorError::Internal)?;
     Ok(Json(version))
 }
 
@@ -950,6 +974,7 @@ pub async fn artifact(
     let bytes = state
         .artifacts
         .read(&key)
+        .await
         .map_err(|_| ConductorError::Internal)?;
     if hex::encode(Sha256::digest(&bytes)) != version.sha256 {
         return Err(ConductorError::Internal.into());
@@ -958,11 +983,11 @@ pub async fn artifact(
     *response.status_mut() = StatusCode::OK;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("application/vnd.evoflux.plugin+zip"),
+        HeaderValue::from_static(resource_archive_media_type(version.kind)),
     );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
-        HeaderValue::from_static("attachment; filename=resource.evoplugin"),
+        HeaderValue::from_static("attachment; filename=resource.evoresource.zip"),
     );
     response.headers_mut().insert(
         header::X_CONTENT_TYPE_OPTIONS,
