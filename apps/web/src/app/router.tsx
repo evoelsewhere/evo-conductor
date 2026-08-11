@@ -20,6 +20,7 @@ import { MemberRequestDetailPage } from "@/features/members/pages/member-request
 import { MemberToolsPage } from "@/features/members/pages/member-tools-page"
 import { OverviewPage } from "@/features/dashboard/pages/overview-page"
 import { ResourcesPage } from "@/features/resources/pages/resources-page"
+import { ResourceGovernancePage } from "@/features/resources/pages/resource-governance-page"
 import { ResourceStudioPage } from "@/features/resources/pages/resource-studio-page"
 import { ResourceUsagePage } from "@/features/resource-usage/pages/resource-usage-page"
 import { ResourceRequestDetailPage } from "@/features/resource-usage/pages/resource-request-detail-page"
@@ -250,14 +251,47 @@ const resourcesPluginsUsageRoute = createRoute({
   beforeLoad: requireTelemetryAccess,
 })
 
+const resourceGovernanceRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/$kind/$resourceId",
+  component: () => <ResourceGovernancePage view="overview" />,
+})
+
+const resourceGovernanceAccessRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/$kind/$resourceId/access",
+  component: () => <ResourceGovernancePage view="access" />,
+})
+
+const resourceGovernanceFeedbackRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/$kind/$resourceId/feedback",
+  component: () => <ResourceGovernancePage view="feedback" />,
+})
+
 const resourceStudioRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/resources/$kind/$resourceId/edit",
   component: ResourceStudioPage,
-  beforeLoad: () => {
+  beforeLoad: async ({ params }) => {
     const role = storedPrimaryRole()
     if (role !== PRIMARY_ROLE.ADMIN && role !== PRIMARY_ROLE.CONTRIBUTE) {
-      throw redirect({ to: "/app/resources" })
+      throw redirect({
+        to: "/app/resources/$kind/$resourceId",
+        params,
+      })
+    }
+    if (role === PRIMARY_ROLE.CONTRIBUTE) {
+      const actor = useAuthStore.getState().user
+      const resource = (await api.resources()).find(
+        (item) => item.id === params.resourceId && item.kind === params.kind,
+      )
+      if (!actor || resource?.owner_user_id !== actor.id) {
+        throw redirect({
+          to: "/app/resources/$kind/$resourceId",
+          params,
+        })
+      }
     }
   },
 })
@@ -371,6 +405,9 @@ const routeTree = rootRoute.addChildren([
     resourcesAgentsRoute,
     resourcesAgentsActivityRoute,
     resourcesAgentsUsageRoute,
+    resourceGovernanceRoute,
+    resourceGovernanceAccessRoute,
+    resourceGovernanceFeedbackRoute,
     resourceStudioRoute,
     secretsRoute,
     rolesRoute,

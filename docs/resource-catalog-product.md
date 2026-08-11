@@ -76,6 +76,15 @@ The MVP intentionally supports allow rules only. Deny rules and nested policy ex
 - Views: daily execution chart and per-member adoption table for 7, 30 or 90 days.
 - Raw event IDs prevent retry duplication.
 
+### Portfolio analytics and saved views
+
+- Analytics Studio composes ordered KPI, line, area, bar, stacked-bar, donut and table widgets from an allowlisted metric/dimension catalog.
+- Dashboard definitions persist layout, density, relative/custom date range, comparison mode and typed telemetry filters. They cannot contain SQL, expressions or arbitrary query keys.
+- Every view is project-scoped and owner-attributed. `private` views are visible to their owner and project admins; `shared` views are readable by telemetry-capable project contributors.
+- Contributors can change only views they own. Project admins can audit and manage every project view.
+- Updates and deletes require the last-read revision; stale writers receive `409 Conflict` instead of overwriting a newer dashboard.
+- The console API is `GET/POST /api/analytics/views` plus `GET/PUT/DELETE /api/analytics/views/{id}`. `PUT` is a complete replacement and `DELETE` carries `?revision=<last-read>`.
+
 ### Feedback
 
 - One current rating/comment per member and resource.
@@ -94,6 +103,9 @@ The MVP intentionally supports allow rules only. Deny rules and nested policy ex
 | Create/publish version | ✓ | Own only | — | — |
 | Archive | ✓ | Own only | — | — |
 | View monitoring/member feedback | ✓ | Own only | — | — |
+| Read shared analytics views | ✓ | ✓ | ✓ | — |
+| Create/update own analytics views | ✓ | ✓ | ✓ | — |
+| Manage another member's analytics view | ✓ | — | — | — |
 | Submit feedback | When accessible | When accessible | When accessible | When accessible |
 
 ## Success metrics
@@ -107,11 +119,12 @@ Product health should be reviewed using:
 - Feedback quality: response rate and average rating.
 - Governance hygiene: drafts older than 30 days, published versions without changelog, archived-but-still-reported usage.
 
-The MVP exposes resource-level metrics. Portfolio-level ranking and governance hygiene reports are the next product slice.
+The MVP exposes resource-level and portfolio-level analytics. Governance hygiene reports remain the next product slice.
 
 ## Data and privacy decisions
 
 - Usage stores operational metadata, not prompts, responses or tool arguments.
+- Saved views store only typed presentation/query configuration; they never store telemetry results, prompt content or executable query text.
 - `user_id` comes from authenticated connection context.
 - Event time is accepted only within a bounded 90-day window and five-minute future skew.
 - Batch size is limited to 100; payload and text fields are bounded.
@@ -131,9 +144,9 @@ The MVP exposes resource-level metrics. Portfolio-level ranking and governance h
 
 ## Next roadmap
 
-1. Portfolio monitoring: top/bottom resources, adoption funnel and stale drafts.
+1. Governance hygiene: stale drafts, unused releases and unresolved delivery failures.
 2. Approval gates and separation of author/publisher for regulated projects.
 3. Version comparison, rollback-as-new-version and release notes.
-4. Daily aggregate jobs, retention controls and export.
+4. Daily aggregate jobs and retention controls.
 5. Transactional outbox + NATS JetStream for multi-replica delivery.
 6. EvoFlux inventory reconciliation and client version compliance.

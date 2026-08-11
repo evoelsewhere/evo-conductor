@@ -9,7 +9,6 @@ import {
   Download,
   Eye,
   FilePlus2,
-  FileText,
   GitCompare,
   Info,
   Loader2,
@@ -21,6 +20,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Columns2,
   Sparkles,
   Trash2,
   Undo2,
@@ -149,7 +149,7 @@ export function ResourceStudioWorkbench({
     null,
   )
   const [viewMode, setViewMode] = useState<ResourceStudioViewMode>(
-    RESOURCE_STUDIO_VIEW_MODE.FILE,
+    RESOURCE_STUDIO_VIEW_MODE.EDIT,
   )
   const [activePanel, setActivePanel] = useState<ResourceStudioPanel>(
     RESOURCE_STUDIO_PANEL.FILES,
@@ -207,7 +207,7 @@ export function ResourceStudioWorkbench({
     setViewMode(
       pendingReveal?.path === selectedPath
         ? RESOURCE_STUDIO_VIEW_MODE.EDIT
-        : RESOURCE_STUDIO_VIEW_MODE.FILE,
+        : RESOURCE_STUDIO_VIEW_MODE.EDIT,
     )
   }, [pendingReveal?.path, selectedPath])
 
@@ -232,6 +232,15 @@ export function ResourceStudioWorkbench({
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault()
         if (dirty && !saving) onSave()
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault()
+        setTreeVisible((visible) => !visible)
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "j") {
+        event.preventDefault()
+        setTreeVisible(true)
+        setActivePanel(RESOURCE_STUDIO_PANEL.PROBLEMS)
       }
       if (event.key === "Escape" && expanded) setExpanded(false)
     }
@@ -305,7 +314,7 @@ export function ResourceStudioWorkbench({
       const bounds = root.getBoundingClientRect()
       const maxByEditor = bounds.width - RESOURCE_STUDIO_TREE.MIN_EDITOR_WIDTH
       const next = clamp(
-        bounds.right - pointerEvent.clientX,
+        pointerEvent.clientX - bounds.left,
         RESOURCE_STUDIO_TREE.MIN_WIDTH,
         Math.min(RESOURCE_STUDIO_TREE.MAX_WIDTH, maxByEditor),
       )
@@ -405,7 +414,7 @@ export function ResourceStudioWorkbench({
     <div
       ref={rootRef}
       className={cn(
-        "flex h-[calc(100dvh-13.5rem)] min-h-[520px] flex-col overflow-hidden border border-(--border-card) bg-(--bg-card) shadow-sm lg:min-h-[480px]",
+        "flex h-[calc(100dvh-10.5rem)] min-h-[620px] flex-col overflow-hidden border border-(--border-card) bg-(--bg-card) shadow-sm",
         expanded
           ? "fixed inset-0 z-(--z-modal) h-dvh min-h-0 rounded-none"
           : "relative rounded-xl",
@@ -440,7 +449,7 @@ export function ResourceStudioWorkbench({
       />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <main className="order-1 flex min-h-[360px] min-w-0 flex-1 flex-col bg-(--bg-card)">
+        <main className="order-3 flex min-h-[420px] min-w-0 flex-1 flex-col bg-(--bg-card)">
           {!selectedFile ? (
             <EmptyState
               className="m-auto border-0 bg-transparent"
@@ -462,6 +471,26 @@ export function ResourceStudioWorkbench({
             />
           ) : viewMode === RESOURCE_STUDIO_VIEW_MODE.PREVIEW && canPreview ? (
             <ResourcePreview path={selectedPath ?? ""} content={editorValue} />
+          ) : viewMode === RESOURCE_STUDIO_VIEW_MODE.SPLIT && canPreview ? (
+            <div className="grid min-h-0 flex-1 lg:grid-cols-2 lg:divide-x lg:divide-(--border-soft)">
+              <div className="min-h-[320px] min-w-0">
+                <Suspense fallback={<EditorLoading />}>
+                  <MonacoEditor
+                    height="100%"
+                    path={`conductor-resource://${resource.id}/${selectedPath}`}
+                    language={resourceStudioLanguage(selectedPath)}
+                    theme={monacoTheme}
+                    value={editorValue}
+                    onMount={handleEditorMount}
+                    onChange={(value) => onChange(value ?? "")}
+                    options={editorOptions(true)}
+                  />
+                </Suspense>
+              </div>
+              <div className="min-h-[320px] min-w-0 overflow-auto border-t border-(--border-soft) lg:border-t-0">
+                <ResourcePreview path={selectedPath ?? ""} content={editorValue} />
+              </div>
+            </div>
           ) : viewMode === RESOURCE_STUDIO_VIEW_MODE.DIFF ? (
             dirty ? (
               <Suspense fallback={<EditorLoading />}>
@@ -520,6 +549,19 @@ export function ResourceStudioWorkbench({
               aria-valuemax={RESOURCE_STUDIO_TREE.MAX_WIDTH}
               aria-valuenow={Math.round(treeWidth)}
               onPointerDown={beginResize}
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+                event.preventDefault()
+                const step = event.shiftKey ? 32 : 12
+                const next = clamp(
+                  treeWidth + (event.key === "ArrowRight" ? step : -step),
+                  RESOURCE_STUDIO_TREE.MIN_WIDTH,
+                  RESOURCE_STUDIO_TREE.MAX_WIDTH,
+                )
+                setTreeWidth(next)
+                localStorage.setItem(RESOURCE_STUDIO_TREE.STORAGE_KEY, String(next))
+              }}
               onDoubleClick={() => {
                 setTreeWidth(RESOURCE_STUDIO_TREE.DEFAULT_WIDTH)
                 localStorage.setItem(
@@ -528,12 +570,12 @@ export function ResourceStudioWorkbench({
                 )
               }}
               title="Drag to resize · double-click to reset"
-              className="group relative order-2 hidden w-2 shrink-0 cursor-ew-resize lg:block"
+              className="group relative order-2 hidden w-2 shrink-0 cursor-ew-resize outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring)/40 lg:block"
             >
               <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-(--color-border) transition-colors group-hover:bg-(--color-accent)/60" />
             </div>
             <aside
-              className="order-3 flex min-h-56 w-full shrink-0 flex-col border-t border-(--color-border) bg-(--bg-page) lg:min-h-0 lg:border-t-0"
+              className="order-1 flex min-h-56 w-full shrink-0 flex-col border-b border-(--color-border) bg-(--bg-page) lg:min-h-0 lg:border-r lg:border-b-0"
               style={isDesktop ? { width: treeWidth } : undefined}
               aria-label="Resource draft navigation"
             >
@@ -636,9 +678,9 @@ function WorkbenchHeader({
   onSave: () => void
 }) {
   const modes = [
-    { value: RESOURCE_STUDIO_VIEW_MODE.FILE, label: "File", icon: FileText, visible: true },
-    { value: RESOURCE_STUDIO_VIEW_MODE.PREVIEW, label: "Preview", icon: Eye, visible: canPreview },
     { value: RESOURCE_STUDIO_VIEW_MODE.EDIT, label: "Edit", icon: Pencil, visible: true },
+    { value: RESOURCE_STUDIO_VIEW_MODE.PREVIEW, label: "Preview", icon: Eye, visible: canPreview },
+    { value: RESOURCE_STUDIO_VIEW_MODE.SPLIT, label: "Split", icon: Columns2, visible: canPreview },
     { value: RESOURCE_STUDIO_VIEW_MODE.DIFF, label: "Diff", icon: GitCompare, visible: true },
   ]
   return (

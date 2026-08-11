@@ -352,6 +352,121 @@ export interface ResourceUsageParams extends DateRangeParams {
   offset?: number
 }
 
+export type AnalyticsViewVisibility = "private" | "shared"
+export type AnalyticsDateRange =
+  | "last_24_hours"
+  | "last_7_days"
+  | "last_30_days"
+  | "last_90_days"
+  | "custom"
+export type AnalyticsComparison =
+  | "previous_period"
+  | "previous_week"
+  | "previous_month"
+export type AnalyticsDashboardPreset =
+  | "executive"
+  | "adoption"
+  | "reliability"
+  | "cost"
+  | "custom"
+export type AnalyticsDashboardDensity = "comfortable" | "compact"
+export type AnalyticsMetric =
+  | "requests"
+  | "resource_uses"
+  | "model_calls"
+  | "tool_calls"
+  | "input_tokens"
+  | "output_tokens"
+  | "total_tokens"
+  | "estimated_cost"
+  | "success_rate"
+  | "error_rate"
+  | "average_duration"
+  | "installations"
+  | "feedback_rating"
+export type AnalyticsDimension =
+  | "time"
+  | "outcome"
+  | "resource"
+  | "resource_kind"
+  | "version"
+  | "member"
+  | "role"
+  | "provider"
+  | "model"
+  | "tool"
+  | "installation"
+export type AnalyticsVisualization =
+  | "kpi"
+  | "line"
+  | "area"
+  | "bar"
+  | "stacked_bar"
+  | "donut"
+  | "table"
+export type AnalyticsWidgetSize = "one_third" | "half" | "two_thirds" | "full"
+
+export interface AnalyticsQuery {
+  date_range: AnalyticsDateRange
+  from?: string | null
+  to?: string | null
+  comparison?: AnalyticsComparison | null
+  member_id?: string | null
+  primary_role?: PrimaryRole | null
+  resource_kind?: ResourceKind | null
+  resource_id?: string | null
+  version_id?: string | null
+  status?: TelemetryEventStatus | null
+  provider?: string | null
+  model?: string | null
+  installation_id?: string | null
+  relation?: TelemetryResourceRelation | null
+  tool_name?: string | null
+}
+
+export interface AnalyticsWidget {
+  id: string
+  title: string
+  visualization: AnalyticsVisualization
+  metric: AnalyticsMetric
+  group_by: AnalyticsDimension | null
+  size: AnalyticsWidgetSize
+  limit: number
+  show_legend: boolean
+}
+
+export interface AnalyticsViewDefinition {
+  schema_version: 1
+  preset: AnalyticsDashboardPreset
+  density: AnalyticsDashboardDensity
+  query: AnalyticsQuery
+  widgets: AnalyticsWidget[]
+}
+
+export interface AnalyticsView {
+  id: string
+  project_id: string
+  owner_user_id: string
+  name: string
+  description: string | null
+  visibility: AnalyticsViewVisibility
+  definition: AnalyticsViewDefinition
+  revision: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAnalyticsViewBody {
+  name: string
+  description?: string | null
+  visibility: AnalyticsViewVisibility
+  definition: AnalyticsViewDefinition
+}
+
+export interface UpdateAnalyticsViewBody extends CreateAnalyticsViewBody {
+  revision: number
+}
+
 export interface DateRangeParams {
   from?: string
   to?: string
@@ -505,6 +620,28 @@ export interface ManagedResource {
   updated_at: string
 }
 
+export type ResourceBundleKind = Extract<ResourceKind, "agent" | "skill" | "plugin">
+
+export interface FileManifestEntry {
+  path: string
+  sha256: string
+  size: number
+  media_type: string
+  executable: boolean
+}
+
+export interface ResourceBundleV2 {
+  schema_version: 2
+  kind: ResourceBundleKind
+  slug: string
+  version: string
+  artifact_sha256: string
+  artifact_size: number
+  artifact_media_type: string
+  tree_sha256: string
+  files: FileManifestEntry[]
+}
+
 export interface ResourceVersion {
   id: string
   project_id: string
@@ -518,6 +655,7 @@ export interface ResourceVersion {
   content_sha256: string
   content_size: number
   artifact_key: string | null
+  bundle_v2?: ResourceBundleV2
   minimum_evoflux_version: string | null
   created_by: string
   created_at: string
@@ -839,6 +977,24 @@ export const api = {
         limit: params.limit,
         offset: params.offset,
       })}`,
+    ),
+  analyticsViews: () => request<AnalyticsView[]>("/analytics/views"),
+  analyticsView: (id: string) =>
+    request<AnalyticsView>(`/analytics/views/${encodeURIComponent(id)}`),
+  createAnalyticsView: (body: CreateAnalyticsViewBody) =>
+    request<AnalyticsView>("/analytics/views", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateAnalyticsView: (id: string, body: UpdateAnalyticsViewBody) =>
+    request<AnalyticsView>(`/analytics/views/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteAnalyticsView: (id: string, revision: number) =>
+    request<{ deleted: boolean }>(
+      `/analytics/views/${encodeURIComponent(id)}${qs({ revision })}`,
+      { method: "DELETE" },
     ),
   createMember: (body: CreateMemberBody) =>
     request<CreatedMember>("/members", { method: "POST", body: JSON.stringify(body) }),

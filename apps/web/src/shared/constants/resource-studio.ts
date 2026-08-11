@@ -4,6 +4,7 @@ export const RESOURCE_STUDIO_VIEW_MODE = {
   FILE: "file",
   PREVIEW: "preview",
   EDIT: "edit",
+  SPLIT: "split",
   DIFF: "diff",
 } as const
 

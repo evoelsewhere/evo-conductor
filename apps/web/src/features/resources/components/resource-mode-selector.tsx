@@ -1,4 +1,4 @@
-import { Code2, PanelsTopLeft } from "lucide-react"
+import { Code2, PanelsTopLeft, Waypoints } from "lucide-react"
 
 import {
   RESOURCE_TARGET_MODE,
@@ -18,6 +18,12 @@ const MODE_OPTIONS = [
     label: "Coding",
     description: "Repository, project, worktree and review sessions",
     icon: Code2,
+  },
+  {
+    value: RESOURCE_TARGET_MODE.AIM,
+    label: "AIM",
+    description: "Governed modernization, traceability and migration pipelines",
+    icon: Waypoints,
   },
 ] as const
 
@@ -42,7 +48,7 @@ export function ResourceModeSelector({
   }
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2" aria-label="EvoFlux availability modes">
+    <div className="grid gap-2 sm:grid-cols-3" aria-label="EvoFlux availability modes">
       {MODE_OPTIONS.map((option) => {
         const Icon = option.icon
         const selected = value.includes(option.value)
