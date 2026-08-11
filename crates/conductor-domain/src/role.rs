@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum PrimaryRole {
     /// Full control: setup, SSO, roles, members, secrets policy, resources.
     Admin,
-    /// Can publish/manage shared agents, skills, MCP and view team telemetry.
+    /// Can publish/manage shared Agents, Skills and Plugins and view team telemetry.
     Contribute,
     /// Standard member — consumes shared resources; may create personal secrets.
     User,

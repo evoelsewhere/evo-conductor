@@ -64,7 +64,7 @@ export const MEMBER_PRESENCE_TONES = {
 export const MEMBER_ANALYTICS_NAV_ITEMS = [
   { suffix: "", label: "Overview" },
   { suffix: "/activity", label: "Activity" },
-  { suffix: "/tools", label: "Tools & MCP" },
+  { suffix: "/tools", label: "Tools & Plugins" },
 ] as const
 
 export const MEMBER_QUERY_KEYS = {

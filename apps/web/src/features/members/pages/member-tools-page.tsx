@@ -30,7 +30,7 @@ export function MemberToolsPage() {
     queryFn: () => api.memberTools(userId, dates.range),
   })
   return (
-    <PageFrame title="Tools & MCP" subtitle={member.data ? `Tool execution summary for ${member.data.display_name}` : "Tool usage, success, errors, and latency."}>
+    <PageFrame title="Tools & Plugins" subtitle={member.data ? `Tool execution summary for ${member.data.display_name}` : "Tool usage, success, errors, and latency."}>
       <Link to="/app/members/$userId" params={{ userId }} className="mb-3 inline-flex items-center gap-1 text-xs text-(--color-text-muted) hover:text-(--color-text)"><ArrowLeft className="size-3.5" />Member overview</Link>
       <MemberNav userId={userId} />
       <div className="mb-4 flex justify-end"><DateRangeFilter preset={dates.preset} onPresetChange={dates.setPreset} customFrom={dates.customFrom} onCustomFromChange={dates.setCustomFrom} customTo={dates.customTo} onCustomToChange={dates.setCustomTo} /></div>

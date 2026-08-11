@@ -29,7 +29,7 @@ const primaryRoles = [
   },
   {
     role: "contribute",
-    desc: "Publish shared agents/skills/MCP and view team monitoring.",
+    desc: "Publish shared Agents, Skills and Plugins and view team monitoring.",
   },
   {
     role: "user",
