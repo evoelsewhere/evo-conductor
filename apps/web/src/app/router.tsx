@@ -20,6 +20,7 @@ import { MemberRequestDetailPage } from "@/features/members/pages/member-request
 import { MemberToolsPage } from "@/features/members/pages/member-tools-page"
 import { OverviewPage } from "@/features/dashboard/pages/overview-page"
 import { ResourcesPage } from "@/features/resources/pages/resources-page"
+import { ResourceStudioPage } from "@/features/resources/pages/resource-studio-page"
 import { RolesPage } from "@/features/roles/pages/roles-page"
 import { SecretsPage } from "@/features/secrets/pages/secrets-page"
 import { SetupPage } from "@/features/setup/pages/setup-page"
@@ -187,7 +188,19 @@ const resourcesRoute = createRoute({
 const resourcesPluginsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/resources/plugins",
-  component: () => <ResourcesPage fixedKind="mcp" />,
+  component: () => <ResourcesPage fixedKind="plugin" />,
+})
+
+const resourceStudioRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/$kind/$resourceId/edit",
+  component: ResourceStudioPage,
+  beforeLoad: () => {
+    const role = storedPrimaryRole()
+    if (role !== PRIMARY_ROLE.ADMIN && role !== PRIMARY_ROLE.CONTRIBUTE) {
+      throw redirect({ to: "/app/resources" })
+    }
+  },
 })
 
 const resourcesSkillsRoute = createRoute({
@@ -260,6 +273,7 @@ const routeTree = rootRoute.addChildren([
     resourcesPluginsRoute,
     resourcesSkillsRoute,
     resourcesAgentsRoute,
+    resourceStudioRoute,
     secretsRoute,
     rolesRoute,
     tagsRoute,

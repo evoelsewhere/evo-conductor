@@ -9,6 +9,12 @@ import type {
   TelemetryEventType,
   TelemetryToolCategory,
 } from "@/shared/constants/telemetry"
+import type {
+  ReleaseChannel,
+  ResourceKind,
+  ResourceStatus,
+  VersionMode,
+} from "@/shared/constants/resource"
 import { authSession } from "@/shared/lib/auth-session"
 
 export type { PrimaryRole, UserStatus } from "@/shared/constants/member"
@@ -227,7 +233,7 @@ export interface DashboardSummary {
   resources: {
     agents: number
     skills: number
-    mcp: number
+    plugins: number
     workflows: number
   }
   sso_enabled: boolean
@@ -301,14 +307,18 @@ export interface CreatedSecret {
 
 export interface ManagedResource {
   id: string
-  kind: "agent" | "skill" | "mcp" | "workflow" | "command"
+  project_id: string
+  kind: ResourceKind
   slug: string
   name: string
   description: string | null
   version: string
+  highest_version: string | null
+  draft_revision: number
+  release_channel: ReleaseChannel | null
   owner_user_id: string | null
   visibility: "shared" | "private"
-  status: "draft" | "published" | "archived"
+  status: ResourceStatus
   payload: unknown
   published_at: string | null
   created_at: string
@@ -317,14 +327,71 @@ export interface ManagedResource {
 
 export interface ResourceVersion {
   id: string
+  project_id: string
   resource_id: string
   version: string
-  status: "draft" | "published" | "deprecated"
+  status: "draft" | "beta" | "published" | "deprecated"
   payload: unknown
   changelog: string | null
+  release_channel: ReleaseChannel | null
+  content_sha256: string
+  content_size: number
+  artifact_key: string | null
+  minimum_evoflux_version: string | null
   created_by: string
   created_at: string
   published_at: string | null
+}
+
+export interface DraftFile {
+  path: string
+  content: string
+}
+
+export interface DraftFileTree {
+  resource_id: string
+  revision: number
+  files: DraftFile[]
+}
+
+export interface ResourceDiagnostic {
+  severity: "warning" | "error"
+  code: string
+  message: string
+  path: string | null
+  line: number | null
+}
+
+export interface ResourceValidation {
+  valid: boolean
+  revision: number
+  diagnostics: ResourceDiagnostic[]
+}
+
+export interface DraftImportResponse {
+  tree: DraftFileTree
+  validation: ResourceValidation
+}
+
+export interface ReleaseResourceRequest {
+  channel: ReleaseChannel
+  version_mode: VersionMode
+  manual_version: string | null
+  draft_revision: number
+  changelog: string | null
+  beta_member_ids: string[]
+  minimum_evoflux_version: string | null
+}
+
+export interface ReleaseResourceResult {
+  resource_id: string
+  version_id: string
+  version: string
+  channel: ReleaseChannel
+  sha256: string
+  size: number
+  highest_version: string
+  next_version: string
 }
 
 export interface ResourceAccessPolicy {
@@ -382,7 +449,9 @@ export interface ResourceFeedback {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authSession.getToken()
   const headers = new Headers(init?.headers)
-  headers.set("Content-Type", "application/json")
+  if (typeof init?.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
   if (token) headers.set("Authorization", `Bearer ${token}`)
 
   const res = await fetch(`/api${path}`, { ...init, headers })
@@ -629,6 +698,40 @@ export const api = {
     request<ManagedResource>(`/resources/${id}/archive`, { method: "POST" }),
   resourceVersions: (id: string) =>
     request<ResourceVersion[]>(`/resources/${id}/versions`),
+  resourceDraft: (id: string) =>
+    request<DraftFileTree>(`/resources/${id}/draft/files`),
+  saveResourceDraftFile: (
+    id: string,
+    path: string,
+    content: string,
+    draftRevision: number,
+  ) =>
+    request<DraftFileTree>(
+      `/resources/${id}/draft/files/${path
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/")}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content, draft_revision: draftRevision }),
+      },
+    ),
+  importResourceDraft: (id: string, file: File, draftRevision: number) =>
+    request<DraftImportResponse>(
+      `/resources/${id}/draft/import${qs({ draft_revision: draftRevision })}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/zip" },
+        body: file,
+      },
+    ),
+  validateResourceDraft: (id: string) =>
+    request<ResourceValidation>(`/resources/${id}/draft/validate`, { method: "POST" }),
+  releaseResource: (id: string, body: ReleaseResourceRequest) =>
+    request<ReleaseResourceResult>(`/resources/${id}/release`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   createResourceVersion: (
     id: string,
     body: { version: string; payload: unknown; changelog?: string },

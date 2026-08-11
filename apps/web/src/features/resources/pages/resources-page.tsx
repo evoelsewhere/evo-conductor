@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import {
   Activity,
   Archive,
@@ -45,6 +46,12 @@ import {
   TableWrap,
 } from "@/shared/ui/table"
 import { Textarea } from "@/shared/ui/textarea"
+import {
+  RESOURCE_KIND,
+  RESOURCE_KIND_LABEL,
+  RESOURCE_KIND_OPTIONS,
+  RESOURCE_QUERY_KEY,
+} from "@/shared/constants/resource"
 
 type ResourceKind = ManagedResource["kind"]
 type ResourceStatus = ManagedResource["status"]
@@ -52,25 +59,15 @@ type DetailTab = "overview" | "versions" | "access" | "monitoring" | "feedback"
 
 const kindOptions = [
   { value: "all", label: "All types" },
-  { value: "agent", label: "Agents" },
-  { value: "skill", label: "Skills" },
-  { value: "mcp", label: "Plugins" },
-  { value: "workflow", label: "Workflows" },
-  { value: "command", label: "Commands" },
+  ...RESOURCE_KIND_OPTIONS,
 ] as const
 
-const kindLabels: Record<ResourceKind, string> = {
-  agent: "Agent",
-  skill: "Skill",
-  mcp: "Plugin",
-  workflow: "Workflow",
-  command: "Command",
-}
+const kindLabels = RESOURCE_KIND_LABEL
 
 const kindPageMeta: Partial<Record<ResourceKind, { title: string; subtitle: string }>> = {
-  mcp: {
+  [RESOURCE_KIND.PLUGIN]: {
     title: "Plugins",
-    subtitle: "MCP servers published to EvoFlux clients, from draft to measurable outcomes.",
+    subtitle: "Portable Plugins published to EvoFlux clients, from Draft to measurable outcomes.",
   },
   skill: {
     title: "Skills",
@@ -96,10 +93,11 @@ const resourceKindOptions = kindOptions.slice(1) as ReadonlyArray<{
 
 export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
   const canCreate = user?.primary_role === "admin" || user?.primary_role === "contribute"
   const { data = [], isLoading, error } = useQuery({
-    queryKey: ["resources"],
+    queryKey: [RESOURCE_QUERY_KEY],
     queryFn: () => api.resources(),
   })
   const [query, setQuery] = useState("")
@@ -115,7 +113,7 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
     onSuccess: () => {
       setPendingArchive(null)
       setSelected(null)
-      void qc.invalidateQueries({ queryKey: ["resources"] })
+      void qc.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
       focusAfterDialogTransition(() => searchRef.current?.focus())
     },
   })
@@ -271,7 +269,16 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
                     {formatDate(resource.updated_at)}
                   </TableTd>
                   <TableTd className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => setSelected(resource)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void navigate({
+                          to: "/app/resources/$kind/$resourceId/edit",
+                          params: { kind: resource.kind, resourceId: resource.id },
+                        })
+                      }
+                    >
                       {canManage(resource) ? "Manage" : "View"}
                     </Button>
                   </TableTd>
@@ -288,8 +295,11 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
         onClose={() => setShowCreate(false)}
         onCreated={(resource) => {
           setShowCreate(false)
-          setSelected(resource)
-          void qc.invalidateQueries({ queryKey: ["resources"] })
+          void qc.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+          void navigate({
+            to: "/app/resources/$kind/$resourceId/edit",
+            params: { kind: resource.kind, resourceId: resource.id },
+          })
         }}
       />
       {selected && (
@@ -299,7 +309,7 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
           onClose={() => setSelected(null)}
           onChanged={(resource) => {
             setSelected(resource)
-            void qc.invalidateQueries({ queryKey: ["resources"] })
+            void qc.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
           }}
           onArchive={() => setPendingArchive(selected)}
         />
