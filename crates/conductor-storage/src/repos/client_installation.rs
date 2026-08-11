@@ -197,6 +197,23 @@ impl ClientInstallationRepo {
         .await?;
         rows.into_iter().map(map_installation).collect()
     }
+
+    pub async fn belongs_to(
+        &self,
+        installation_id: Uuid,
+        instance_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM client_installations WHERE id = ? AND instance_id = ? AND user_id = ?",
+        )
+        .bind(installation_id.to_string())
+        .bind(instance_id.to_string())
+        .bind(user_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
 }
 
 async fn fetch_by_id<'e, E>(

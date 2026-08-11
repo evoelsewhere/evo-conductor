@@ -15,6 +15,12 @@ pub const TABLES: &[&str] = &[
     "client_installations",
     "client_registration_idempotency",
     "resources",
+    "resource_versions",
+    "resource_access_rules",
+    "resource_release_channels",
+    "resource_beta_members",
+    "resource_changes",
+    "installation_resource_inventory",
     "member_inventory",
     "telemetry_events",
 ];
@@ -34,4 +40,7 @@ pub const INDEXES: &[&str] = &[
     "idx_telemetry_user_time",
     "idx_telemetry_request",
     "idx_telemetry_installation_time",
+    "idx_resource_changes_audience",
+    "idx_resource_changes_resource",
+    "idx_resource_inventory_state",
 ];

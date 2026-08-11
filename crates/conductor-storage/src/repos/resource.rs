@@ -1,11 +1,14 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::str::FromStr;
 
 use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
-    CreateResourceRequest, CreateResourceVersionRequest, ManagedResource, PrimaryRole,
-    ResourceAccessPolicy, ResourceDailyUsage, ResourceFeedback, ResourceMemberUsage,
-    ResourceMonitoring, ResourceMonitoringSummary, ResourceUsageEventRequest, ResourceVersion,
-    ResourceVersionStatus, UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    CreateResourceRequest, CreateResourceVersionRequest, DraftFile, DraftFileTree,
+    EffectiveResourceVersion, ManagedResource, PrimaryRole, ReleaseChannel, ReleaseResourceRequest,
+    ReleaseResourceResult, ResourceAccessPolicy, ResourceDailyUsage, ResourceFeedback,
+    ResourceInventoryRequest, ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary,
+    ResourceUsageEventRequest, ResourceVersion, ResourceVersionStatus, SemanticVersion,
+    UpdateResourceRequest, UpsertResourceFeedbackRequest, VersionMode,
 };
 use sqlx::{Any, Pool, QueryBuilder, Row};
 use uuid::Uuid;
@@ -15,6 +18,36 @@ use crate::core::mapping::{map_resource, parse_dt};
 #[derive(Clone)]
 pub struct ResourceRepo {
     pool: Pool<Any>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReleaseContent {
+    pub sha256: String,
+    pub size: u64,
+    pub artifact_key: Option<String>,
+    pub updated_payload: Option<String>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DraftWriteError {
+    #[error("resource was not found")]
+    NotFound,
+    #[error("draft revision is stale")]
+    Conflict,
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReleaseResourceError {
+    #[error("resource was not found")]
+    NotFound,
+    #[error("draft or version head changed")]
+    Conflict,
+    #[error("semantic version is invalid or not greater than the current head")]
+    InvalidVersion,
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
 }
 
 impl ResourceRepo {
@@ -36,7 +69,8 @@ impl ResourceRepo {
 
         let rows = sqlx::query(
             r#"
-            SELECT r.id, r.kind, r.slug, r.name, r.description, r.version,
+            SELECT r.id, r.project_id, r.kind, r.slug, r.name, r.description, r.version,
+                   r.highest_semver, r.draft_revision, r.release_channel,
                    r.owner_user_id, r.visibility, r.status, r.payload,
                    r.published_at, r.created_at, r.updated_at
             FROM resources r
@@ -81,7 +115,8 @@ impl ResourceRepo {
     pub async fn list_all(&self) -> Result<Vec<ManagedResource>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, kind, slug, name, description, version, owner_user_id,
+            SELECT id, project_id, kind, slug, name, description, version,
+                   highest_semver, draft_revision, release_channel, owner_user_id,
                    visibility, status, payload, published_at, created_at, updated_at
             FROM resources
             ORDER BY updated_at DESC, name
@@ -98,7 +133,7 @@ impl ResourceRepo {
     ) -> Result<Vec<ManagedResource>, sqlx::Error> {
         let rows = sqlx::query(&format!(
             "{} ORDER BY r.kind, r.name",
-            visible_resources_query("SELECT r.id, r.kind, r.slug, r.name, r.description, r.version, r.owner_user_id, r.visibility, r.status, r.payload, r.published_at, r.created_at, r.updated_at")
+            visible_resources_query("SELECT r.id, r.project_id, r.kind, r.slug, r.name, r.description, r.version, r.highest_semver, r.draft_revision, r.release_channel, r.owner_user_id, r.visibility, r.status, r.payload, r.published_at, r.created_at, r.updated_at")
         ))
         .bind(user_id.to_string())
         .bind(user_id.to_string())
@@ -133,7 +168,8 @@ impl ResourceRepo {
     ) -> Result<Option<ManagedResource>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, kind, slug, name, description, version, owner_user_id,
+            SELECT id, project_id, kind, slug, name, description, version,
+                   highest_semver, draft_revision, release_channel, owner_user_id,
                    visibility, status, payload, published_at, created_at, updated_at
             FROM resources WHERE id = ?
             "#,
@@ -146,24 +182,26 @@ impl ResourceRepo {
 
     pub async fn create(
         &self,
+        project_id: Uuid,
         request: &CreateResourceRequest,
         owner_user_id: Uuid,
     ) -> Result<ManagedResource, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let id = Uuid::new_v4();
-        let version_id = Uuid::new_v4();
         let now = Utc::now().to_rfc3339();
         let payload = serde_json::to_string(&request.payload).unwrap_or_else(|_| "{}".into());
 
         sqlx::query(
             r#"
             INSERT INTO resources (
-                id, kind, slug, name, description, version, owner_user_id,
-                visibility, status, payload, published_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, NULL, ?, ?)
+                id, project_id, kind, slug, name, description, version, owner_user_id,
+                visibility, status, payload, draft_revision, highest_semver,
+                release_channel, published_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, 0, NULL, NULL, NULL, ?, ?)
             "#,
         )
         .bind(id.to_string())
+        .bind(project_id.to_string())
         .bind(request.kind.as_str())
         .bind(request.slug.trim())
         .bind(request.name.trim())
@@ -177,23 +215,6 @@ impl ResourceRepo {
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query(
-            r#"
-            INSERT INTO resource_versions (
-                id, resource_id, version, status, payload, changelog,
-                created_by, created_at, published_at
-            ) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, NULL)
-            "#,
-        )
-        .bind(version_id.to_string())
-        .bind(id.to_string())
-        .bind(request.version.trim())
-        .bind(payload)
-        .bind(clean_optional(request.changelog.as_deref()))
-        .bind(owner_user_id.to_string())
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
         tx.commit().await?;
 
         Ok(self.find_by_id(id).await?.expect("created resource"))
@@ -238,21 +259,46 @@ impl ResourceRepo {
     }
 
     pub async fn archive(&self, resource_id: Uuid) -> Result<bool, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let project_id: Option<String> =
+            sqlx::query_scalar("SELECT project_id FROM resources WHERE id = ?")
+                .bind(resource_id.to_string())
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(project_id) = project_id else {
+            return Ok(false);
+        };
+        let now = Utc::now().to_rfc3339();
         let result = sqlx::query(
             "UPDATE resources SET status = 'archived', updated_at = ? WHERE id = ? AND status <> 'archived'",
         )
-        .bind(Utc::now().to_rfc3339())
+        .bind(&now)
         .bind(resource_id.to_string())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(result.rows_affected() > 0)
+        if result.rows_affected() == 0 {
+            return Ok(false);
+        }
+        insert_resource_change(
+            &mut tx,
+            &project_id,
+            resource_id,
+            "archive",
+            None,
+            None,
+            &now,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     pub async fn versions(&self, resource_id: Uuid) -> Result<Vec<ResourceVersion>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT id, resource_id, version, status, payload, changelog,
-                   created_by, created_at, published_at
+            SELECT id, project_id, resource_id, version, status, payload, changelog,
+                   release_channel, content_sha256, content_size, artifact_key,
+                   minimum_evoflux_version, created_by, created_at, published_at
             FROM resource_versions
             WHERE resource_id = ?
             ORDER BY created_at DESC
@@ -272,18 +318,26 @@ impl ResourceRepo {
     ) -> Result<ResourceVersion, sqlx::Error> {
         let id = Uuid::new_v4();
         let now = Utc::now();
+        let project_id = self
+            .find_by_id(resource_id)
+            .await?
+            .map(|resource| resource.project_id)
+            .unwrap_or_else(Uuid::nil);
+        let payload = serde_json::to_string(&request.payload).unwrap_or_else(|_| "{}".into());
         sqlx::query(
             r#"
             INSERT INTO resource_versions (
-                id, resource_id, version, status, payload, changelog,
-                created_by, created_at, published_at
-            ) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, NULL)
+                id, project_id, resource_id, version, status, payload, changelog,
+                release_channel, content_sha256, content_size, created_by,
+                created_at, published_at
+            ) VALUES (?, ?, ?, ?, 'draft', ?, ?, NULL, '', 0, ?, ?, NULL)
             "#,
         )
         .bind(id.to_string())
+        .bind(project_id.to_string())
         .bind(resource_id.to_string())
         .bind(request.version.trim())
-        .bind(serde_json::to_string(&request.payload).unwrap_or_else(|_| "{}".into()))
+        .bind(payload)
         .bind(clean_optional(request.changelog.as_deref()))
         .bind(created_by.to_string())
         .bind(now.to_rfc3339())
@@ -291,11 +345,17 @@ impl ResourceRepo {
         .await?;
         Ok(ResourceVersion {
             id,
+            project_id,
             resource_id,
             version: request.version.trim().to_string(),
             status: ResourceVersionStatus::Draft,
             payload: request.payload.clone(),
             changelog: clean_optional(request.changelog.as_deref()),
+            release_channel: None,
+            content_sha256: String::new(),
+            content_size: 0,
+            artifact_key: None,
+            minimum_evoflux_version: None,
             created_by,
             created_at: now,
             published_at: None,
@@ -324,7 +384,7 @@ impl ResourceRepo {
             return Ok(None);
         };
         let version: String = row.get("version");
-        let payload: String = row.get("payload");
+        let version_payload: String = row.get("payload");
         let previous_updated_at: String = row.get("updated_at");
         let now = Utc::now().to_rfc3339();
 
@@ -337,7 +397,7 @@ impl ResourceRepo {
             "#,
         )
         .bind(version)
-        .bind(payload)
+        .bind(version_payload)
         .bind(&now)
         .bind(&now)
         .bind(resource_id.to_string())
@@ -420,8 +480,494 @@ impl ResourceRepo {
         for id in &policy.member_ids {
             insert_access_rule(&mut tx, resource_id, "member", &id.to_string(), &now).await?;
         }
+        if let Some(project_id) =
+            sqlx::query_scalar::<_, String>("SELECT project_id FROM resources WHERE id = ?")
+                .bind(resource_id.to_string())
+                .fetch_optional(&mut *tx)
+                .await?
+        {
+            insert_resource_change(
+                &mut tx,
+                &project_id,
+                resource_id,
+                "access",
+                None,
+                None,
+                &now,
+            )
+            .await?;
+        }
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn draft_tree(
+        &self,
+        resource_id: Uuid,
+    ) -> Result<Option<DraftFileTree>, sqlx::Error> {
+        let Some(resource) = self.find_by_id(resource_id).await? else {
+            return Ok(None);
+        };
+        Ok(Some(DraftFileTree {
+            resource_id,
+            revision: resource.draft_revision,
+            files: draft_files(&resource.payload),
+        }))
+    }
+
+    pub async fn save_draft_file(
+        &self,
+        resource_id: Uuid,
+        path: &str,
+        content: &str,
+        expected_revision: u64,
+    ) -> Result<DraftFileTree, DraftWriteError> {
+        let Some(resource) = self.find_by_id(resource_id).await? else {
+            return Err(DraftWriteError::NotFound);
+        };
+        if resource.draft_revision != expected_revision {
+            return Err(DraftWriteError::Conflict);
+        }
+        let mut files = draft_files(&resource.payload);
+        if let Some(file) = files.iter_mut().find(|file| file.path == path) {
+            file.content = content.to_string();
+        } else {
+            files.push(DraftFile {
+                path: path.to_string(),
+                content: content.to_string(),
+            });
+        }
+        files.sort_by(|left, right| left.path.cmp(&right.path));
+        let next_revision = expected_revision.saturating_add(1);
+        let payload = serde_json::json!({ "files": files });
+        let updated = sqlx::query(
+            "UPDATE resources SET payload = ?, draft_revision = ?, updated_at = ? \
+             WHERE id = ? AND draft_revision = ?",
+        )
+        .bind(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into()))
+        .bind(saturating_i64(next_revision))
+        .bind(Utc::now().to_rfc3339())
+        .bind(resource_id.to_string())
+        .bind(saturating_i64(expected_revision))
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(DraftWriteError::Conflict);
+        }
+        Ok(DraftFileTree {
+            resource_id,
+            revision: next_revision,
+            files: draft_files(&payload),
+        })
+    }
+
+    pub async fn replace_draft_files(
+        &self,
+        resource_id: Uuid,
+        files: &[DraftFile],
+        expected_revision: u64,
+    ) -> Result<DraftFileTree, DraftWriteError> {
+        let next_revision = expected_revision.saturating_add(1);
+        let payload = serde_json::json!({ "files": files });
+        let updated = sqlx::query(
+            "UPDATE resources SET payload = ?, draft_revision = ?, updated_at = ? \
+             WHERE id = ? AND draft_revision = ? AND status <> 'archived'",
+        )
+        .bind(serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into()))
+        .bind(saturating_i64(next_revision))
+        .bind(Utc::now().to_rfc3339())
+        .bind(resource_id.to_string())
+        .bind(saturating_i64(expected_revision))
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM resources WHERE id = ?")
+                .bind(resource_id.to_string())
+                .fetch_one(&self.pool)
+                .await?;
+            return Err(if exists == 0 {
+                DraftWriteError::NotFound
+            } else {
+                DraftWriteError::Conflict
+            });
+        }
+        Ok(DraftFileTree {
+            resource_id,
+            revision: next_revision,
+            files: files.to_vec(),
+        })
+    }
+
+    pub async fn release(
+        &self,
+        resource_id: Uuid,
+        request: &ReleaseResourceRequest,
+        content: &ReleaseContent,
+        actor_id: Uuid,
+    ) -> Result<ReleaseResourceResult, ReleaseResourceError> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT project_id, draft_revision, highest_semver, payload, updated_at
+            FROM resources WHERE id = ? AND status <> 'archived'
+            "#,
+        )
+        .bind(resource_id.to_string())
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(ReleaseResourceError::NotFound)?;
+        let project_id = parse_uuid(row.get("project_id"));
+        let draft_revision = nonnegative_u64(row.get("draft_revision"));
+        let previous_updated_at: String = row.get("updated_at");
+        if draft_revision != request.draft_revision {
+            return Err(ReleaseResourceError::Conflict);
+        }
+        let highest_text: Option<String> = row.get("highest_semver");
+        let highest = highest_text
+            .as_deref()
+            .map(SemanticVersion::from_str)
+            .transpose()
+            .map_err(|_| ReleaseResourceError::InvalidVersion)?;
+        let allocated = match request.version_mode {
+            VersionMode::Auto => highest
+                .as_ref()
+                .map(SemanticVersion::next_patch)
+                .unwrap_or_else(SemanticVersion::initial),
+            VersionMode::Manual => {
+                let value = request
+                    .manual_version
+                    .as_deref()
+                    .ok_or(ReleaseResourceError::InvalidVersion)?;
+                let parsed = SemanticVersion::from_str(value)
+                    .map_err(|_| ReleaseResourceError::InvalidVersion)?;
+                if highest.as_ref().is_some_and(|head| parsed <= *head) {
+                    return Err(ReleaseResourceError::InvalidVersion);
+                }
+                parsed
+            }
+        };
+        let version = allocated.to_string();
+        let version_id = Uuid::new_v4();
+        let now = Utc::now().to_rfc3339();
+        let stored_payload: String = row.get("payload");
+        let version_payload = content
+            .updated_payload
+            .as_deref()
+            .unwrap_or(&stored_payload);
+
+        sqlx::query(
+            r#"
+            INSERT INTO resource_versions (
+                id, project_id, resource_id, version, status, payload, changelog,
+                release_channel, content_sha256, content_size, artifact_key,
+                artifact_schema_version, minimum_evoflux_version, created_by,
+                created_at, published_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '1', ?, ?, ?, ?)
+            "#,
+        )
+        .bind(version_id.to_string())
+        .bind(project_id.to_string())
+        .bind(resource_id.to_string())
+        .bind(&version)
+        .bind(request.channel.as_str())
+        .bind(version_payload)
+        .bind(clean_optional(request.changelog.as_deref()))
+        .bind(request.channel.as_str())
+        .bind(&content.sha256)
+        .bind(saturating_i64(content.size))
+        .bind(content.artifact_key.as_deref())
+        .bind(clean_optional(request.minimum_evoflux_version.as_deref()))
+        .bind(actor_id.to_string())
+        .bind(&now)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| match &error {
+            sqlx::Error::Database(database) if database.is_unique_violation() => {
+                ReleaseResourceError::Conflict
+            }
+            _ => ReleaseResourceError::Database(error),
+        })?;
+
+        sqlx::query(
+            "DELETE FROM resource_release_channels WHERE project_id = ? AND resource_id = ? AND channel = ?",
+        )
+        .bind(project_id.to_string())
+        .bind(resource_id.to_string())
+        .bind(request.channel.as_str())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO resource_release_channels (
+                project_id, resource_id, channel, version_id, updated_by, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(project_id.to_string())
+        .bind(resource_id.to_string())
+        .bind(request.channel.as_str())
+        .bind(version_id.to_string())
+        .bind(actor_id.to_string())
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+
+        let previous_beta_members = if request.channel == ReleaseChannel::Beta {
+            sqlx::query_scalar::<_, String>(
+                "SELECT user_id FROM resource_beta_members WHERE project_id = ? AND resource_id = ?",
+            )
+            .bind(project_id.to_string())
+            .bind(resource_id.to_string())
+            .fetch_all(&mut *tx)
+            .await?
+        } else {
+            Vec::new()
+        };
+        if request.channel == ReleaseChannel::Beta {
+            sqlx::query(
+                "DELETE FROM resource_beta_members WHERE project_id = ? AND resource_id = ?",
+            )
+            .bind(project_id.to_string())
+            .bind(resource_id.to_string())
+            .execute(&mut *tx)
+            .await?;
+            for member_id in &request.beta_member_ids {
+                sqlx::query(
+                    r#"
+                    INSERT INTO resource_beta_members (
+                        project_id, resource_id, user_id, assigned_by, assigned_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(project_id.to_string())
+                .bind(resource_id.to_string())
+                .bind(member_id.to_string())
+                .bind(actor_id.to_string())
+                .bind(&now)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
+        let has_published: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_release_channels WHERE project_id = ? AND resource_id = ? AND channel = 'published'",
+        )
+        .bind(project_id.to_string())
+        .bind(resource_id.to_string())
+        .fetch_one(&mut *tx)
+        .await?;
+        let status = if has_published > 0 {
+            "published"
+        } else {
+            request.channel.as_str()
+        };
+        let updated = sqlx::query(
+            r#"
+            UPDATE resources
+            SET version = ?, highest_semver = ?, release_channel = ?, status = ?,
+                payload = ?, draft_revision = ?, published_at = ?, updated_at = ?
+            WHERE id = ? AND draft_revision = ? AND updated_at = ?
+            "#,
+        )
+        .bind(&version)
+        .bind(&version)
+        .bind(request.channel.as_str())
+        .bind(status)
+        .bind(version_payload)
+        .bind(saturating_i64(if content.updated_payload.is_some() {
+            draft_revision.saturating_add(1)
+        } else {
+            draft_revision
+        }))
+        .bind(&now)
+        .bind(&now)
+        .bind(resource_id.to_string())
+        .bind(saturating_i64(draft_revision))
+        .bind(previous_updated_at)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(ReleaseResourceError::Conflict);
+        }
+
+        let mut next_sequence: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(sequence), 0) + 1 FROM resource_changes")
+                .fetch_one(&mut *tx)
+                .await?;
+        let effective_users = if request.channel == ReleaseChannel::Beta {
+            let mut users = previous_beta_members.into_iter().collect::<HashSet<_>>();
+            users.extend(request.beta_member_ids.iter().map(Uuid::to_string));
+            users.into_iter().map(Some).collect::<Vec<_>>()
+        } else {
+            vec![None]
+        };
+        for effective_user_id in effective_users {
+            sqlx::query(
+                r#"
+                INSERT INTO resource_changes (
+                    sequence, project_id, resource_id, effective_user_id,
+                    change_kind, version_id, channel, created_at
+                ) VALUES (?, ?, ?, ?, 'release', ?, ?, ?)
+                "#,
+            )
+            .bind(next_sequence)
+            .bind(project_id.to_string())
+            .bind(resource_id.to_string())
+            .bind(effective_user_id)
+            .bind(version_id.to_string())
+            .bind(request.channel.as_str())
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+            next_sequence = next_sequence.saturating_add(1);
+        }
+        tx.commit().await?;
+
+        Ok(ReleaseResourceResult {
+            resource_id,
+            version_id,
+            version: version.clone(),
+            channel: request.channel,
+            sha256: content.sha256.clone(),
+            size: content.size,
+            highest_version: version,
+            next_version: allocated.next_patch().to_string(),
+        })
+    }
+
+    pub async fn effective_version(
+        &self,
+        resource_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<EffectiveResourceVersion>, sqlx::Error> {
+        if !self
+            .visible_resource_ids(user_id)
+            .await?
+            .contains(&resource_id)
+        {
+            return Ok(None);
+        }
+        let beta: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_beta_members WHERE resource_id = ? AND user_id = ?",
+        )
+        .bind(resource_id.to_string())
+        .bind(user_id.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        let preferred = if beta > 0 { "beta" } else { "published" };
+        let row = sqlx::query(
+            r#"
+            SELECT r.project_id, r.id AS resource_id, r.kind, r.slug,
+                   rv.id AS version_id, rv.version, rv.release_channel, rv.payload,
+                   rv.content_sha256, rv.content_size, rv.artifact_key,
+                   rv.minimum_evoflux_version
+            FROM resources r
+            JOIN resource_release_channels c ON c.resource_id = r.id AND c.channel = ?
+            JOIN resource_versions rv ON rv.id = c.version_id
+            WHERE r.id = ? AND r.status <> 'archived'
+            "#,
+        )
+        .bind(preferred)
+        .bind(resource_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        let row = if row.is_none() && preferred == "beta" {
+            sqlx::query(
+                r#"
+                SELECT r.project_id, r.id AS resource_id, r.kind, r.slug,
+                       rv.id AS version_id, rv.version, rv.release_channel, rv.payload,
+                       rv.content_sha256, rv.content_size, rv.artifact_key,
+                       rv.minimum_evoflux_version
+                FROM resources r
+                JOIN resource_release_channels c ON c.resource_id = r.id AND c.channel = 'published'
+                JOIN resource_versions rv ON rv.id = c.version_id
+                WHERE r.id = ? AND r.status <> 'archived'
+                "#,
+            )
+            .bind(resource_id.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+        } else {
+            row
+        };
+        Ok(row.map(map_effective_version))
+    }
+
+    pub async fn change_sequences(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        after: i64,
+        limit: u32,
+    ) -> Result<Vec<(i64, Uuid)>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT sequence, resource_id FROM resource_changes
+            WHERE project_id = ? AND sequence > ?
+              AND (effective_user_id IS NULL OR effective_user_id = ?)
+            ORDER BY sequence ASC
+            LIMIT ?
+            "#,
+        )
+        .bind(project_id.to_string())
+        .bind(after)
+        .bind(user_id.to_string())
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let resource_id =
+                    Uuid::parse_str(row.get::<String, _>("resource_id").as_str()).ok()?;
+                Some((row.get("sequence"), resource_id))
+            })
+            .collect())
+    }
+
+    pub async fn upsert_inventory(
+        &self,
+        project_id: Uuid,
+        request: &ResourceInventoryRequest,
+    ) -> Result<u32, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let mut accepted = 0_u32;
+        for item in &request.items {
+            sqlx::query(
+                "DELETE FROM installation_resource_inventory WHERE project_id = ? AND installation_id = ? AND resource_id = ?",
+            )
+            .bind(project_id.to_string())
+            .bind(request.installation_id.to_string())
+            .bind(item.resource_id.to_string())
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"
+                INSERT INTO installation_resource_inventory (
+                    project_id, installation_id, resource_id, desired_version_id,
+                    applied_version_id, release_channel, content_sha256,
+                    plugin_installation_id, observed_state, error_category, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(project_id.to_string())
+            .bind(request.installation_id.to_string())
+            .bind(item.resource_id.to_string())
+            .bind(item.desired_version_id.map(|value| value.to_string()))
+            .bind(item.applied_version_id.map(|value| value.to_string()))
+            .bind(item.release_channel.map(ReleaseChannel::as_str))
+            .bind(item.content_sha256.as_deref())
+            .bind(item.plugin_installation_id.as_deref())
+            .bind(item.observed_state.trim())
+            .bind(item.error_category.as_deref())
+            .bind(item.observed_at.to_rfc3339())
+            .execute(&mut *tx)
+            .await?;
+            accepted = accepted.saturating_add(1);
+        }
+        tx.commit().await?;
+        Ok(accepted)
     }
 
     pub async fn insert_usage_event(
@@ -675,7 +1221,7 @@ fn visible_resources_query(select: &str) -> String {
         r#"
         {select}
         FROM resources r
-        WHERE r.status = 'published' AND (
+        WHERE r.status IN ('beta', 'published') AND (
             r.owner_user_id = ?
             OR (SELECT primary_role FROM users WHERE id = ?) = 'admin'
             OR (r.visibility = 'shared' AND NOT EXISTS (
@@ -708,15 +1254,62 @@ fn map_resources(rows: Vec<sqlx::any::AnyRow>) -> Vec<ManagedResource> {
         .collect()
 }
 
+fn draft_files(payload: &serde_json::Value) -> Vec<DraftFile> {
+    payload
+        .get("files")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            Some(DraftFile {
+                path: item.get("path")?.as_str()?.to_string(),
+                content: item.get("content")?.as_str()?.to_string(),
+            })
+        })
+        .collect()
+}
+
+fn map_effective_version(row: sqlx::any::AnyRow) -> EffectiveResourceVersion {
+    EffectiveResourceVersion {
+        project_id: parse_uuid(row.get("project_id")),
+        resource_id: parse_uuid(row.get("resource_id")),
+        version_id: parse_uuid(row.get("version_id")),
+        kind: conductor_domain::ResourceKind::parse(row.get::<String, _>("kind").as_str())
+            .unwrap_or(conductor_domain::ResourceKind::Agent),
+        slug: row.get("slug"),
+        version: row.get("version"),
+        release_channel: row
+            .get::<Option<String>, _>("release_channel")
+            .as_deref()
+            .and_then(ReleaseChannel::parse)
+            .unwrap_or(ReleaseChannel::Published),
+        payload: serde_json::from_str(row.get::<String, _>("payload").as_str())
+            .unwrap_or_else(|_| serde_json::json!({})),
+        sha256: row.get("content_sha256"),
+        size: nonnegative_u64(row.get("content_size")),
+        artifact_key: row.get("artifact_key"),
+        minimum_evoflux_version: row.get("minimum_evoflux_version"),
+    }
+}
+
 fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
     ResourceVersion {
         id: parse_uuid(row.get("id")),
+        project_id: parse_uuid(row.get("project_id")),
         resource_id: parse_uuid(row.get("resource_id")),
         version: row.get("version"),
         status: ResourceVersionStatus::parse(row.get::<String, _>("status").as_str()),
         payload: serde_json::from_str(row.get::<String, _>("payload").as_str())
             .unwrap_or_else(|_| serde_json::json!({})),
         changelog: row.get("changelog"),
+        release_channel: row
+            .get::<Option<String>, _>("release_channel")
+            .as_deref()
+            .and_then(ReleaseChannel::parse),
+        content_sha256: row.get("content_sha256"),
+        content_size: nonnegative_u64(row.get("content_size")),
+        artifact_key: row.get("artifact_key"),
+        minimum_evoflux_version: row.get("minimum_evoflux_version"),
         created_by: parse_uuid(row.get("created_by")),
         created_at: parse_dt(row.get("created_at")),
         published_at: row.get::<Option<String>, _>("published_at").map(parse_dt),
@@ -750,6 +1343,39 @@ async fn insert_access_rule(
     .bind(resource_id.to_string())
     .bind(subject_type)
     .bind(subject_id)
+    .bind(created_at)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn insert_resource_change(
+    tx: &mut sqlx::Transaction<'_, Any>,
+    project_id: &str,
+    resource_id: Uuid,
+    change_kind: &str,
+    version_id: Option<Uuid>,
+    channel: Option<&str>,
+    created_at: &str,
+) -> Result<(), sqlx::Error> {
+    let next_sequence: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(sequence), 0) + 1 FROM resource_changes")
+            .fetch_one(&mut **tx)
+            .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO resource_changes (
+            sequence, project_id, resource_id, effective_user_id,
+            change_kind, version_id, channel, created_at
+        ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(next_sequence)
+    .bind(project_id)
+    .bind(resource_id.to_string())
+    .bind(change_kind)
+    .bind(version_id.map(|value| value.to_string()))
+    .bind(channel)
     .bind(created_at)
     .execute(&mut **tx)
     .await?;

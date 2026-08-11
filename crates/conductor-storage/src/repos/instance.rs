@@ -38,6 +38,13 @@ impl InstanceRepo {
         Self { pool }
     }
 
+    pub async fn project_id(&self) -> Result<Option<Uuid>, sqlx::Error> {
+        let value = sqlx::query_scalar::<_, String>("SELECT id FROM instance LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(value.and_then(|value| Uuid::parse_str(&value).ok()))
+    }
+
     pub async fn setup_status(&self) -> Result<SetupStatus, sqlx::Error> {
         let row = sqlx::query(
             "SELECT project_name, display_name, logo_url, public_url, setup_completed FROM instance LIMIT 1",
