@@ -13,6 +13,7 @@ function Dialog({
   children,
   footer,
   className,
+  contentClassName,
 }: {
   open: boolean
   title: string
@@ -21,6 +22,7 @@ function Dialog({
   children: React.ReactNode
   footer?: React.ReactNode
   className?: string
+  contentClassName?: string
 }) {
   const returnFocusRef = useRef<HTMLElement | null>(null)
 
@@ -75,7 +77,9 @@ function Dialog({
                 <X className="size-4" />
               </DialogPrimitive.Close>
             </div>
-            <div className="overflow-y-auto p-5">{children}</div>
+            <div className={cn("overflow-y-auto p-5", contentClassName)}>
+              {children}
+            </div>
             {footer && (
               <div className="flex flex-wrap justify-end gap-2 border-t border-(--border-soft) px-5 py-3">
                 {footer}

@@ -572,6 +572,38 @@ export interface RealtimeSettings {
   heartbeat_seconds: number
 }
 
+export type StorageBackend = "local" | "s3" | "azure_blob"
+
+export interface StorageSettings {
+  backend: StorageBackend
+  local: { root: string | null }
+  s3: {
+    bucket: string
+    region: string
+    endpoint: string | null
+    prefix: string
+    path_style: boolean
+  }
+  azure_blob: {
+    account: string
+    container: string
+    endpoint: string | null
+    prefix: string
+  }
+}
+
+export interface StorageMigrationResult {
+  storage: StorageSettings
+  objects_copied: number
+  bytes_copied: number
+}
+
+export type CollectionLevel = "L0" | "L1" | "L2"
+
+export interface DataPolicySettings {
+  collection_level: CollectionLevel
+}
+
 export interface ProjectSettings {
   project_name: string
   display_name: string | null
@@ -580,7 +612,9 @@ export interface ProjectSettings {
   public_url: string | null
   logo_url: string | null
   realtime: RealtimeSettings
+  data_policy: DataPolicySettings
   sso: SsoConfig
+  storage: StorageSettings
 }
 
 export interface ConnectionSecret {
@@ -1077,6 +1111,27 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  updateDataPolicy: (collectionLevel: CollectionLevel) =>
+    request<ProjectSettings>("/settings/data-policy", {
+      method: "PUT",
+      body: JSON.stringify({ collection_level: collectionLevel }),
+    }),
+  updateStorage: (storage: StorageSettings, migrateExisting = true) =>
+    request<StorageMigrationResult>("/settings/storage", {
+      method: "PUT",
+      body: JSON.stringify({
+        storage,
+        migrate_existing: migrateExisting,
+      }),
+    }),
+  uploadProjectLogo: (file: File) =>
+    request<ProjectSettings>("/settings/logo", {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    }),
+  deleteProjectLogo: () =>
+    request<ProjectSettings>("/settings/logo", { method: "DELETE" }),
   getSso: () => request<SsoConfig>("/sso"),
   updateSso: (body: {
     enabled: boolean
@@ -1239,19 +1294,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  createResourceVersion: (
-    id: string,
-    body: { version: string; payload: unknown; changelog?: string },
-  ) =>
-    request<ResourceVersion>(`/resources/${id}/versions`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  publishResourceVersion: (resourceId: string, versionId: string) =>
-    request<ManagedResource>(
-      `/resources/${resourceId}/versions/${versionId}/publish`,
-      { method: "POST" },
-    ),
   deprecateResourceVersion: (resourceId: string, versionId: string, reason: string) =>
     request<ResourceVersion>(
       `/resources/${resourceId}/versions/${versionId}/deprecate`,

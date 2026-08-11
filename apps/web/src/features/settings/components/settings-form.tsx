@@ -1,8 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Building2, KeyRound, Network } from "lucide-react"
+import {
+  Activity,
+  Building2,
+  Database,
+  HardDrive,
+  KeyRound,
+  Network,
+  ShieldCheck,
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
-import { api, type SsoProvider } from "@/shared/api/client"
+import {
+  api,
+  type CollectionLevel,
+  type SsoProvider,
+  type StorageBackend,
+} from "@/shared/api/client"
 import { BrandLogo } from "@/shared/components/logo"
 import { cn } from "@/shared/lib/utils"
 import { Badge, StatusDot } from "@/shared/ui/badge"
@@ -22,14 +35,41 @@ const providers = [
 ] as const
 
 const tabs = [
-  { id: "general", label: "General", icon: Building2 },
-  { id: "network", label: "Network", icon: Network },
-  { id: "sso", label: "SSO", icon: KeyRound },
+  {
+    id: "general",
+    label: "General",
+    description: "Identity and branding",
+    icon: Building2,
+  },
+  {
+    id: "network",
+    label: "Connectivity",
+    description: "Public URL and realtime",
+    icon: Network,
+  },
+  {
+    id: "storage",
+    label: "Object storage",
+    description: "Files and migration",
+    icon: HardDrive,
+  },
+  {
+    id: "data-policy",
+    label: "Data & privacy",
+    description: "Client collection policy",
+    icon: ShieldCheck,
+  },
+  {
+    id: "sso",
+    label: "Authentication",
+    description: "SSO and onboarding",
+    icon: KeyRound,
+  },
 ] as const
 
 type TabId = (typeof tabs)[number]["id"]
 
-/** Uploaded logos are stored as data URLs — keep them small. */
+/** Logos are uploaded to the selected object store. */
 const MAX_LOGO_BYTES = 512 * 1024
 
 /** Project + network + SSO form used inside the settings modal. */
@@ -50,12 +90,26 @@ export function SettingsForm() {
   const [maxConnections, setMaxConnections] = useState("")
   const [maxPerSecret, setMaxPerSecret] = useState("")
   const [heartbeatSeconds, setHeartbeatSeconds] = useState("")
+  const [storageBackend, setStorageBackend] = useState<StorageBackend>("local")
+  const [localRoot, setLocalRoot] = useState("")
+  const [s3Bucket, setS3Bucket] = useState("")
+  const [s3Region, setS3Region] = useState("")
+  const [s3Endpoint, setS3Endpoint] = useState("")
+  const [s3Prefix, setS3Prefix] = useState("")
+  const [s3PathStyle, setS3PathStyle] = useState(false)
+  const [azureAccount, setAzureAccount] = useState("")
+  const [azureContainer, setAzureContainer] = useState("")
+  const [azureEndpoint, setAzureEndpoint] = useState("")
+  const [azurePrefix, setAzurePrefix] = useState("")
+  const [collectionLevel, setCollectionLevel] =
+    useState<CollectionLevel>("L1")
   const [ssoEnabled, setSsoEnabled] = useState(false)
   const [provider, setProvider] = useState<SsoProvider>("azure_ad")
   const [issuerUrl, setIssuerUrl] = useState("")
   const [clientId, setClientId] = useState("")
   const [clientSecret, setClientSecret] = useState("")
   const [redirectUri, setRedirectUri] = useState("")
+  const [scopes, setScopes] = useState("")
   const [message, setMessage] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const logoFileRef = useRef<HTMLInputElement>(null)
@@ -71,11 +125,24 @@ export function SettingsForm() {
     setMaxConnections(String(data.realtime?.max_connections ?? ""))
     setMaxPerSecret(String(data.realtime?.max_connections_per_secret ?? ""))
     setHeartbeatSeconds(String(data.realtime?.heartbeat_seconds ?? ""))
+    setStorageBackend(data.storage.backend)
+    setLocalRoot(data.storage.local.root ?? "")
+    setS3Bucket(data.storage.s3.bucket)
+    setS3Region(data.storage.s3.region)
+    setS3Endpoint(data.storage.s3.endpoint ?? "")
+    setS3Prefix(data.storage.s3.prefix)
+    setS3PathStyle(data.storage.s3.path_style)
+    setAzureAccount(data.storage.azure_blob.account)
+    setAzureContainer(data.storage.azure_blob.container)
+    setAzureEndpoint(data.storage.azure_blob.endpoint ?? "")
+    setAzurePrefix(data.storage.azure_blob.prefix)
+    setCollectionLevel(data.data_policy.collection_level)
     setSsoEnabled(data.sso.enabled)
     setProvider(data.sso.provider)
     setIssuerUrl(data.sso.issuer_url ?? "")
     setClientId(data.sso.client_id ?? "")
     setRedirectUri(data.sso.redirect_uri ?? "")
+    setScopes(data.sso.scopes.join(" "))
   }, [data])
 
   const saveProject = useMutation({
@@ -83,7 +150,6 @@ export function SettingsForm() {
       api.updateSettings({
         project_name: projectName,
         display_name: displayName,
-        logo_url: logoUrl,
       }),
     onSuccess: () => {
       setMessage("Project settings saved")
@@ -143,6 +209,10 @@ export function SettingsForm() {
         client_id: clientId || undefined,
         client_secret: clientSecret || undefined,
         redirect_uri: redirectUri || undefined,
+        scopes: scopes
+          .split(/[\s,]+/)
+          .map((scope) => scope.trim())
+          .filter(Boolean),
       }),
     onSuccess: () => {
       setMessage("SSO settings saved")
@@ -154,6 +224,76 @@ export function SettingsForm() {
       setFormError(e instanceof Error ? e.message : "SSO save failed"),
   })
 
+  const saveDataPolicy = useMutation({
+    mutationFn: () => api.updateDataPolicy(collectionLevel),
+    onSuccess: () => {
+      setMessage("Client data policy saved")
+      setFormError(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: (e) =>
+      setFormError(e instanceof Error ? e.message : "Data policy save failed"),
+  })
+
+  const saveStorage = useMutation({
+    mutationFn: () =>
+      api.updateStorage(
+        {
+          backend: storageBackend,
+          local: { root: localRoot.trim() || null },
+          s3: {
+            bucket: s3Bucket.trim(),
+            region: s3Region.trim(),
+            endpoint: s3Endpoint.trim() || null,
+            prefix: s3Prefix.trim(),
+            path_style: s3PathStyle,
+          },
+          azure_blob: {
+            account: azureAccount.trim(),
+            container: azureContainer.trim(),
+            endpoint: azureEndpoint.trim() || null,
+            prefix: azurePrefix.trim(),
+          },
+        },
+        true,
+      ),
+    onSuccess: (result) => {
+      setMessage(
+        `Storage switched to ${result.storage.backend}; ${result.objects_copied.toLocaleString()} objects verified`,
+      )
+      setFormError(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: (e) =>
+      setFormError(e instanceof Error ? e.message : "Storage migration failed"),
+  })
+
+  const uploadLogo = useMutation({
+    mutationFn: (file: File) => api.uploadProjectLogo(file),
+    onSuccess: (settings) => {
+      setLogoUrl(settings.logo_url ?? "")
+      setMessage("Project logo uploaded to object storage")
+      setFormError(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+      void qc.invalidateQueries({ queryKey: ["project"] })
+    },
+    onError: (e) =>
+      setFormError(e instanceof Error ? e.message : "Logo upload failed"),
+  })
+
+  const deleteLogo = useMutation({
+    mutationFn: () => api.deleteProjectLogo(),
+    onSuccess: () => {
+      setLogoUrl("")
+      setMessage("Project logo removed")
+      setFormError(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+      void qc.invalidateQueries({ queryKey: ["project"] })
+    },
+    onError: (e) =>
+      setFormError(e instanceof Error ? e.message : "Logo removal failed"),
+  })
+
   function onLogoFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ""
@@ -162,15 +302,12 @@ export function SettingsForm() {
       setFormError("Logo image must be 512 KB or smaller")
       return
     }
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setLogoUrl(reader.result)
-        setFormError(null)
-        setMessage(null)
-      }
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setFormError("Logo must be PNG, JPEG or WebP")
+      return
     }
-    reader.readAsDataURL(file)
+    setMessage(null)
+    uploadLogo.mutate(file)
   }
 
   if (isLoading) {
@@ -192,29 +329,89 @@ export function SettingsForm() {
   }
 
   return (
-    <div className="sm:grid sm:grid-cols-[10.5rem_minmax(0,1fr)] sm:gap-6">
-      <nav
-        aria-label="Settings sections"
-        className="mb-4 flex gap-1 overflow-x-auto sm:mb-0 sm:flex-col sm:overflow-visible"
-      >
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            aria-current={tab === id ? "page" : undefined}
-            onClick={() => setTab(id)}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-2.5 py-2 text-sm whitespace-nowrap text-(--color-text-muted) transition-colors hover:bg-(--bg-key) hover:text-(--color-text)",
-              tab === id && "bg-(--bg-key) font-medium text-(--color-text)",
+    <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside className="shrink-0 border-b border-(--border-soft) bg-(--bg-key)/35 p-4 lg:border-r lg:border-b-0 lg:p-5">
+        <div className="mb-4 hidden items-center gap-3 rounded-xl border border-(--border-soft) bg-(--bg-card) p-3 lg:flex">
+          <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-(--bg-key)">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt=""
+                className="size-full object-cover"
+              />
+            ) : (
+              <BrandLogo size="sm" />
             )}
-          >
-            <Icon className="size-4 shrink-0 opacity-85" strokeWidth={1.65} />
-            {label}
-          </button>
-        ))}
-      </nav>
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">
+              {displayName || projectName}
+            </p>
+            <p className="truncate text-xs text-(--color-text-subtle)">
+              {projectName}
+            </p>
+          </div>
+        </div>
 
-      <div className="min-w-0 space-y-4 sm:min-h-[26rem]">
+        <nav
+          aria-label="Settings sections"
+          className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible"
+        >
+          {tabs.map(({ id, label, description, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              aria-current={tab === id ? "page" : undefined}
+              onClick={() => {
+                setTab(id)
+                setMessage(null)
+                setFormError(null)
+              }}
+              className={cn(
+                "group flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-(--color-text-muted) transition-colors hover:bg-(--bg-key) hover:text-(--color-text)",
+                tab === id &&
+                  "bg-(--bg-key) font-medium text-(--color-text) ring-1 ring-(--border-soft)",
+              )}
+            >
+              <span
+                className={cn(
+                  "grid size-8 shrink-0 place-items-center rounded-md bg-(--bg-card) text-(--color-text-subtle)",
+                  tab === id && "text-(--color-accent)",
+                )}
+              >
+                <Icon className="size-4" strokeWidth={1.7} />
+              </span>
+              <span>
+                <span className="block whitespace-nowrap">{label}</span>
+                <span className="mt-0.5 hidden text-[11px] font-normal text-(--color-text-subtle) lg:block">
+                  {description}
+                </span>
+              </span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="mt-5 hidden space-y-2 border-t border-(--border-soft) pt-4 lg:block">
+          <SettingStatus
+            icon={HardDrive}
+            label="Storage"
+            value={data.storage.backend.replace("_", " ")}
+          />
+          <SettingStatus
+            icon={Activity}
+            label="Telemetry"
+            value={data.data_policy.collection_level}
+          />
+          <SettingStatus
+            icon={KeyRound}
+            label="SSO"
+            value={data.sso.enabled ? "enabled" : "disabled"}
+          />
+        </div>
+      </aside>
+
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6 lg:px-9 lg:py-7">
+        <div className="mx-auto max-w-3xl space-y-5">
         {message && (
           <div className="rounded-lg border border-(--color-success)/30 bg-(--color-success)/10 px-3 py-2 text-sm text-(--color-success)">
             {message}
@@ -223,22 +420,41 @@ export function SettingsForm() {
         {formError && <ErrorState message={formError} />}
 
         {tab === "general" && (
-          <section className="space-y-3">
-            <Field label="Project name">
-              <Input
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-              />
-            </Field>
-            <Field label="Display name">
-              <Input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
-            </Field>
-            <Field label="Logo">
-              <div className="flex items-center gap-4">
-                <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-(--bg-key) shadow-[0_2px_10px_-3px_rgba(0,0,0,0.35)]">
+          <section className="space-y-5">
+            <SectionHeader
+              eyebrow="Project profile"
+              title="Identity & branding"
+              description="Control how this Conductor project appears to members and connected EvoFlux installations."
+            />
+            <SettingsCard>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Project key"
+                  hint="Stable short name used in project identity and client registration."
+                >
+                  <Input
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Display name"
+                  hint="Human-friendly name shown in the app shell and sign-in screen."
+                >
+                  <Input
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                  />
+                </Field>
+              </div>
+            </SettingsCard>
+            <SettingsCard>
+              <Field
+                label="Project logo"
+                hint="PNG, JPG or WebP up to 512 KB. The binary stays in object storage; SQL stores only its key and digest."
+              >
+              <div className="flex items-center gap-5 pt-1">
+                <span className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-(--bg-key) shadow-[0_3px_14px_-4px_rgba(0,0,0,0.45)]">
                   {logoUrl ? (
                     <img
                       src={logoUrl}
@@ -253,44 +469,53 @@ export function SettingsForm() {
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="secondary"
+                      disabled={uploadLogo.isPending}
                       onClick={() => logoFileRef.current?.click()}
                     >
                       Upload logo
                     </Button>
                     {logoUrl && (
-                      <Button variant="ghost" onClick={() => setLogoUrl("")}>
+                      <Button
+                        variant="ghost"
+                        disabled={deleteLogo.isPending}
+                        onClick={() => deleteLogo.mutate()}
+                      >
                         Remove
                       </Button>
                     )}
                   </div>
-                  <p className="text-xs text-(--color-text-subtle)">
-                    PNG, JPG, SVG or WebP up to 512 KB. Shown in the sidebar and
-                    on the sign-in page. Remove to restore the default EvoFlux
-                    mark.
-                  </p>
                 </div>
               </div>
               <input
                 ref={logoFileRef}
                 type="file"
-                accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                accept="image/png,image/jpeg,image/webp"
                 className="hidden"
                 onChange={onLogoFile}
               />
-            </Field>
-            <Button
-              variant="gradient"
-              disabled={!projectName.trim() || saveProject.isPending}
-              onClick={() => saveProject.mutate()}
-            >
-              Save project
-            </Button>
+              </Field>
+            </SettingsCard>
+            <ActionRow>
+              <Button
+                variant="gradient"
+                disabled={!projectName.trim() || saveProject.isPending}
+                onClick={() => saveProject.mutate()}
+              >
+                Save project profile
+              </Button>
+            </ActionRow>
           </section>
         )}
 
         {tab === "network" && (
-          <section className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <section className="space-y-5">
+            <SectionHeader
+              eyebrow="Connectivity"
+              title="Network & realtime delivery"
+              description="Configure the public endpoint and connection limits used by browser sessions and EvoFlux subscribers."
+            />
+            <SettingsCard>
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Bind host">
                 <Input
                   value={bindHost}
@@ -318,11 +543,10 @@ export function SettingsForm() {
                 placeholder="https://conductor.example.com"
               />
             </Field>
+            </SettingsCard>
 
-            <h3 className="border-t border-(--border-soft) pt-4 text-sm font-semibold tracking-tight">
-              Realtime (SSE)
-            </h3>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <SettingsCard title="Realtime (SSE)" description="Limits are enforced per Conductor instance and connection secret.">
+            <div className="grid gap-4 sm:grid-cols-3">
               <Field label="Max connections">
                 <Input
                   inputMode="numeric"
@@ -350,25 +574,177 @@ export function SettingsForm() {
               away. Raising the global limit is immediate; lowering it takes
               full effect after restart.
             </p>
-            <Button
-              variant="gradient"
-              disabled={saveNetwork.isPending}
-              onClick={() => saveNetwork.mutate()}
-            >
-              Save network
-            </Button>
+            </SettingsCard>
+            <ActionRow>
+              <Button
+                variant="gradient"
+                disabled={saveNetwork.isPending}
+                onClick={() => saveNetwork.mutate()}
+              >
+                Save connectivity
+              </Button>
+            </ActionRow>
+          </section>
+        )}
+
+        {tab === "storage" && (
+          <section className="space-y-5">
+            <SectionHeader
+              eyebrow="File data plane"
+              title="Resource object storage"
+              description="Drafts and immutable releases are content-addressed ZIP objects. SQL contains only keys, hashes and manifests."
+              trailing={<Badge tone="neutral">{data.storage.backend.replace("_", " ")}</Badge>}
+            />
+
+            <SettingsCard>
+            <Field label="Backend">
+              <Select
+                value={storageBackend}
+                onValueChange={(value) => setStorageBackend(value as StorageBackend)}
+                options={[
+                  { value: "local", label: "Local filesystem" },
+                  { value: "s3", label: "Amazon S3 / compatible" },
+                  { value: "azure_blob", label: "Azure Blob Storage" },
+                ]}
+              />
+            </Field>
+
+            {storageBackend === "local" && (
+              <Field label="Object root">
+                <Input
+                  value={localRoot}
+                  onChange={(event) => setLocalRoot(event.target.value)}
+                  placeholder="objects (relative to CONDUCTOR_DATA_DIR)"
+                />
+                <p className="mt-1 text-xs text-(--color-text-subtle)">
+                  Leave blank for CONDUCTOR_DATA_DIR/objects. Existing objects are copied and SHA-256 verified before switching.
+                </p>
+              </Field>
+            )}
+
+            {storageBackend === "s3" && (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Bucket">
+                    <Input value={s3Bucket} onChange={(event) => setS3Bucket(event.target.value)} />
+                  </Field>
+                  <Field label="Region">
+                    <Input value={s3Region} onChange={(event) => setS3Region(event.target.value)} placeholder="ap-southeast-1" />
+                  </Field>
+                  <Field label="Endpoint (optional)">
+                    <Input value={s3Endpoint} onChange={(event) => setS3Endpoint(event.target.value)} placeholder="https://s3.example.com" />
+                  </Field>
+                  <Field label="Object prefix">
+                    <Input value={s3Prefix} onChange={(event) => setS3Prefix(event.target.value)} placeholder="conductor/project" />
+                  </Field>
+                </div>
+                <SwitchField
+                  id="s3-path-style"
+                  label="Path-style requests"
+                  description="Enable for MinIO and S3-compatible endpoints that do not support virtual-hosted buckets."
+                  checked={s3PathStyle}
+                  onCheckedChange={setS3PathStyle}
+                />
+                <CredentialNotice>
+                  Credentials come from the AWS credential chain (IAM role, workload identity, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY). Secrets are never saved in Conductor SQL.
+                </CredentialNotice>
+              </div>
+            )}
+
+            {storageBackend === "azure_blob" && (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Storage account">
+                    <Input value={azureAccount} onChange={(event) => setAzureAccount(event.target.value)} />
+                  </Field>
+                  <Field label="Container">
+                    <Input value={azureContainer} onChange={(event) => setAzureContainer(event.target.value)} />
+                  </Field>
+                  <Field label="Endpoint (optional)">
+                    <Input value={azureEndpoint} onChange={(event) => setAzureEndpoint(event.target.value)} placeholder="https://account.blob.core.windows.net" />
+                  </Field>
+                  <Field label="Object prefix">
+                    <Input value={azurePrefix} onChange={(event) => setAzurePrefix(event.target.value)} placeholder="conductor/project" />
+                  </Field>
+                </div>
+                <CredentialNotice>
+                  Credentials come from the Azure credential chain (managed identity, workload identity, AZURE_STORAGE_ACCOUNT_KEY or SAS). Secret values are not part of project settings.
+                </CredentialNotice>
+              </div>
+            )}
+            </SettingsCard>
+
+            <div className="rounded-lg border border-(--color-warning)/25 bg-(--color-warning)/8 px-3 py-2 text-xs text-(--color-text-muted)">
+              Saving performs a write/read health check, pauses resource writes, copies every referenced object, verifies its digest, persists the setting, then switches atomically.
+            </div>
+            <ActionRow>
+              <Button
+                variant="gradient"
+                disabled={saveStorage.isPending}
+                onClick={() => saveStorage.mutate()}
+              >
+                {saveStorage.isPending ? "Migrating objects…" : "Save and migrate storage"}
+              </Button>
+            </ActionRow>
+          </section>
+        )}
+
+        {tab === "data-policy" && (
+          <section className="space-y-5">
+            <SectionHeader
+              eyebrow="Client policy"
+              title="Data collection & privacy"
+              description="Choose the project-wide telemetry contract advertised to every EvoFlux installation. Changes apply to new registrations and the ingestion gate immediately."
+              trailing={<Badge tone={collectionLevel === "L0" ? "neutral" : "success"}>{collectionLevel}</Badge>}
+            />
+            <div className="grid gap-3">
+              <PolicyOption
+                level="L0"
+                title="Collection off"
+                description="Disable client usage telemetry. Resource delivery, heartbeat and inventory remain available."
+                selected={collectionLevel === "L0"}
+                onSelect={() => setCollectionLevel("L0")}
+              />
+              <PolicyOption
+                level="L1"
+                title="Operational metadata"
+                description="Collect request outcome, latency, tokens and resource attribution without prompts, responses or tool arguments."
+                selected={collectionLevel === "L1"}
+                recommended
+                onSelect={() => setCollectionLevel("L1")}
+              />
+              <PolicyOption
+                level="L2"
+                title="Extended diagnostics"
+                description="Reserve the richer privacy-safe contract for detailed model, tool and failure analysis. Sensitive content remains excluded."
+                selected={collectionLevel === "L2"}
+                onSelect={() => setCollectionLevel("L2")}
+              />
+            </div>
+            <CredentialNotice>
+              Conductor never requests prompt text, model responses, tool arguments, credentials or local file contents through this policy.
+            </CredentialNotice>
+            <ActionRow>
+              <Button
+                variant="gradient"
+                disabled={saveDataPolicy.isPending}
+                onClick={() => saveDataPolicy.mutate()}
+              >
+                Save data policy
+              </Button>
+            </ActionRow>
           </section>
         )}
 
         {tab === "sso" && (
-          <section className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold tracking-tight">SSO</h3>
-              <Badge tone={data.sso.enabled ? "success" : "neutral"}>
-                <StatusDot tone={data.sso.enabled ? "success" : "neutral"} />
-                {data.sso.enabled ? "Enabled" : "Disabled"}
-              </Badge>
-            </div>
+          <section className="space-y-5">
+            <SectionHeader
+              eyebrow="Authentication"
+              title="Single sign-on"
+              description="Connect an OpenID Connect identity provider. New SSO identities enter the pending approval queue unless they match an invited member."
+              trailing={<Badge tone={data.sso.enabled ? "success" : "neutral"}><StatusDot tone={data.sso.enabled ? "success" : "neutral"} />{data.sso.enabled ? "Enabled" : "Disabled"}</Badge>}
+            />
+            <SettingsCard>
             <SwitchField
               id="sso-enabled"
               label="Enable SSO"
@@ -427,6 +803,17 @@ export function SettingsForm() {
                 onChange={(e) => setRedirectUri(e.target.value)}
               />
             </Field>
+            <Field
+              label="OIDC scopes"
+              hint="Space- or comma-separated. Keep openid, profile and email unless your provider requires additional claims."
+            >
+              <Input
+                disabled={!ssoEnabled}
+                value={scopes}
+                placeholder="openid profile email"
+                onChange={(e) => setScopes(e.target.value)}
+              />
+            </Field>
             {ssoEnabled && (
               <p className="rounded-lg border border-(--color-border) bg-(--bg-key)/50 px-3 py-2 text-xs text-(--color-text-muted)">
                 ID tokens are verified against the provider JWKS, issuer,
@@ -434,15 +821,19 @@ export function SettingsForm() {
                 registration exactly.
               </p>
             )}
-            <Button
-              variant="secondary"
-              disabled={saveSso.isPending}
-              onClick={() => saveSso.mutate()}
-            >
-              Save SSO
-            </Button>
+            </SettingsCard>
+            <ActionRow>
+              <Button
+                variant="gradient"
+                disabled={saveSso.isPending}
+                onClick={() => saveSso.mutate()}
+              >
+                Save authentication
+              </Button>
+            </ActionRow>
           </section>
         )}
+        </div>
       </div>
     </div>
   )
@@ -450,15 +841,170 @@ export function SettingsForm() {
 
 function Field({
   label,
+  hint,
   children,
 }: {
   label: string
+  hint?: string
   children: React.ReactNode
 }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
       {children}
+      {hint && (
+        <p className="text-xs leading-relaxed text-(--color-text-subtle)">
+          {hint}
+        </p>
+      )}
     </div>
+  )
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  trailing,
+}: {
+  eyebrow: string
+  title: string
+  description: string
+  trailing?: React.ReactNode
+}) {
+  return (
+    <header className="flex items-start justify-between gap-4 border-b border-(--border-soft) pb-5">
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold tracking-[0.14em] text-(--color-accent) uppercase">
+          {eyebrow}
+        </p>
+        <h3 className="mt-1 text-xl font-semibold tracking-tight">{title}</h3>
+        <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-(--color-text-muted)">
+          {description}
+        </p>
+      </div>
+      {trailing && <div className="shrink-0 pt-1">{trailing}</div>}
+    </header>
+  )
+}
+
+function SettingsCard({
+  title,
+  description,
+  children,
+}: {
+  title?: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-4 rounded-xl border border-(--border-soft) bg-(--bg-card)/65 p-4 sm:p-5">
+      {(title || description) && (
+        <div>
+          {title && <h4 className="text-sm font-semibold">{title}</h4>}
+          {description && (
+            <p className="mt-1 text-xs leading-relaxed text-(--color-text-subtle)">
+              {description}
+            </p>
+          )}
+        </div>
+      )}
+      {children}
+    </div>
+  )
+}
+
+function ActionRow({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex justify-end border-t border-(--border-soft) pt-4">
+      {children}
+    </div>
+  )
+}
+
+function PolicyOption({
+  level,
+  title,
+  description,
+  selected,
+  recommended = false,
+  onSelect,
+}: {
+  level: CollectionLevel
+  title: string
+  description: string
+  selected: boolean
+  recommended?: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-start gap-4 rounded-xl border p-4 text-left transition-colors",
+        selected
+          ? "border-(--color-accent)/55 bg-(--color-accent)/8 ring-1 ring-(--color-accent)/20"
+          : "border-(--border-soft) bg-(--bg-card)/65 hover:border-(--color-text-subtle)/40 hover:bg-(--bg-key)/60",
+      )}
+    >
+      <span
+        className={cn(
+          "mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-semibold",
+          selected
+            ? "bg-(--color-accent) text-white"
+            : "bg-(--bg-key) text-(--color-text-muted)",
+        )}
+      >
+        {level}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+          {title}
+          {recommended && <Badge tone="info">Recommended</Badge>}
+        </span>
+        <span className="mt-1 block text-xs leading-relaxed text-(--color-text-muted)">
+          {description}
+        </span>
+      </span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "mt-2 size-3.5 rounded-full border",
+          selected
+            ? "border-(--color-accent) bg-(--color-accent) shadow-[inset_0_0_0_3px_var(--bg-card)]"
+            : "border-(--color-text-subtle)",
+        )}
+      />
+    </button>
+  )
+}
+
+function SettingStatus({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Database
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-1 text-xs">
+      <Icon className="size-3.5 text-(--color-text-subtle)" strokeWidth={1.7} />
+      <span className="text-(--color-text-subtle)">{label}</span>
+      <span className="ml-auto font-medium text-(--color-text-muted) capitalize">
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function CredentialNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-lg border border-(--color-border) bg-(--bg-key)/50 px-3 py-2 text-xs text-(--color-text-muted)">
+      {children}
+    </p>
   )
 }
