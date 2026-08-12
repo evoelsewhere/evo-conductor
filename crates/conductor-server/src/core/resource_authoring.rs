@@ -5,7 +5,7 @@ use std::io::{Cursor, Read};
 use std::str::FromStr;
 
 use conductor_domain::{
-    DiagnosticSeverity, DraftFile, FileManifestEntry, ResourceBundleKind, ResourceBundleV2,
+    DiagnosticSeverity, DraftFile, FileManifestEntry, ResourceBundle, ResourceBundleKind,
     ResourceDiagnostic, ResourceKind, ResourceTargetMode, ResourceValidation, SemanticVersion,
 };
 use sha2::{Digest, Sha256};
@@ -206,7 +206,7 @@ fn target_mode_file(modes: &[ResourceTargetMode]) -> DraftFile {
 /// File entries are sorted by path so the tree digest is independent from ZIP
 /// entry order or editor ordering. The executable bit is intentionally false:
 /// today's UTF-8 authoring/import pipeline does not retain source file modes.
-pub fn resource_bundle_v2(
+pub fn resource_bundle(
     kind: ResourceKind,
     slug: &str,
     version: &str,
@@ -214,12 +214,12 @@ pub fn resource_bundle_v2(
     artifact_size: u64,
     artifact_media_type: &str,
     files: &[DraftFile],
-) -> Option<ResourceBundleV2> {
+) -> Option<ResourceBundle> {
     let kind = ResourceBundleKind::from_resource_kind(kind)?;
     let manifest = file_manifest(files);
 
-    Some(ResourceBundleV2 {
-        schema_version: ResourceBundleV2::SCHEMA_VERSION,
+    Some(ResourceBundle {
+        schema_version: ResourceBundle::SCHEMA_VERSION,
         kind,
         slug: slug.to_string(),
         version: version.to_string(),
@@ -266,7 +266,7 @@ pub fn resource_storage_payload(
     artifact_media_type: &str,
     files: &[DraftFile],
 ) -> serde_json::Value {
-    let bundle = resource_bundle_v2(
+    let bundle = resource_bundle(
         kind,
         slug,
         version,
@@ -284,7 +284,7 @@ pub fn resource_storage_payload(
             "media_type": artifact_media_type,
         },
         "files": file_manifest(files),
-        "bundle_v2": bundle,
+        "bundle": bundle,
     })
 }
 
@@ -1108,7 +1108,7 @@ mod tests {
     }
 
     #[test]
-    fn bundle_v2_manifest_is_sorted_content_addressed_and_media_typed() {
+    fn bundle_manifest_is_sorted_content_addressed_and_media_typed() {
         let files = vec![
             DraftFile {
                 path: "scripts/check.py".into(),
@@ -1119,7 +1119,7 @@ mod tests {
                 content: "# Audit\n".into(),
             },
         ];
-        let bundle = resource_bundle_v2(
+        let bundle = resource_bundle(
             ResourceKind::Skill,
             "audit",
             "1.2.3",
@@ -1144,8 +1144,8 @@ mod tests {
     }
 
     #[test]
-    fn bundle_v2_excludes_non_portable_resource_kinds() {
-        assert!(resource_bundle_v2(
+    fn bundle_excludes_non_portable_resource_kinds() {
+        assert!(resource_bundle(
             ResourceKind::Workflow,
             "deploy",
             "1.0.0",

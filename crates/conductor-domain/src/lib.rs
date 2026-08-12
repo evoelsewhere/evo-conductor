@@ -47,7 +47,7 @@ pub use resource::{
     DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile, DraftFileTree,
     EffectiveResourceVersion, FileManifestEntry, ManagedResource, MoveDraftEntryRequest,
     ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy,
-    ResourceBundleKind, ResourceBundleV2, ResourceChange, ResourceChangePage, ResourceCounts,
+    ResourceBundle, ResourceBundleKind, ResourceChange, ResourceChangePage, ResourceCounts,
     ResourceDailyUsage, ResourceDiagnostic, ResourceFeedback, ResourceFetchCommit,
     ResourceFetchEntry, ResourceFetchHave, ResourceFetchObject, ResourceFetchRequest,
     ResourceFetchResponse, ResourceFetchTombstone, ResourceInstallationState,

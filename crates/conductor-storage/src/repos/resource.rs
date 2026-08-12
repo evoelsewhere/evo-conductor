@@ -4,7 +4,7 @@ use std::str::FromStr;
 use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
     CreateResourceRequest, EffectiveResourceVersion, ManagedResource, PrimaryRole, ReleaseChannel,
-    ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy, ResourceBundleV2,
+    ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy, ResourceBundle,
     ResourceDailyUsage, ResourceFeedback, ResourceInstallationState, ResourceInventoryMonitoring,
     ResourceInventoryMonitoringSummary, ResourceInventoryObservedState, ResourceInventoryRequest,
     ResourceMemberUsage, ResourceMonitoring, ResourceMonitoringSummary, ResourceUsageEventRequest,
@@ -14,7 +14,7 @@ use conductor_domain::{
 use sqlx::{Any, Pool, QueryBuilder, Row};
 use uuid::Uuid;
 
-use crate::core::mapping::{map_resource, parse_dt};
+use crate::core::mapping::{canonicalize_resource_payload, map_resource, parse_dt};
 
 #[derive(Clone)]
 pub struct ResourceRepo {
@@ -1608,9 +1608,11 @@ fn map_resources(rows: Vec<sqlx::any::AnyRow>) -> Vec<ManagedResource> {
 }
 
 fn map_effective_version(row: sqlx::any::AnyRow) -> EffectiveResourceVersion {
-    let payload = serde_json::from_str(row.get::<String, _>("payload").as_str())
-        .unwrap_or_else(|_| serde_json::json!({}));
-    let bundle_v2 = bundle_v2_from_payload(&payload);
+    let payload = canonicalize_resource_payload(
+        serde_json::from_str(row.get::<String, _>("payload").as_str())
+            .unwrap_or_else(|_| serde_json::json!({})),
+    );
+    let bundle = bundle_from_payload(&payload);
     EffectiveResourceVersion {
         project_id: parse_uuid(row.get("project_id")),
         resource_id: parse_uuid(row.get("resource_id")),
@@ -1631,7 +1633,7 @@ fn map_effective_version(row: sqlx::any::AnyRow) -> EffectiveResourceVersion {
         sha256: row.get("content_sha256"),
         size: nonnegative_u64(row.get("content_size")),
         artifact_key: row.get("artifact_key"),
-        bundle_v2,
+        bundle,
         minimum_evoflux_version: row.get("minimum_evoflux_version"),
     }
 }
@@ -1652,9 +1654,11 @@ fn map_version_notice(row: sqlx::any::AnyRow) -> Option<ResourceVersionNotice> {
 }
 
 fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
-    let payload = serde_json::from_str(row.get::<String, _>("payload").as_str())
-        .unwrap_or_else(|_| serde_json::json!({}));
-    let bundle_v2 = bundle_v2_from_payload(&payload);
+    let payload = canonicalize_resource_payload(
+        serde_json::from_str(row.get::<String, _>("payload").as_str())
+            .unwrap_or_else(|_| serde_json::json!({})),
+    );
+    let bundle = bundle_from_payload(&payload);
     ResourceVersion {
         id: parse_uuid(row.get("id")),
         project_id: parse_uuid(row.get("project_id")),
@@ -1674,7 +1678,7 @@ fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
         content_sha256: row.get("content_sha256"),
         content_size: nonnegative_u64(row.get("content_size")),
         artifact_key: row.get("artifact_key"),
-        bundle_v2,
+        bundle,
         minimum_evoflux_version: row.get("minimum_evoflux_version"),
         created_by: parse_uuid(row.get("created_by")),
         created_at: parse_dt(row.get("created_at")),
@@ -1687,14 +1691,46 @@ fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
     }
 }
 
-fn bundle_v2_from_payload(payload: &serde_json::Value) -> Option<ResourceBundleV2> {
+fn bundle_from_payload(payload: &serde_json::Value) -> Option<ResourceBundle> {
     payload
-        .get("bundle_v2")
+        .get("bundle")
+        // Releases created before the canonical field rename remain readable.
+        .or_else(|| payload.get("bundle_v2"))
         .cloned()
         .and_then(|value| serde_json::from_value(value).ok())
-        .filter(|bundle: &ResourceBundleV2| {
-            bundle.schema_version == ResourceBundleV2::SCHEMA_VERSION
-        })
+        .filter(|bundle: &ResourceBundle| bundle.schema_version == ResourceBundle::SCHEMA_VERSION)
+}
+
+#[cfg(test)]
+mod bundle_payload_tests {
+    use super::*;
+
+    #[test]
+    fn reads_legacy_bundle_key_without_reemitting_it() {
+        let legacy = serde_json::json!({
+            "bundle_v2": {
+                "schema_version": 2,
+                "kind": "agent",
+                "slug": "reviewer",
+                "version": "1.0.0",
+                "artifact_sha256": "a".repeat(64),
+                "artifact_size": 10,
+                "artifact_media_type": "application/vnd.evoflux.resource+zip",
+                "tree_sha256": "b".repeat(64),
+                "files": []
+            }
+        });
+
+        let bundle = bundle_from_payload(&legacy).expect("legacy bundle remains readable");
+        assert_eq!(bundle.slug, "reviewer");
+        let canonical = canonicalize_resource_payload(legacy);
+        assert!(canonical.get("bundle").is_some());
+        assert!(canonical.get("bundle_v2").is_none());
+        assert!(serde_json::to_value(bundle)
+            .unwrap()
+            .get("bundle_v2")
+            .is_none());
+    }
 }
 
 fn map_feedback(row: sqlx::any::AnyRow) -> ResourceFeedback {

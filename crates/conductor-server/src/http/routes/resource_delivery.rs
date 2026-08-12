@@ -1043,9 +1043,9 @@ pub async fn fetch(
         let Some(kind) = ResourceBundleKind::from_resource_kind(version.kind) else {
             continue;
         };
-        let bundle = version.bundle_v2.ok_or_else(|| {
+        let bundle = version.bundle.ok_or_else(|| {
             ConductorError::Conflict(format!(
-                "resource {}/{} has no portable bundle v2 artifact",
+                "resource {}/{} has no portable bundle artifact",
                 kind.as_str(),
                 version.slug
             ))
@@ -1357,24 +1357,21 @@ fn release_candidate(highest: Option<&str>, request: &ReleaseResourceRequest) ->
 
 fn to_change(version: EffectiveResourceVersion) -> ResourceChange {
     let trust_required = version.kind == ResourceKind::Plugin;
-    let bundle_schema_version = version
-        .bundle_v2
-        .as_ref()
-        .map(|bundle| bundle.schema_version);
+    let bundle_schema_version = version.bundle.as_ref().map(|bundle| bundle.schema_version);
     let artifact_sha256 = version
-        .bundle_v2
+        .bundle
         .as_ref()
         .map(|bundle| bundle.artifact_sha256.clone());
     let tree_sha256 = version
-        .bundle_v2
+        .bundle
         .as_ref()
         .map(|bundle| bundle.tree_sha256.clone());
     let artifact_media_type = version
-        .bundle_v2
+        .bundle
         .as_ref()
         .map(|bundle| bundle.artifact_media_type.clone());
     let file_count = version
-        .bundle_v2
+        .bundle
         .as_ref()
         .map(|bundle| u32::try_from(bundle.files.len()).unwrap_or(u32::MAX));
     ResourceChange {
@@ -1490,9 +1487,7 @@ fn verify_cursor_signature(payload: &[u8], signature: &[u8], secret: &[u8]) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conductor_domain::{
-        FileManifestEntry, ReleaseChannel, ResourceBundleKind, ResourceBundleV2,
-    };
+    use conductor_domain::{FileManifestEntry, ReleaseChannel, ResourceBundle, ResourceBundleKind};
 
     #[test]
     fn archive_modes_accept_aim_and_keep_canonical_order() {
@@ -1515,8 +1510,8 @@ mod tests {
             slug: "audit".into(),
             version: "1.2.3".into(),
             release_channel: ReleaseChannel::Published,
-            bundle: ResourceBundleV2 {
-                schema_version: ResourceBundleV2::SCHEMA_VERSION,
+            bundle: ResourceBundle {
+                schema_version: ResourceBundle::SCHEMA_VERSION,
                 kind: ResourceBundleKind::Skill,
                 slug: "audit".into(),
                 version: "1.2.3".into(),
@@ -1542,9 +1537,9 @@ mod tests {
     }
 
     #[test]
-    fn change_descriptor_exposes_bundle_v2_without_removing_legacy_hash() {
-        let bundle = ResourceBundleV2 {
-            schema_version: ResourceBundleV2::SCHEMA_VERSION,
+    fn change_descriptor_exposes_bundle_without_removing_legacy_hash() {
+        let bundle = ResourceBundle {
+            schema_version: ResourceBundle::SCHEMA_VERSION,
             kind: ResourceBundleKind::Agent,
             slug: "reviewer".into(),
             version: "1.0.0".into(),
@@ -1575,7 +1570,7 @@ mod tests {
             sha256: "legacy".into(),
             size: 100,
             artifact_key: None,
-            bundle_v2: Some(bundle),
+            bundle: Some(bundle),
             minimum_evoflux_version: None,
         });
 

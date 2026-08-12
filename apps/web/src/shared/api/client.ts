@@ -677,7 +677,7 @@ export interface FileManifestEntry {
   executable: boolean
 }
 
-export interface ResourceBundleV2 {
+export interface ResourceBundle {
   schema_version: 2
   kind: ResourceBundleKind
   slug: string
@@ -702,7 +702,7 @@ export interface ResourceVersion {
   content_sha256: string
   content_size: number
   artifact_key: string | null
-  bundle_v2?: ResourceBundleV2
+  bundle?: ResourceBundle
   minimum_evoflux_version: string | null
   created_by: string
   created_at: string

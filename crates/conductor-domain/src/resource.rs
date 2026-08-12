@@ -43,7 +43,7 @@ impl ResourceTargetMode {
     }
 }
 
-/// Resource kinds supported by the portable EvoFlux bundle v2 contract.
+/// Resource kinds supported by the portable EvoFlux bundle contract.
 ///
 /// Workflow and Command remain governed Conductor resources, but they are not
 /// executable catalog bundles and therefore cannot be represented by this
@@ -75,7 +75,7 @@ impl ResourceBundleKind {
     }
 }
 
-/// One immutable file in a [`ResourceBundleV2`].
+/// One immutable file in a [`ResourceBundle`].
 ///
 /// `sha256` is the lowercase hex digest of the exact file bytes. The current
 /// Conductor authoring pipeline accepts UTF-8 text and therefore emits
@@ -93,7 +93,7 @@ pub struct FileManifestEntry {
 /// Canonical, content-addressed descriptor for an EvoFlux Agent, Skill or
 /// Plugin release.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ResourceBundleV2 {
+pub struct ResourceBundle {
     pub schema_version: u8,
     pub kind: ResourceBundleKind,
     pub slug: String,
@@ -105,7 +105,7 @@ pub struct ResourceBundleV2 {
     pub files: Vec<FileManifestEntry>,
 }
 
-impl ResourceBundleV2 {
+impl ResourceBundle {
     pub const SCHEMA_VERSION: u8 = 2;
 }
 
@@ -243,8 +243,8 @@ pub struct ResourceVersion {
     pub artifact_key: Option<String>,
     /// Additive bundle metadata. It is absent for legacy versions and for
     /// governed resource kinds outside the Agent/Skill/Plugin bundle contract.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bundle_v2: Option<ResourceBundleV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "bundle_v2")]
+    pub bundle: Option<ResourceBundle>,
     pub minimum_evoflux_version: Option<String>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
@@ -505,7 +505,7 @@ pub struct ResourceFetchEntry {
     pub slug: String,
     pub version: String,
     pub release_channel: ReleaseChannel,
-    pub bundle: ResourceBundleV2,
+    pub bundle: ResourceBundle,
     pub minimum_evoflux_version: Option<String>,
     pub trust_required: bool,
 }
@@ -552,8 +552,8 @@ pub struct EffectiveResourceVersion {
     pub sha256: String,
     pub size: u64,
     pub artifact_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bundle_v2: Option<ResourceBundleV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "bundle_v2")]
+    pub bundle: Option<ResourceBundle>,
     pub minimum_evoflux_version: Option<String>,
 }
 
@@ -828,9 +828,9 @@ mod tests {
     }
 
     #[test]
-    fn bundle_v2_has_a_stable_wire_shape() {
-        let bundle = ResourceBundleV2 {
-            schema_version: ResourceBundleV2::SCHEMA_VERSION,
+    fn bundle_has_a_stable_wire_shape() {
+        let bundle = ResourceBundle {
+            schema_version: ResourceBundle::SCHEMA_VERSION,
             kind: ResourceBundleKind::Agent,
             slug: "reviewer".into(),
             version: "1.2.3".into(),
@@ -855,9 +855,47 @@ mod tests {
         assert_eq!(value["files"][0]["media_type"], "text/markdown");
         assert_eq!(value["files"][0]["executable"], false);
         assert_eq!(
-            serde_json::from_value::<ResourceBundleV2>(value).unwrap(),
+            serde_json::from_value::<ResourceBundle>(value).unwrap(),
             bundle
         );
+    }
+
+    #[test]
+    fn legacy_bundle_field_is_read_but_canonical_output_uses_bundle() {
+        let version: EffectiveResourceVersion = serde_json::from_value(serde_json::json!({
+            "project_id": Uuid::nil(),
+            "resource_id": Uuid::nil(),
+            "version_id": Uuid::nil(),
+            "kind": "skill",
+            "slug": "audit",
+            "version": "1.0.0",
+            "description": null,
+            "changelog": null,
+            "version_history": [],
+            "release_channel": "published",
+            "payload": {},
+            "sha256": "a".repeat(64),
+            "size": 42,
+            "artifact_key": null,
+            "bundle_v2": {
+                "schema_version": 2,
+                "kind": "skill",
+                "slug": "audit",
+                "version": "1.0.0",
+                "artifact_sha256": "a".repeat(64),
+                "artifact_size": 42,
+                "artifact_media_type": "application/vnd.evoflux.resource+zip",
+                "tree_sha256": "b".repeat(64),
+                "files": []
+            },
+            "minimum_evoflux_version": null
+        }))
+        .unwrap();
+
+        assert!(version.bundle.is_some());
+        let canonical = serde_json::to_value(version).unwrap();
+        assert!(canonical.get("bundle").is_some());
+        assert!(canonical.get("bundle_v2").is_none());
     }
 
     #[test]

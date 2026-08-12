@@ -127,7 +127,7 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{versions}");
-    let bundle = &versions[0]["bundle_v2"];
+    let bundle = &versions[0]["bundle"];
     assert_eq!(bundle["schema_version"], 2);
     assert_eq!(bundle["kind"], "agent");
     assert_eq!(bundle["slug"], "release_review");

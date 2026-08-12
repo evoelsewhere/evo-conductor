@@ -13,6 +13,21 @@ pub fn parse_dt(value: String) -> DateTime<Utc> {
         .unwrap_or_else(|_| Utc::now())
 }
 
+/// Normalizes legacy resource metadata at the read boundary so API responses
+/// expose only the canonical `bundle` field without rewriting immutable rows.
+pub fn canonicalize_resource_payload(mut payload: serde_json::Value) -> serde_json::Value {
+    let serde_json::Value::Object(ref mut object) = payload else {
+        return payload;
+    };
+    if !object.contains_key("bundle") {
+        if let Some(bundle) = object.get("bundle_v2").cloned() {
+            object.insert("bundle".into(), bundle);
+        }
+    }
+    object.remove("bundle_v2");
+    payload
+}
+
 pub fn map_user_row(r: &AnyRow) -> Result<User, sqlx::Error> {
     let id_str: String = r.get("id");
     let role_str: String = r.get("primary_role");
@@ -73,7 +88,9 @@ pub fn map_resource(r: &AnyRow) -> Result<ManagedResource, sqlx::Error> {
             ResourceVisibility::Shared
         },
         status: ResourceStatus::parse(r.get::<String, _>("status").as_str()),
-        payload: serde_json::from_str(&payload).unwrap_or(serde_json::json!({})),
+        payload: canonicalize_resource_payload(
+            serde_json::from_str(&payload).unwrap_or(serde_json::json!({})),
+        ),
         published_at: published_at.map(parse_dt),
         created_at: parse_dt(r.get("created_at")),
         updated_at: parse_dt(r.get("updated_at")),
