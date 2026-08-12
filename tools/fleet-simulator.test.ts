@@ -30,7 +30,8 @@ describe("fleet simulator safety and determinism", () => {
 
   test("validates bounded workload controls", () => {
     expect(() => parseConfig(["--members", "0"], {})).toThrow("--members");
-    expect(() => parseConfig(["--requests-per-member", "34"], {})).toThrow("--requests-per-member");
+    expect(parseConfig(["--requests-per-member", "100"], {}).requestsPerMember).toBe(100);
+    expect(() => parseConfig(["--requests-per-member", "501"], {})).toThrow("--requests-per-member");
     expect(() => parseConfig(["--concurrency", "129"], {})).toThrow("--concurrency");
     expect(() => parseConfig(["--history-days", "91"], {})).toThrow("--history-days");
     expect(() => parseConfig(["--member-name-style", "unknown"], {})).toThrow("--member-name-style");

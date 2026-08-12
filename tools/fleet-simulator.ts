@@ -20,6 +20,7 @@ const DEFAULT_MEMBER_COUNT = 1_000;
 const DEFAULT_REQUESTS_PER_MEMBER = 3;
 const DEFAULT_CONCURRENCY = 24;
 const DEFAULT_NEGATIVE_EVERY = 50;
+const TELEMETRY_BATCH_SIZE = 100;
 const MAX_ATTEMPTS = 4;
 
 type JsonObject = Record<string, unknown>;
@@ -219,7 +220,7 @@ export function parseConfig(args: string[], env: Record<string, string | undefin
   const config: FleetConfig = {
     baseUrl,
     memberCount: intFlag(option(args, "--members", env.FLEET_MEMBERS ?? `${DEFAULT_MEMBER_COUNT}`)!, "--members", 1, 10_000),
-    requestsPerMember: intFlag(option(args, "--requests-per-member", env.FLEET_REQUESTS_PER_MEMBER ?? `${DEFAULT_REQUESTS_PER_MEMBER}`)!, "--requests-per-member", 1, 33),
+    requestsPerMember: intFlag(option(args, "--requests-per-member", env.FLEET_REQUESTS_PER_MEMBER ?? `${DEFAULT_REQUESTS_PER_MEMBER}`)!, "--requests-per-member", 1, 500),
     concurrency: intFlag(option(args, "--concurrency", env.FLEET_CONCURRENCY ?? `${DEFAULT_CONCURRENCY}`)!, "--concurrency", 1, 128),
     negativeEvery: intFlag(option(args, "--negative-every", env.FLEET_NEGATIVE_EVERY ?? `${DEFAULT_NEGATIVE_EVERY}`)!, "--negative-every", 0, 10_000),
     seed,
@@ -254,7 +255,7 @@ Usage:
 Options:
   --base-url URL               Conductor origin (default ${DEFAULT_BASE_URL})
   --members N                  Member/install count (default ${DEFAULT_MEMBER_COUNT})
-  --requests-per-member N      Request triplets per member, 1-33 (default ${DEFAULT_REQUESTS_PER_MEMBER})
+  --requests-per-member N      Request triplets per member, 1-500 (default ${DEFAULT_REQUESTS_PER_MEMBER})
   --concurrency N              Concurrent member flows (default ${DEFAULT_CONCURRENCY})
   --negative-every N           One rejected telemetry request every N members; 0 disables
   --seed VALUE                 Stable identity/event seed (default ${DEFAULT_SEED})
@@ -677,13 +678,16 @@ function telemetryEvents(config: FleetConfig, memberId: string, index: number, r
 }
 
 async function reportTelemetry(client: HttpClient, config: FleetConfig, token: string, installationId: string, memberId: string, index: number, resources: ResourceFixture[], counters: Counters): Promise<void> {
-  const body = { installation_id: installationId, events: telemetryEvents(config, memberId, index, resources) };
-  const first = await client.request<{ accepted: number; duplicates: number }>("POST", "/v1/telemetry/batch", body, { token });
-  counters.telemetryAccepted += first.accepted;
-  counters.telemetryDuplicates += first.duplicates;
-  const replay = await client.request<{ accepted: number; duplicates: number }>("POST", "/v1/telemetry/batch", body, { token });
-  counters.telemetryAccepted += replay.accepted;
-  counters.telemetryDuplicates += replay.duplicates;
+  const events = telemetryEvents(config, memberId, index, resources);
+  for (let start = 0; start < events.length; start += TELEMETRY_BATCH_SIZE) {
+    const body = { installation_id: installationId, events: events.slice(start, start + TELEMETRY_BATCH_SIZE) };
+    const first = await client.request<{ accepted: number; duplicates: number }>("POST", "/v1/telemetry/batch", body, { token });
+    counters.telemetryAccepted += first.accepted;
+    counters.telemetryDuplicates += first.duplicates;
+    const replay = await client.request<{ accepted: number; duplicates: number }>("POST", "/v1/telemetry/batch", body, { token });
+    counters.telemetryAccepted += replay.accepted;
+    counters.telemetryDuplicates += replay.duplicates;
+  }
 
   if (config.negativeEvery > 0 && index % config.negativeEvery === 0) {
     counters.expectedNegativeTests += 1;

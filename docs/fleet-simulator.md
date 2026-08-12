@@ -74,6 +74,10 @@ bun run tools/fleet-simulator.ts \
 Use a new seed for another independent dataset. Reusing the same seed and state
 file resumes safely and exercises duplicate-event handling.
 
+For a denser dashboard, increase `--requests-per-member` up to 500. Telemetry
+is automatically split into API-safe batches of 100 events, so larger demo
+workloads still exercise the same public ingestion contract.
+
 Run a quick smoke workload with:
 
 ```bash
