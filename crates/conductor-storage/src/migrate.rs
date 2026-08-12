@@ -50,6 +50,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             id TEXT PRIMARY KEY NOT NULL,
             project_name TEXT NOT NULL,
             display_name TEXT,
+            description TEXT,
             bind_host TEXT NOT NULL,
             bind_port INTEGER NOT NULL,
             public_url TEXT,
@@ -449,6 +450,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE users ADD COLUMN approved_at TEXT",
         "ALTER TABLE users ADD COLUMN approved_by TEXT",
         "ALTER TABLE instance ADD COLUMN logo_url TEXT",
+        "ALTER TABLE instance ADD COLUMN description TEXT",
         "ALTER TABLE instance ADD COLUMN logo_artifact_key TEXT",
         "ALTER TABLE instance ADD COLUMN logo_content_sha256 TEXT",
         "ALTER TABLE instance ADD COLUMN logo_content_size INTEGER NOT NULL DEFAULT 0",
@@ -635,6 +637,67 @@ mod tests {
     use sqlx::any::AnyPoolOptions;
 
     use super::*;
+
+    #[tokio::test]
+    async fn adds_description_to_an_existing_instance_table() {
+        sqlx::any::install_default_drivers();
+        let pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory database");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE instance (
+                id TEXT PRIMARY KEY NOT NULL,
+                project_name TEXT NOT NULL,
+                display_name TEXT,
+                bind_host TEXT NOT NULL,
+                bind_port INTEGER NOT NULL,
+                public_url TEXT,
+                logo_url TEXT,
+                logo_artifact_key TEXT,
+                logo_content_sha256 TEXT,
+                logo_content_size INTEGER NOT NULL DEFAULT 0,
+                logo_media_type TEXT,
+                collection_level TEXT NOT NULL DEFAULT 'L1',
+                storage_backend TEXT NOT NULL DEFAULT 'local',
+                storage_config TEXT NOT NULL DEFAULT '{}',
+                setup_completed INTEGER NOT NULL DEFAULT 0,
+                jwt_secret TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("create pre-description schema");
+        sqlx::query(
+            r#"
+            INSERT INTO instance (
+                id, project_name, display_name, bind_host, bind_port,
+                setup_completed, jwt_secret, created_at, updated_at
+            ) VALUES ('project-id', 'Legacy project', 'Legacy', '127.0.0.1',
+                      4700, 1, 'test-secret', '2026-08-12T00:00:00Z',
+                      '2026-08-12T00:00:00Z')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert legacy project");
+
+        run(&pool).await.expect("upgrade schema");
+
+        let description = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT description FROM instance WHERE id = 'project-id'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read migrated description");
+        assert_eq!(description, None);
+    }
 
     #[tokio::test]
     async fn rerunning_migrations_removes_legacy_initial_draft_version() {

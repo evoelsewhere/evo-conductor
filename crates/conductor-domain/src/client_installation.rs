@@ -73,6 +73,7 @@ pub struct ClientProject {
     pub id: Uuid,
     pub name: String,
     pub display_name: Option<String>,
+    pub description: Option<String>,
     pub logo_url: Option<String>,
 }
 

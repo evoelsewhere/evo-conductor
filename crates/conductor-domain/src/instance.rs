@@ -9,6 +9,7 @@ pub struct InstanceConfig {
     pub id: Uuid,
     pub project_name: String,
     pub display_name: Option<String>,
+    pub description: Option<String>,
     pub bind_host: String,
     pub bind_port: u16,
     pub public_url: Option<String>,
@@ -105,6 +106,7 @@ pub struct SetupStatus {
 pub struct ProjectBranding {
     pub project_name: String,
     pub display_name: Option<String>,
+    pub description: Option<String>,
     pub logo_url: Option<String>,
 }
 
@@ -112,6 +114,7 @@ pub struct ProjectBranding {
 pub struct ProjectSettings {
     pub project_name: String,
     pub display_name: Option<String>,
+    pub description: Option<String>,
     pub bind_host: String,
     pub bind_port: u16,
     pub public_url: Option<String>,
@@ -304,6 +307,7 @@ pub struct RealtimeSettings {
 pub struct UpdateInstanceRequest {
     pub project_name: Option<String>,
     pub display_name: Option<String>,
+    pub description: Option<String>,
     pub public_url: Option<String>,
     pub logo_url: Option<String>,
 }

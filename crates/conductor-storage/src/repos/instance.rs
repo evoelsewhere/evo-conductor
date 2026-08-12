@@ -229,6 +229,7 @@ impl InstanceRepo {
                 id: instance_id,
                 project_name: req.project_name.clone(),
                 display_name: req.display_name.clone(),
+                description: None,
                 bind_host: req.bind_host.clone(),
                 bind_port: req.bind_port,
                 public_url: req.public_url.clone(),
@@ -261,7 +262,7 @@ impl InstanceRepo {
     pub async fn get(&self) -> Result<Option<InstanceConfig>, sqlx::Error> {
         let row = sqlx::query(
             r#"
-            SELECT id, project_name, display_name, bind_host, bind_port, public_url, logo_url,
+            SELECT id, project_name, display_name, description, bind_host, bind_port, public_url, logo_url,
                    logo_artifact_key, logo_content_sha256,
                    setup_completed, created_at, updated_at
             FROM instance LIMIT 1
@@ -274,6 +275,7 @@ impl InstanceRepo {
             id: Uuid::parse_str(r.get::<String, _>("id").as_str()).unwrap_or_else(|_| Uuid::nil()),
             project_name: r.get("project_name"),
             display_name: r.get("display_name"),
+            description: r.get("description"),
             bind_host: r.get("bind_host"),
             bind_port: r.get::<i64, _>("bind_port") as u16,
             public_url: r.get("public_url"),
@@ -393,6 +395,7 @@ impl InstanceRepo {
         &self,
         project_name: Option<&str>,
         display_name: Option<&str>,
+        description: Option<&str>,
         public_url: Option<&str>,
         logo_url: Option<&str>,
     ) -> Result<Option<InstanceConfig>, sqlx::Error> {
@@ -410,6 +413,15 @@ impl InstanceRepo {
                 }
             })
             .unwrap_or_else(|| current.display_name.clone());
+        let description = description
+            .map(|value| {
+                if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.trim().to_string())
+                }
+            })
+            .unwrap_or_else(|| current.description.clone());
         let url = public_url
             .map(|s| {
                 if s.trim().is_empty() {
@@ -431,11 +443,12 @@ impl InstanceRepo {
 
         sqlx::query(
             r#"
-            UPDATE instance SET project_name = ?, display_name = ?, public_url = ?, logo_url = ?, updated_at = ?
+            UPDATE instance SET project_name = ?, display_name = ?, description = ?, public_url = ?, logo_url = ?, updated_at = ?
             "#,
         )
         .bind(name)
         .bind(&display)
+        .bind(&description)
         .bind(&url)
         .bind(&logo)
         .bind(now.to_rfc3339())

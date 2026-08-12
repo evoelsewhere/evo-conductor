@@ -15,9 +15,9 @@ async fn seed_instance(app: &TestApp) -> Uuid {
     sqlx::query(
         r#"
         INSERT INTO instance (
-            id, project_name, display_name, bind_host, bind_port, public_url, logo_url,
+            id, project_name, display_name, description, bind_host, bind_port, public_url, logo_url,
             collection_level, setup_completed, jwt_secret, created_at, updated_at
-        ) VALUES (?, 'Evo Project', 'Evo', '127.0.0.1', 4700,
+        ) VALUES (?, 'Evo Project', 'Evo', 'Governed AI resources for the Evo team', '127.0.0.1', 4700,
                   'http://127.0.0.1:4700', 'https://example.test/logo.svg',
                   'L1', 1, 'unused-test-jwt', ?, ?)
         "#,
@@ -92,6 +92,10 @@ async fn registration_is_idempotent_and_returns_server_owned_bootstrap() {
     assert_eq!(status, StatusCode::OK, "{first}");
     assert_eq!(first["project"]["name"], "Evo Project");
     assert_eq!(first["project"]["display_name"], "Evo");
+    assert_eq!(
+        first["project"]["description"],
+        "Governed AI resources for the Evo team"
+    );
     assert_eq!(first["member"]["id"], member.id.to_string());
     assert_eq!(first["member"]["primary_role"], "user");
     assert_eq!(first["policy"]["collection_level"], "L1");

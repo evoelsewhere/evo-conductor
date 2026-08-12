@@ -82,6 +82,7 @@ pub async fn register(
             id: instance.id,
             name: instance.project_name,
             display_name: instance.display_name,
+            description: instance.description,
             logo_url: instance.logo_url,
         },
         member: ClientMember {

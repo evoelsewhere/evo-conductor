@@ -15,6 +15,7 @@ use conductor_storage::repos::{LogoArtifact, SsoConfigUpdate};
 use sha2::{Digest, Sha256};
 
 const MAX_LOGO_BYTES: usize = 512 * 1024;
+const MAX_PROJECT_DESCRIPTION_CHARS: usize = 500;
 
 use crate::core::error::ApiResult;
 use crate::core::state::AppState;
@@ -34,6 +35,7 @@ pub async fn get_project(
     Ok(Json(ProjectBranding {
         project_name: instance.project_name,
         display_name: instance.display_name,
+        description: instance.description,
         logo_url: instance.logo_url,
     }))
 }
@@ -92,6 +94,7 @@ pub async fn get_settings(
     Ok(Json(ProjectSettings {
         project_name: instance.project_name,
         display_name: instance.display_name,
+        description: instance.description,
         bind_host: instance.bind_host,
         bind_port: instance.bind_port,
         public_url: instance.public_url,
@@ -136,6 +139,16 @@ pub async fn update_settings(
             return Err(ConductorError::msg("project_name cannot be empty").into());
         }
     }
+    if req
+        .description
+        .as_deref()
+        .is_some_and(|value| value.trim().chars().count() > MAX_PROJECT_DESCRIPTION_CHARS)
+    {
+        return Err(ConductorError::msg(format!(
+            "description must be at most {MAX_PROJECT_DESCRIPTION_CHARS} characters"
+        ))
+        .into());
+    }
     if let Some(public_url) = req
         .public_url
         .as_deref()
@@ -160,6 +173,7 @@ pub async fn update_settings(
         .update_instance(
             req.project_name.as_deref().map(str::trim),
             req.display_name.as_deref(),
+            req.description.as_deref(),
             req.public_url.as_deref(),
             req.logo_url.as_deref(),
         )
