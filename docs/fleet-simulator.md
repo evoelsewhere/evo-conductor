@@ -49,6 +49,30 @@ bun run tools/fleet-simulator.ts \
 The default admin email is `fleet-admin@fleet.invalid`. On an already configured
 Conductor, pass its real local admin email/password using `FLEET_ADMIN_EMAIL`
 and `FLEET_ADMIN_PASSWORD`. The password is not written to state or reports.
+Local automation may instead supply an existing administrator session through
+`FLEET_ADMIN_TOKEN`; the token is used only in memory and is never included in
+the summary.
+
+Create a Vietnamese 120-member demo with one month of chart data:
+
+```bash
+FLEET_ADMIN_EMAIL='admin@example.com' \
+FLEET_ADMIN_PASSWORD='your-local-admin-password' \
+bun run tools/fleet-simulator.ts \
+  --base-url http://127.0.0.1:4700 \
+  --members 120 \
+  --requests-per-member 12 \
+  --concurrency 12 \
+  --seed demo-vn-120-v1 \
+  --member-prefix demo-vn \
+  --email-domain evokit.demo \
+  --member-name-style vietnamese \
+  --history-days 30 \
+  --summary-file .fleet-simulator/summary-demo-vn-120-v1.json
+```
+
+Use a new seed for another independent dataset. Reusing the same seed and state
+file resumes safely and exercises duplicate-event handling.
 
 Run a quick smoke workload with:
 

@@ -35,7 +35,10 @@ export type FleetConfig = {
   emailDomain: string;
   adminEmail: string;
   adminPassword: string;
+  adminToken?: string;
   projectName: string;
+  memberNameStyle: "fleet" | "vietnamese";
+  historyDays: number;
   stateFile: string;
   summaryFile?: string;
   allowNonLocal: boolean;
@@ -176,6 +179,10 @@ export function isLocalTarget(raw: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "[::1]" || hostname === "::1";
 }
 
+export function normalizeApiPath(path: string): string {
+  return path.startsWith("/api/") ? path : `/api${path}`;
+}
+
 function intFlag(value: string, name: string, minimum: number, maximum: number): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
@@ -205,6 +212,10 @@ export function parseConfig(args: string[], env: Record<string, string | undefin
   const baseUrl = normalizeBaseUrl(option(args, "--base-url", env.FLEET_BASE_URL ?? DEFAULT_BASE_URL)!);
   const seed = option(args, "--seed", env.FLEET_SEED ?? DEFAULT_SEED)!;
   const defaultState = resolve(`.fleet-simulator/${new URL(baseUrl).hostname}-${seed}.json`);
+  const memberNameStyle = option(args, "--member-name-style", env.FLEET_MEMBER_NAME_STYLE ?? "fleet");
+  if (memberNameStyle !== "fleet" && memberNameStyle !== "vietnamese") {
+    throw new Error("--member-name-style must be fleet or vietnamese");
+  }
   const config: FleetConfig = {
     baseUrl,
     memberCount: intFlag(option(args, "--members", env.FLEET_MEMBERS ?? `${DEFAULT_MEMBER_COUNT}`)!, "--members", 1, 10_000),
@@ -216,7 +227,10 @@ export function parseConfig(args: string[], env: Record<string, string | undefin
     emailDomain: option(args, "--email-domain", env.FLEET_EMAIL_DOMAIN ?? "fleet.invalid")!,
     adminEmail: option(args, "--admin-email", env.FLEET_ADMIN_EMAIL ?? "fleet-admin@fleet.invalid")!,
     adminPassword: option(args, "--admin-password", env.FLEET_ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD)!,
+    adminToken: env.FLEET_ADMIN_TOKEN,
     projectName: option(args, "--project-name", env.FLEET_PROJECT_NAME ?? "evoflux-fleet-lab")!,
+    memberNameStyle,
+    historyDays: intFlag(option(args, "--history-days", env.FLEET_HISTORY_DAYS ?? "14")!, "--history-days", 1, 90),
     stateFile: resolve(option(args, "--state-file", env.FLEET_STATE_FILE ?? defaultState)!),
     summaryFile: option(args, "--summary-file", env.FLEET_SUMMARY_FILE),
     allowNonLocal: hasFlag(args, "--allow-non-local") || env.FLEET_ALLOW_NON_LOCAL === "true",
@@ -246,7 +260,10 @@ Options:
   --seed VALUE                 Stable identity/event seed (default ${DEFAULT_SEED})
   --admin-email EMAIL          Existing admin or local setup admin
   --admin-password PASSWORD    Prefer FLEET_ADMIN_PASSWORD to avoid shell history
+                               FLEET_ADMIN_TOKEN may supply an existing local session instead
   --project-name NAME          Used only when completing fresh local setup
+  --member-name-style STYLE    Display names: fleet or vietnamese (default fleet)
+  --history-days N             Spread activity over the last 1-90 days (default 14)
   --state-file PATH            Resumable secret/install state (mode 0600)
   --summary-file PATH          Also write the final JSON report to this path
   --allow-non-local            Required safety acknowledgement for remote targets
@@ -280,7 +297,8 @@ class HttpClient {
         const headers: Record<string, string> = { Accept: "application/json", ...options.headers };
         if (token) headers.Authorization = `Bearer ${token}`;
         if (body !== undefined) headers["Content-Type"] = "application/json";
-        const response = await fetch(`${this.baseUrl}/api${path}`, {
+        const apiPath = normalizeApiPath(path);
+        const response = await fetch(`${this.baseUrl}${apiPath}`, {
           method,
           headers,
           body: body === undefined ? undefined : JSON.stringify(body),
@@ -364,11 +382,47 @@ function memberEmail(config: FleetConfig, index: number): string {
   return `${config.memberPrefix}-${String(index + 1).padStart(4, "0")}-${config.seed.replace(/[^a-z0-9]/gi, "").toLowerCase()}@${config.emailDomain}`;
 }
 
-function memberDisplayName(index: number): string {
-  return `Fleet Member ${String(index + 1).padStart(4, "0")}`;
+const VIETNAMESE_SURNAMES = [
+  "Nguyễn", "Trần", "Lê", "Phạm", "Hoàng", "Huỳnh", "Phan", "Vũ", "Võ", "Đặng", "Bùi", "Đỗ", "Hồ", "Ngô", "Dương",
+] as const;
+
+const VIETNAMESE_MIDDLE_NAMES = [
+  "Văn", "Thị", "Minh", "Ngọc", "Quang", "Thanh", "Đức", "Gia", "Hải", "Khánh", "Tuấn", "Phương",
+] as const;
+
+const VIETNAMESE_GIVEN_NAMES = [
+  "An", "Anh", "Bảo", "Bình", "Châu", "Chi", "Cường", "Dũng", "Duy", "Giang", "Hà", "Hạnh", "Hiếu", "Hòa", "Hùng",
+  "Huy", "Khải", "Khoa", "Lan", "Linh", "Long", "Mai", "Nam", "Nga", "Ngân", "Nhung", "Phong", "Phúc", "Quân", "Quỳnh",
+  "Sơn", "Tâm", "Thảo", "Trang", "Trung", "Tú", "Uyên", "Việt", "Vy", "Yến",
+] as const;
+
+export function vietnameseMemberDisplayName(index: number): string {
+  const surname = VIETNAMESE_SURNAMES[index % VIETNAMESE_SURNAMES.length]!;
+  const middle = VIETNAMESE_MIDDLE_NAMES[Math.floor(index / VIETNAMESE_SURNAMES.length) % VIETNAMESE_MIDDLE_NAMES.length]!;
+  const given = VIETNAMESE_GIVEN_NAMES[(index * 7 + Math.floor(index / VIETNAMESE_SURNAMES.length)) % VIETNAMESE_GIVEN_NAMES.length]!;
+  return `${surname} ${middle} ${given}`;
+}
+
+function memberDisplayName(config: FleetConfig, index: number): string {
+  return config.memberNameStyle === "vietnamese"
+    ? vietnameseMemberDisplayName(index)
+    : `Fleet Member ${String(index + 1).padStart(4, "0")}`;
+}
+
+function historicalTimestamp(config: FleetConfig, index: number, requestIndex = 0): string {
+  const ordinal = index * config.requestsPerMember + requestIndex;
+  const dayOffset = ordinal % config.historyDays;
+  const minuteOffset = (ordinal * 47) % (24 * 60);
+  return new Date(Date.now() - dayOffset * 86_400_000 - minuteOffset * 60_000).toISOString();
 }
 
 async function setupAndLogin(client: HttpClient, config: FleetConfig): Promise<string> {
+  if (config.adminToken) {
+    client.setBearer(config.adminToken);
+    const current = await client.request<{ primary_role: string }>("GET", "/auth/me");
+    if (current.primary_role !== "admin") throw new Error("FLEET_ADMIN_TOKEN must belong to an administrator");
+    return config.adminToken;
+  }
   const setup = await client.request<{ configured: boolean }>("GET", "/setup/status");
   if (!setup.configured) {
     const port = Number.parseInt(new URL(config.baseUrl).port || (new URL(config.baseUrl).protocol === "https:" ? "443" : "80"), 10);
@@ -468,7 +522,7 @@ async function ensureMember(client: HttpClient, config: FleetConfig, index: numb
   if (!member) {
     const created = await client.request<{ user: Member }>("POST", "/members", {
       email,
-      display_name: memberDisplayName(index),
+      display_name: memberDisplayName(config, index),
       primary_role: "user",
       sub_role_ids: [],
       tag_ids: [],
@@ -589,7 +643,7 @@ function telemetryEvents(config: FleetConfig, memberId: string, index: number, r
     const requestId = `fleet-${config.seed}-${String(index + 1).padStart(4, "0")}-${requestIndex + 1}`;
     const sessionId = `fleet-session-${String(index + 1).padStart(4, "0")}`;
     const status = outcome(index, requestIndex);
-    const reportedAt = new Date(Date.now() - ((index + requestIndex) % 14) * 86_400_000).toISOString();
+    const reportedAt = historicalTimestamp(config, index, requestIndex);
     const common = { request_id: requestId, session_id: sessionId, agent_name: "fleet-reviewer", reported_at: reportedAt, evoflux_version: `0.9.${index % 7}` };
     events.push({
       ...common,
@@ -654,7 +708,7 @@ async function reportLegacyUsage(client: HttpClient, config: FleetConfig, token:
   const valid = {
     event_id: validId, resource_id: resource.id, resource_version: resource.version, session_id: `fleet-usage-${index + 1}`,
     outcome: index % 11 === 0 ? "failure" : "success", duration_ms: 300 + (index % 700), tokens_in: 250 + (index % 100), tokens_out: 80,
-    occurred_at: new Date().toISOString(),
+    occurred_at: historicalTimestamp(config, index),
   };
   const response = await client.request<{ accepted: number; duplicates: number; rejected: number }>("POST", "/v1/usage/resources", {
     events: [valid, valid, { ...valid, event_id: deterministicUuid(`${config.seed}:usage-invalid:${memberId}`), occurred_at: "2000-01-01T00:00:00.000Z" }],
@@ -798,6 +852,8 @@ async function run(config: FleetConfig): Promise<JsonObject> {
       member_count: config.memberCount,
       requests_per_member: config.requestsPerMember,
       concurrency: config.concurrency,
+      member_name_style: config.memberNameStyle,
+      history_days: config.historyDays,
       started_at: startedAt.toISOString(),
       finished_at: new Date().toISOString(),
       duration_ms: Number(durationMs.toFixed(2)),
