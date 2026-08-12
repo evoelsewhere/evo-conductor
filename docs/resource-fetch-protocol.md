@@ -23,7 +23,7 @@ Git itself commonly uses HTTP. The relevant design is its object and checkout mo
 | remote ref / HEAD | member-specific desired commit |
 | commit | `commit.id` for one complete desired checkout |
 | tree | sorted accessible Agent, Skill and Plugin entries |
-| blob | immutable Bundle V2 ZIP addressed by `artifact_sha256` |
+| blob | immutable Bundle ZIP addressed by `artifact_sha256` |
 | `have` / `want` negotiation | request `have`; response changed entries and missing objects |
 | index | EvoFlux staging directory plus verified manifest |
 | worktree | active EvoFlux managed generation |
@@ -136,7 +136,7 @@ frame(commit.tree_sha256 lowercase hexadecimal text)
 
 Cross-language golden vector: for one `skill` entry with resource UUID `00000000-0000-0000-0000-000000000001`, version UUID `00000000-0000-0000-0000-000000000002`, slug `audit`, version `1.2.3`, channel `published`, artifact digest `"a" × 64` and inner tree digest `"b" × 64`, the outer tree is `43a48be42482e92625801c5b1abdf7093128a0a96b3c3e886c73380d76045237` and commit is `7e35c6857cf1f439057ca31d8692f9cc3d29a0e06ba0d7c0d1d2cedc618febdd`.
 
-The Bundle V2 file-tree digest is a separate inner digest defined in [resource-bundle-v2.md](resource-bundle-v2.md). The outer tree proves which versions form the desired checkout; the inner tree proves each extracted bundle.
+The Bundle file-tree digest is a separate inner digest defined in [resource-bundle.md](resource-bundle.md). The outer tree proves which versions form the desired checkout; the inner tree proves each extracted bundle.
 
 ## Download immutable objects
 
@@ -156,7 +156,7 @@ Cache-Control: private, max-age=31536000, immutable
 3. Send the active `have_commit` and all managed `have` entries.
 4. Download missing objects with bounded parallelism and retry by digest.
 5. Verify artifact size and SHA-256 before safe extraction; reject traversal, symlinks, case collisions and limit violations.
-6. Verify every `FileManifestEntry`, the Bundle V2 tree digest, resource semantics, minimum EvoFlux version, dependencies and Plugin trust policy.
+6. Verify every `FileManifestEntry`, the Bundle tree digest, resource semantics, minimum EvoFlux version, dependencies and Plugin trust policy.
 7. Construct the complete target tree in a new staging generation by reusing verified unchanged objects, applying changed entries and applying only returned managed tombstones.
 8. Recompute the outer tree and commit. They must equal the server response.
 9. Validate cross-resource invariants, including Agent team/mode rules, against the complete staged generation.

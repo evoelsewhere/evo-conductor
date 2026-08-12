@@ -1,8 +1,8 @@
-# EvoFlux resource bundle v2 contract
+# EvoFlux resource bundle contract
 
-Status: **Conductor emits v2 descriptors for new Agent, Skill and Plugin releases; EvoFlux consumption is pending**
+Status: **Conductor emits schema-version 2 descriptors for new Agent, Skill and Plugin releases; EvoFlux consumption is pending**
 
-`ResourceBundleV2` is the canonical content-addressed wire descriptor for files delivered from Conductor to EvoFlux. It is deliberately limited to `agent`, `skill` and `plugin`; governed `workflow` and `command` records keep their existing delivery behavior.
+`ResourceBundle` is the canonical content-addressed wire descriptor for files delivered from Conductor to EvoFlux. It is deliberately limited to `agent`, `skill` and `plugin`; governed `workflow` and `command` records keep their existing delivery behavior.
 
 ## Target modes
 
@@ -18,7 +18,7 @@ The array must be non-empty, contain each selected value once, and use only `wor
 
 ## Canonical JSON shape
 
-New immutable versions expose `bundle_v2` on the version descriptor returned by `GET /api/v1/resources/{resource_id}/versions/{version_id}` and on Conductor's authenticated version-list response:
+New immutable versions expose `bundle` on the version descriptor returned by `GET /api/v1/resources/{resource_id}/versions/{version_id}` and on Conductor's authenticated version-list response:
 
 ```json
 {
@@ -52,7 +52,7 @@ New immutable versions expose `bundle_v2` on the version descriptor returned by 
 Wire types:
 
 ```text
-ResourceBundleV2 {
+ResourceBundle {
   schema_version: 2
   kind: "agent" | "skill" | "plugin"
   slug: string
@@ -77,7 +77,7 @@ FileManifestEntry {
 
 ## Tree digest algorithm
 
-`tree_sha256` covers file identity and execution-relevant metadata, independently of ZIP entry order. Compute SHA-256 over these UTF-8 bytes:
+`tree_sha256` covers file identity and execution-relevant metadata, independently of ZIP entry order. The `v2` suffix in the domain-separation prefix is part of the schema-version 2 digest algorithm and must not be renamed. Compute SHA-256 over these UTF-8 bytes:
 
 ```text
 "evoflux-resource-tree-v2\n"
@@ -104,7 +104,7 @@ For all three bundle kinds, EvoFlux verifies `artifact_sha256` before extraction
 
 ## Change-feed descriptor
 
-New clients negotiate the desired tree through `POST /api/v1/resources/fetch`; see [resource-fetch-protocol.md](resource-fetch-protocol.md). `GET /api/v1/resources/changes` remains a compatibility feed and keeps legacy `sha256` and `size` fields while additively emitting these optional fields for v2 releases:
+New clients negotiate the desired tree through `POST /api/v1/resources/fetch`; see [resource-fetch-protocol.md](resource-fetch-protocol.md). `GET /api/v1/resources/changes` remains a compatibility feed and keeps legacy `sha256` and `size` fields while additively emitting these optional fields for bundle-backed releases:
 
 ```json
 {
@@ -116,14 +116,14 @@ New clients negotiate the desired tree through `POST /api/v1/resources/fetch`; s
 }
 ```
 
-The change feed intentionally omits the full file manifest to keep polling bounded. After detecting a new `version_id`, EvoFlux fetches the version descriptor, validates `bundle_v2`, stages files in a temporary directory, verifies all digests, and atomically swaps the staged tree into place. Inventory acknowledgement happens only after that swap.
+The change feed intentionally omits the full file manifest to keep polling bounded. After detecting a new `version_id`, EvoFlux fetches the version descriptor, validates `bundle`, stages files in a temporary directory, verifies all digests, and atomically swaps the staged tree into place. Inventory acknowledgement happens only after that swap.
 
 ## Backward compatibility
 
 - Existing `sha256`, `size`, `payload` and artifact routes remain available. Agent and Skill artifacts now return ZIP bytes rather than an implicit JSON digest.
 - All new delivery fields are optional on outer descriptors and omitted for legacy records, tombstones, Workflow and Command.
 - Change-feed consumers must ignore unknown optional object fields; only an unsupported `schema_version` is a protocol incompatibility.
-- EvoFlux may continue its v1 path when `bundle_schema_version` or `bundle_v2` is absent.
+- EvoFlux may continue its v1 path when `bundle_schema_version` or `bundle` is absent.
 - Unknown future bundle schema versions must be retained as unavailable, not partially installed.
 
 ## Current implementation gaps

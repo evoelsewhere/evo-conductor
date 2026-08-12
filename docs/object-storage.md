@@ -24,7 +24,7 @@ The `resources.payload` and `resource_versions.payload` columns contain metadata
       "executable": false
     }
   ],
-  "bundle_v2": {}
+  "bundle": {}
 }
 ```
 
@@ -106,4 +106,4 @@ Operators should take a database backup before the first upgrade and verify that
 - The artifact endpoint serves immutable ZIP bytes for Agent, Skill and Plugin.
 - EvoFlux verifies `artifact_sha256`, extracts into a staging directory, verifies the file manifest/tree digest and then activates atomically.
 
-The current authoring/import model accepts UTF-8 files. Binary file bytes and Unix executable bits require the binary bundle milestone documented in [resource-bundle-v2.md](resource-bundle-v2.md).
+The current authoring/import model accepts UTF-8 files. Binary file bytes and Unix executable bits require the binary bundle milestone documented in [resource-bundle.md](resource-bundle.md).

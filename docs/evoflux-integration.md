@@ -39,7 +39,7 @@ flowchart LR
 |---|---|---|
 | `GET /api/v1/realtime/events` | Realtime SSE stream | `subscribe_resources` |
 | `POST /api/v1/resources/fetch` | Authoritative Git-style `have` negotiation and desired checkout plan | `subscribe_resources` |
-| `GET /api/v1/resources/{resource_id}/versions/{version_id}/artifact` | Immutable content-addressed Bundle V2 object | `subscribe_resources` |
+| `GET /api/v1/resources/{resource_id}/versions/{version_id}/artifact` | Immutable content-addressed Bundle object | `subscribe_resources` |
 | `GET /api/v1/subscribe/resources` | Legacy full snapshot; compatibility only | `subscribe_resources` |
 | `POST /api/v1/client/register` | Idempotent installation registration and project policy bootstrap | `subscribe_resources` |
 | `POST /api/v1/client/heartbeat` | Installation presence heartbeat | `subscribe_resources` |
@@ -245,7 +245,7 @@ Recommended retry delay: `random(0, min(30s, 500ms × 2^attempt))`. Reset the at
 
 Realtime carries invalidation metadata, not authored file bytes. `POST /v1/resources/fetch` resolves the complete member-visible Agent, Skill and Plugin tree but returns only changed entries and missing immutable objects. EvoFlux verifies a complete staging generation before one atomic activation; inventory acknowledgement occurs only after activation.
 
-The exact request/response schema, outer commit hash, managed tombstone rule, download verification and required client checkout algorithm are normative in [resource-fetch-protocol.md](resource-fetch-protocol.md). Bundle file identity and inner tree hashing are defined in [resource-bundle-v2.md](resource-bundle-v2.md).
+The exact request/response schema, outer commit hash, managed tombstone rule, download verification and required client checkout algorithm are normative in [resource-fetch-protocol.md](resource-fetch-protocol.md). Bundle file identity and inner tree hashing are defined in [resource-bundle.md](resource-bundle.md).
 
 Agent and Skill use `application/vnd.evoflux.resource+zip`; Plugin uses `application/vnd.evoflux.plugin+zip`. Object responses have digest ETags and one-year private immutable caching. Source bytes live only in the active Local, S3, Azure Blob or Git backend and are not stored in SQL. The storage provider never changes canonical keys or digests; see [object-storage.md](object-storage.md).
 
@@ -334,7 +334,7 @@ Use `RealtimeAudience::Owner(user_id)` for private resources. If visibility chan
 
 ## Future EvoFlux checklist
 
-The canonical Agent, Skill and Plugin file-manifest, integrity and Work/Coding/AIM scope contract is defined in [resource-bundle-v2.md](resource-bundle-v2.md). The required delivery/checkout algorithm is defined in [resource-fetch-protocol.md](resource-fetch-protocol.md).
+The canonical Agent, Skill and Plugin file-manifest, integrity and Work/Coding/AIM scope contract is defined in [resource-bundle.md](resource-bundle.md). The required delivery/checkout algorithm is defined in [resource-fetch-protocol.md](resource-fetch-protocol.md).
 
 - Add secure secret configuration and redaction.
 - Add an incremental SSE client with custom `Authorization` header.
