@@ -563,6 +563,7 @@ export interface SsoConfig {
 export interface ProjectBranding {
   project_name: string
   display_name: string | null
+  description: string | null
   logo_url: string | null
 }
 
@@ -618,6 +619,7 @@ export interface DataPolicySettings {
 export interface ProjectSettings {
   project_name: string
   display_name: string | null
+  description: string | null
   bind_host: string
   bind_port: number
   public_url: string | null
@@ -1105,6 +1107,7 @@ export const api = {
   updateSettings: (body: {
     project_name?: string
     display_name?: string
+    description?: string
     public_url?: string
     logo_url?: string
   }) =>

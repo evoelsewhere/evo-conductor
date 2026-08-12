@@ -27,6 +27,7 @@ import { Label } from "@/shared/ui/label"
 import { Select } from "@/shared/ui/select"
 import { Spinner } from "@/shared/ui/spinner"
 import { SwitchField } from "@/shared/ui/switch"
+import { Textarea } from "@/shared/ui/textarea"
 
 const providers = [
   { value: "azure_ad", label: "Microsoft Entra ID (Azure AD)" },
@@ -84,6 +85,7 @@ export function SettingsForm() {
   const [tab, setTab] = useState<TabId>("general")
   const [projectName, setProjectName] = useState("")
   const [displayName, setDisplayName] = useState("")
+  const [projectDescription, setProjectDescription] = useState("")
   const [logoUrl, setLogoUrl] = useState("")
   const [bindHost, setBindHost] = useState("")
   const [bindPort, setBindPort] = useState("")
@@ -127,6 +129,7 @@ export function SettingsForm() {
     if (!data) return
     setProjectName(data.project_name)
     setDisplayName(data.display_name ?? "")
+    setProjectDescription(data.description ?? "")
     setLogoUrl(data.logo_url ?? "")
     setBindHost(data.bind_host)
     setBindPort(String(data.bind_port))
@@ -166,6 +169,7 @@ export function SettingsForm() {
       api.updateSettings({
         project_name: projectName,
         display_name: displayName,
+        description: projectDescription,
       }),
     onSuccess: () => {
       setMessage("Project settings saved")
@@ -489,6 +493,24 @@ export function SettingsForm() {
                   />
                 </Field>
               </div>
+              <Field
+                label="Project description"
+                hint="Shown to members and sent to registered EvoFlux clients. Maximum 500 characters."
+              >
+                <Textarea
+                  value={projectDescription}
+                  onChange={(event) =>
+                    setProjectDescription(event.target.value)
+                  }
+                  maxLength={500}
+                  rows={3}
+                  placeholder="Describe this project's purpose, audience, and governed resources."
+                  className="resize-y"
+                />
+                <div className="text-right text-[11px] tabular-nums text-(--color-text-subtle)">
+                  {projectDescription.length}/500
+                </div>
+              </Field>
             </SettingsCard>
             <SettingsCard>
               <Field
