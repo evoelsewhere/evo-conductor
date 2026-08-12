@@ -353,7 +353,12 @@ The canonical Agent, Skill and Plugin file-manifest, integrity and Work/Coding/A
 ## Project data policy
 
 `POST /api/v1/client/register` returns the current project collection level in
-`policy.collection_level`:
+`policy.collection_level`. Its `project` object also carries the server-owned
+identity fields `name`, `display_name`, `description` and `logo_url`; clients
+should refresh those values on every successful registration rather than cache
+locally authored copies.
+
+Collection levels:
 
 - `L0`: telemetry ingestion is disabled; registration, heartbeat, resource delivery and inventory remain available.
 - `L1`: operational metadata is enabled: outcomes, latency, tokens and resource attribution.
