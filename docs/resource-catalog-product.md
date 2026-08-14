@@ -1,6 +1,6 @@
 # Product design — governed resource catalog
 
-Status: **Catalog MVP implemented; Resource Studio, package delivery and Beta release specified but not implemented**
+Status: **Catalog, Resource Studio, package delivery, Beta targeting and Analytics Studio implemented; smart-fetch client migration and production hardening remain**
 
 ## Product problem
 
@@ -158,6 +158,9 @@ The MVP intentionally supports allow rules only. Deny rules and nested policy ex
 | View another member's usage audit | ✓ | Policy decision pending | — | — |
 | Submit feedback | When accessible | When accessible | When accessible | When accessible |
 
+The Plugin publication row is the target security policy. Current source still permits an owner
+Contributor to release a Plugin, so Admin-only publication remains a tracked REQ-010 hardening gap.
+
 ## Success metrics
 
 Product health should be reviewed using:
@@ -213,6 +216,6 @@ The MVP exposes resource-level and portfolio-level analytics. Governance hygiene
 3. Version comparison, rollback-as-new-version, release notes and richer Beta cohorts.
 4. Daily aggregate jobs, retention controls and export.
 5. Transactional outbox + NATS JetStream for multi-replica delivery.
-6. EvoFlux inventory reconciliation and client version compliance.
-7. Resource Studio, safe ZIP import, Portable Agent Plugin artifact delivery, Beta targeting,
-   trust-pending state and atomic managed updates.
+6. Complete fleet inventory/compliance views, dropped-event reporting and aggregate-backed analytics.
+7. Migrate EvoFlux from cursor delivery to atomic smart-fetch generation checkout, then add packaged
+   two-repository security/convergence E2E, Plugin publication hardening and streaming artifact delivery.

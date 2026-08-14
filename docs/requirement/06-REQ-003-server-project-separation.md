@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-003 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — resource/data-plane project scoping partially implemented |
 | Priority | P0 |
 | Build order | Step 6 of 23 |
 | Spec section | [requirements.md section 1](../requirements.md) |
@@ -38,11 +38,10 @@ present multi-project navigation.
 
 | Implemented | Missing | Incorrect |
 |---|---|---|
-| Project identity, branding and setup wizard ([setup.rs](../../crates/conductor-server/src/http/routes/setup.rs)) | `server_config` table | `bind_host` and `bind_port` are stored in the `instance` table ([migrate.rs:11-12](../../crates/conductor-storage/src/migrate.rs)) |
-| Single-project behaviour matching the V1 constraint | `projects` and `project_members` tables | `jwt_secret` is stored on the same row and read once at startup ([instance.rs:193](../../crates/conductor-storage/src/repos/instance.rs), [state.rs:35](../../crates/conductor-server/src/core/state.rs#L35)) |
-| | `project_id` on business tables | `UPDATE instance SET ...` is issued with no `WHERE` clause ([instance.rs:352](../../crates/conductor-storage/src/repos/instance.rs)) |
-| | | `sso_config` is a singleton addressed by `WHERE id = 1` |
-| | | `users.email`, `sub_roles.slug`, `tags.slug` and `resources(kind, slug)` are globally unique |
+| Stable project identity remains `instance.id` for the one-project-per-deployment V1 model | Separate `server_config`, `projects` and `project_members` tables | `bind_host`, `bind_port` and `jwt_secret` still share the singleton `instance` row |
+| Resources, immutable versions, release channels, Beta targets, policies, changes, installation inventory, telemetry attribution and saved analytics views carry project scope | Global identity versus project membership separation | `users`, `sub_roles`, `tags` and SSO configuration remain deployment-global singletons |
+| Resource slug uniqueness is now `UNIQUE(project_id, kind, slug)` and delivery derives project from the authenticated installation/token | Database-enforced composite project foreign keys across every table | Several singleton updates intentionally have no `WHERE` clause and are safe only while one deployment serves one project |
+| Cross-project resource/inventory/telemetry identifiers are rejected at the API/repository boundary | Multi-project login/session routing and UI | The schema is prepared for project-scoped delivery, not a complete multi-project server |
 
 ## 4. Acceptance criteria
 
@@ -87,4 +86,5 @@ block that.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-14 | Reconciled project-scoped delivery/telemetry rows with the still-singleton server and membership model | Codex |
 | 2026-08-11 | Required database-enforced project ownership for resources, client synchronization state and inventory | Codex |

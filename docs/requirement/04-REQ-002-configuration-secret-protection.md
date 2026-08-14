@@ -4,7 +4,7 @@
 |---|---|
 | ID | REQ-002 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
+| Updated | 2026-08-14 |
 | Status | Draft |
 | Priority | P0 |
 | Build order | Step 4 of 23 |
@@ -80,3 +80,4 @@ applicable. Symmetric encryption is required.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-14 | Rechecked the current SSO storage path; encryption/key-management gaps are unchanged | Codex |

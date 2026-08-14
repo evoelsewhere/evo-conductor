@@ -4,8 +4,8 @@
 |---|---|
 | ID | TSK-011-02 |
 | Created | 2026-08-10 |
-| Updated | 2026-08-10 |
-| Status | In Review — lifecycle exception; Conductor PR #2 |
+| Updated | 2026-08-14 |
+| Status | Implemented — merged |
 | Layer | Conductor BE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 5, 6 and 9](../../design/12-DES-011-client-registration.md#5-api-changes) |
@@ -83,7 +83,7 @@ cargo test -p conductor-server -p conductor-storage -p conductor-domain
 ```text
 cargo fmt --check                                                   PASS
 cargo clippy --workspace --all-targets --all-features -- -D warnings PASS
-cargo test --workspace                                              PASS (42 tests)
+cargo test --workspace                                              PASS (94 tests; verified 2026-08-14)
 ```
 
 ## History
@@ -91,4 +91,5 @@ cargo test --workspace                                              PASS (42 tes
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
-| 2026-08-10 | In Review | Register/heartbeat contract implemented by `cec8571`; Conductor PR #2 is open |
+| 2026-08-10 | In Review | Register/heartbeat contract implemented by `cec8571`; Conductor PR #2 was open |
+| 2026-08-14 | Implemented | Current source and five registration integration tests cover the contract and authorization paths |

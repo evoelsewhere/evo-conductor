@@ -1,7 +1,7 @@
 # Resource authoring guide — Agent, Skill and Portable Agent Plugin
 
-Status: **Normative content for the planned Conductor Resource Studio; the current console does not yet
-implement this workflow.**
+Status: **Normative content implemented by the current Conductor Resource Studio and validators; shared
+cross-repository fixture and security-hardening gaps remain tracked in TSK-007-02/07/12.**
 
 This guide defines the source that Conductor accepts for governed Agent, standalone Skill and Portable
 Agent Plugin resources. The structures follow EvoFlux's current parsers and authoring surfaces. Conductor

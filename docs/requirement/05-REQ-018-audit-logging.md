@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-018 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — partial resource-version event history only |
 | Priority | P0 |
 | Build order | Step 5 of 23 |
 | Spec section | [requirements.md section 13](../requirements.md) |
@@ -34,10 +34,10 @@ identifier. Secrets shall never appear in the log.
 
 | Implemented | Missing |
 |---|---|
-| A few `tracing` lines to stdout, for example [setup.rs:90-94](../../crates/conductor-server/src/http/routes/setup.rs), which are neither durable nor queryable | An `audit_events` table |
-| `users.invited_by`, `approved_at`, `approved_by`, which are isolated fragments of the same idea | Recording at any call site |
-| | A console view, filtering and export |
-| | Request correlation identifiers |
+| `resource_version_events` durably records release/deprecate/restore lifecycle facts for immutable versions | A general append-only `audit_events` table covering every administrative surface |
+| Resource/version history and member invitation/approval columns preserve isolated provenance facts | Save, access, Beta target, member, token, settings, SSO, policy and denial events |
+| `tracing` provides operational logs | Before/after summaries, request correlation, source address, filtering/export and an audit console |
+| Cross-member usage access is server-authorized | Auditing the act of inspecting another member's usage |
 
 ## 4. Acceptance criteria
 
@@ -88,3 +88,4 @@ identifier. Secrets shall never appear in the log.
 | 2026-08-09 | Created | |
 | 2026-08-11 | Added Resource Studio import/validation and Beta-channel actions to mandatory audit coverage | Codex |
 | 2026-08-11 | Clarified usage analytics versus administrative audit and required privacy-safe logging of cross-member drill-down reads | Codex |
+| 2026-08-14 | Recorded the implemented resource-version event ledger while keeping the project-wide audit requirement open | Codex |

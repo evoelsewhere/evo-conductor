@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | ID | TSK-007-07 |
-| Created / updated | 2026-08-11 |
-| Status | Todo |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Implemented — repository-wide frontend unit/e2e tooling remains absent |
 | Layer | FE (React) |
 | Requirement | [REQ-007](../../requirement/09-REQ-007-resource-lifecycle.md), [REQ-008](../../requirement/10-REQ-008-resource-access-policy.md) |
 | Design | [DES-007 section 8](../../design/09-DES-007-governed-resource-delivery.md) |
@@ -39,8 +39,15 @@ Monaco editing, diagnostics, Auto/Manual release, Beta members, audience preview
 - [ ] Screenshots and real report paths are embedded in Results.
 - [ ] No existing EvoFlux visual-language or shared-component duplication is introduced.
 
+### Current evidence — 2026-08-14
+
+`bun run typecheck` and `bun run build` pass; the build retains only Vite compatibility/chunk-size
+warnings. This repository still has no lint, Vitest or committed Playwright scripts, so UI behavior is
+implemented without satisfying the complete test definition of done.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | DES-007 approved by project owner |
+| 2026-08-14 | Implemented | Create/import drawers, Monaco workbench, validation, releases, version history, access and monitoring UI landed |

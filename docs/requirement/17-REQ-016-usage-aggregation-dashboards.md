@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-016 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Accepted (2026-08-10; project-owner usage-audit extension 2026-08-11) — partial implementation in review |
+| Updated | 2026-08-14 |
+| Status | Accepted — portfolio Analytics Studio and drill-downs implemented; aggregate layer remains open |
 | Priority | P0 |
 | Build order | Step 17 of 23 |
 | Spec section | [requirements.md section 11](../requirements.md) |
@@ -96,35 +96,35 @@ outcomes. It never shows prompts, responses, reasoning text, tool arguments/resu
 
 ## 3. Implementation status
 
-The project owner accepted this requirement on 2026-08-10. A per-member audit slice is open in
-[evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2). It is useful product value, but it
-does not yet implement the aggregate architecture or project-wide scope required by this requirement.
+The current console includes both the original member audit slice and the newer project/resource
+portfolio analytics.
 
-| Delivered in review | Evidence |
+| Implemented | Evidence |
 |---|---|
-| Member overview KPIs for requests, token categories, model calls, tool calls and errors | Conductor commits [`352e5c6`](https://github.com/evoelsewhere/evo-conductor/commit/352e5c6e6308358a2a031bf5110a988d03549d98) and [`e3c36e5`](https://github.com/evoelsewhere/evo-conductor/commit/e3c36e51b3ca1a4882c688690ac3bf86b78f478d) |
-| Daily token trend and model/provider distribution charts | Reusable Recharts components in Conductor PR #2 |
-| Request activity, pagination, request detail and per-event audit timeline | Member activity and request-detail routes/pages in Conductor PR #2 |
-| Tool totals, success/failure, average duration and ranked usage chart | Member tools API and page in Conductor PR #2 |
-| Preset and custom date-range filters, responsive mobile layout and local provider icons | [Playwright QA evidence](https://github.com/evoelsewhere/evo-conductor/blob/c5431d3bc2070ff704f29fd374e6f28da0dc2781/docs/member-usage-ui-qa.md) |
-| Member-scoped authorization and admin-managed member connection tokens | Telemetry and member-secret route tests in Conductor PR #2 |
+| Member overview, daily token/model charts, tools, paginated activity and privacy-safe request detail | Current member usage/activity/tool pages and [member-usage-ui-qa.md](../member-usage-ui-qa.md) |
+| Project `GET /api/analytics/resource-usage` with server-time range and member, recorded role, resource kind/ID/version, status, provider/model, installation, relation and tool filters | `ResourceUsageRepo` plus `resource_usage_analytics_attributes_member_role_version_tokens_and_cost` |
+| Portfolio totals, trends, resource/member/model/role/tool breakdowns, activity and pagination with separate request/resource/model/tool grains, token categories, cost and unpriced calls | Resource analytics domain/repository and Analytics Studio panels |
+| Resource detail combines adoption/inventory, usage, version history, member breakdown and feedback | Resource governance/monitoring routes and UI evidence |
+| Analytics Studio composes allowlisted KPI, line, area, bar, stacked-bar, donut and table widgets | `resource-analytics-studio.tsx` and typed analytics definitions |
+| Private/shared saved views are project-scoped and owner-attributed with role enforcement and optimistic revision conflicts | `analytics_views` route/repository tests |
+| A 1,000-member reference workload measured portfolio and Skill-scoped analytics after 9,000 accepted telemetry events | [fleet-simulator.md](../fleet-simulator.md) |
 
 | Remaining gap | Affected criteria |
 |---|---|
-| No `usage_aggregates` table or automatic late-arrival recomputation; current queries scan `telemetry_events` and group on client time | AC-1, AC-2, AC-3 |
-| No complete project overview, shared URL filter model, role/resource/version/agent/skill/plugin/installation filters or highest-usage resource views | AC-4–AC-6, AC-13–AC-18 |
-| Resource adoption, Agent/Skill/Plugin attribution, cost-source analysis and correlated request drill-down are not implemented | AC-8, AC-12, AC-19–AC-25 |
-| Empty-state distinction is only partial and has no dedicated automated assertion | AC-9 |
-| No projected-volume target or benchmark has been recorded | AC-11 |
+| No `usage_aggregates` table/job; portfolio queries still scan raw events and personal queries still use client time | AC-1–AC-3 |
+| The generic dashboard route still exposes project summary to a plain User; project usage itself is correctly guarded | AC-4, AC-7 |
+| URL persistence, comparison deltas, timezone/delay presentation, click-to-filter and accessible table equivalents are incomplete across all panels | AC-5, AC-14–AC-18, AC-22, AC-25 |
+| Sub-role/tag/EvoFlux-version filtering and complete correlated Agent/Skill/Plugin per-call request detail remain incomplete | AC-5, AC-18–AC-21 |
+| Saved dashboard layout is typed and revisioned, but there is no frontend unit/e2e framework in this repository | AC-25, REQ-020 |
+| Reference volume is measured, but no accepted performance SLO or CI benchmark exists | AC-11 |
 
 ### Acceptance progress
 
 | AC | State | Note |
 |---|---|---|
-| AC-7, AC-10 | Implemented in review | Self-only access is allowed by the privacy boundary; privileged roles may inspect another member |
-| AC-4, AC-5, AC-6, AC-9, AC-12 | Partial | Per-member slice only |
-| AC-1, AC-2, AC-3, AC-8, AC-11 | Not implemented or not verified | Aggregate/project scope remains |
-| AC-13–AC-25 | Not implemented | Resource attribution, canonical filtering, full charts and correlated detail remain |
+| AC-6–AC-10, AC-12, AC-13, AC-16, AC-19, AC-21, AC-23, AC-24 | Implemented or substantially implemented | Portfolio/member/resource scopes now exist |
+| AC-4, AC-5, AC-11, AC-14, AC-15, AC-17, AC-18, AC-20, AC-22, AC-25 | Partial | See residual UI/filter/detail/test gaps above |
+| AC-1–AC-3 | Not implemented | Normalized aggregate storage/job is still absent |
 
 ## 4. Acceptance criteria
 
@@ -196,3 +196,4 @@ does not yet implement the aggregate architecture or project-wide scope required
 | 2026-08-10 | Recorded the implemented per-member audit slice and remaining aggregate/project gaps | Codex |
 | 2026-08-10 | Accepted by project owner | Project owner |
 | 2026-08-11 | Added project-owner-required member/resource usage audit, metric grain, role filters, charts, cost source and request drill-down | Codex |
+| 2026-08-14 | Reconciled Analytics Studio, saved views, portfolio/resource analytics and the measured fleet run while retaining aggregate/UI gaps | Codex |

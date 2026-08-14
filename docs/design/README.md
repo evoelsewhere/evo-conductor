@@ -1,9 +1,10 @@
 # Design
 
 REQ-020 was accepted, but DES-020 approval was never recorded before its backend harness merged; it is
-therefore marked as partial implementation reconciliation. REQ-011 was accepted on 2026-08-10, after
-implementation had already started from its pre-approval planning draft. These statuses document reality
-without retroactively approving either design.
+therefore marked as implementation reconciliation. DES-007 was approved and its as-built design now
+reflects the current governed delivery architecture. REQ-011 was accepted on 2026-08-10 after
+implementation had started from its planning draft. These statuses document reality without
+retroactively approving an unapproved design.
 
 ## When to create a design
 
@@ -25,5 +26,6 @@ Tasks are created in [../task/](../task/) only after the design is approved.
 
 | Step | ID | Requirement | Title | Created | Status |
 |---|---|---|---|---|---|
-| 01 | [DES-020](01-DES-020-automated-testing-ci.md) | REQ-020 | Automated testing and CI | 2026-08-09 | Draft (partial implementation reconciliation) |
-| 12 | [DES-011](12-DES-011-client-registration.md) | REQ-011 | Client registration and connection | 2026-08-10 | Draft (as-built reconciliation) |
+| 01 | [DES-020](01-DES-020-automated-testing-ci.md) | REQ-020 | Automated testing and CI | 2026-08-09 | Draft (backend harness implemented; CI gaps) |
+| 09 | [DES-007](09-DES-007-governed-resource-delivery.md) | REQ-007 plus REQ-008/010/012/013 | Governed resource delivery | 2026-08-11 | Approved (as-built reconciliation) |
+| 12 | [DES-011](12-DES-011-client-registration.md) | REQ-011 | Client registration and connection | 2026-08-10 | Draft (as-built implementation reconciliation) |

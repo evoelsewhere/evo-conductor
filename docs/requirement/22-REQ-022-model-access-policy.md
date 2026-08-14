@@ -4,7 +4,7 @@
 |---|---|
 | ID | REQ-022 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
+| Updated | 2026-08-14 |
 | Status | Draft |
 | Priority | P2 |
 | Build order | Step 22 of 23 |
@@ -35,7 +35,8 @@ server.
 | Implemented | Missing |
 |---|---|
 | EvoFlux separates availability, capability and adapter support through a shared resolver | Everything in this requirement |
-| The resource catalog can carry an arbitrary payload, so a policy document can be distributed through the existing path | A place to declare the policy |
+| Governed delivery now has structured Agent/Skill/Plugin bundles and a project-scoped checkout path that could be extended with a typed policy object | A model-policy resource/schema and administrative API |
+| Telemetry analytics already expose provider/model usage and unpriced calls | Client-side policy application, server enforcement and out-of-policy reporting |
 
 ## 4. Acceptance criteria
 
@@ -71,3 +72,4 @@ server.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-14 | Reconciled the governed-delivery and analytics prerequisites; the model policy itself remains unimplemented | Codex |

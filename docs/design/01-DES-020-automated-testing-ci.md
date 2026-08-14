@@ -4,8 +4,8 @@
 |---|---|
 | ID | DES-020 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-10 |
-| Status | Draft — partial implementation reconciliation |
+| Updated | 2026-08-14 |
+| Status | Draft — backend harness implemented; frontend/reporting/CI design remains unimplemented |
 | Requirement | [REQ-020](../requirement/01-REQ-020-automated-testing-ci.md) |
 | Build order | Step 1 of 23 |
 | References | [BASE-CONVENTIONS](../base/BASE-CONVENTIONS.md), [architecture.md](../architecture.md) |
@@ -23,7 +23,7 @@ Acceptance criteria in scope: AC-1 through AC-11 of
 
 | Decision | Options | Chosen |
 |---|---|---|
-| Test runner | `cargo test`; `cargo nextest` | **nextest** |
+| Test runner | `cargo test`; `cargo nextest` | **`cargo test` implemented; nextest remains the planned CI reporter** |
 | Test database | plain `sqlite::memory:`; named shared-cache memory; temp file | **named shared-cache memory** |
 | HTTP invocation | bind a real port; `tower::ServiceExt::oneshot` | **oneshot** |
 | Authentication in tests | call `POST /api/auth/login`; mint a JWT directly | **mint directly** |
@@ -34,6 +34,9 @@ Acceptance criteria in scope: AC-1 through AC-11 of
 also runs each test in its own process, which matters here because `Db::connect` calls
 `sqlx::any::install_default_drivers()` process-wide ([db.rs:35](../../crates/conductor-storage/src/db.rs))
 and every test constructs its own `Db`.
+
+As of 2026-08-14, `cargo test --workspace` passes 94 tests. `cargo nextest`, coverage, frontend unit/e2e,
+lint, PostgreSQL CI, a one-command `make test` target and a merge-blocking workflow are still absent.
 
 **Rationale for the database choice — this is the central risk in this design.**
 
@@ -210,3 +213,4 @@ TSK-020-01 and TSK-020-03 are independent and can run in parallel if two people 
 |---|---|---|
 | 2026-08-09 | Created | |
 | 2026-08-10 | Recorded the merged backend harness while approval and remaining tasks are still open | Codex |
+| 2026-08-14 | Reconciled the 94-test backend suite and confirmed every frontend/reporting/CI gap remains | Codex |

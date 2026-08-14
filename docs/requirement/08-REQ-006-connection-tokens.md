@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-006 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — core scoped-token lifecycle implemented; policy gaps remain |
 | Priority | P0 |
 | Build order | Step 8 of 23 |
 | Spec section | [requirements.md section 5](../requirements.md) |
@@ -37,10 +37,18 @@ Supported scopes shall include `subscribe_resources`, `report_telemetry`, `sync_
 
 | Implemented | Missing | Incorrect |
 |---|---|---|
-| Token generation with `evc_` prefix, one-time display, SHA-256 hash at rest ([secret_token.rs](../../crates/conductor-auth/src/secret_token.rs), [secrets.rs](../../crates/conductor-server/src/http/routes/secrets.rs)) | `read_documents` scope | `POST /api/secrets` performs no role check |
-| Scope list, expiry column, revocation endpoint | Default expiry policy | Omitting `scopes` grants all three existing scopes by default ([secrets.rs:31-38](../../crates/conductor-server/src/http/routes/secrets.rs)) |
-| Expiry checked during validation ([resources.rs:39-44](../../crates/conductor-server/src/http/routes/resources.rs)) | Expiry warning | Owner status not checked during validation, see [REQ-005](07-REQ-005-member-lifecycle.md) |
-| `last_used_at` column | Client-side secure storage | `last_used_at` is never updated |
+| `evc_` token generation, one-time display, SHA-256 hash at rest, explicit non-empty scopes, optional expiry and immediate revocation | `read_documents` scope and document endpoints |
+| Shared authentication checks prefix/hash, expiry, required scope and active owner | Admin-configurable default expiry and expiry warnings |
+| Successful authentication updates `last_used_at` with a five-minute write-throttle and disconnects live realtime sessions on revocation | A formal role-to-scope issuance matrix |
+| Members list/manage their own tokens; Admin can manage a selected member's tokens without retrieving raw values | Re-enabling a disabled owner does not currently guarantee old unrevoked secrets stay unusable |
+| EvoFlux registration uses an OS credential-store adapter and redacts the token from runtime settings/status | Packaged credential-store smoke on every supported OS remains a release verification gap |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-1, AC-3, AC-5, AC-6, AC-7, AC-8, AC-9 | Implemented in source/tests, with packaged OS verification still pending for AC-9 |
+| AC-2, AC-4, AC-10 | Not complete |
 
 ## 4. Acceptance criteria
 
@@ -83,3 +91,4 @@ Supported scopes shall include `subscribe_resources`, `report_telemetry`, `sync_
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-14 | Reconciled explicit scopes, active-owner validation, last-use updates and EvoFlux credential storage | Codex |

@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | ID | TSK-007-03 |
-| Created / updated | 2026-08-11 |
-| Status | Todo |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Implemented and expanded — buffered-response/production proof remains |
 | Layer | BE (Rust) |
 | Requirement | [REQ-007](../../requirement/09-REQ-007-resource-lifecycle.md), [REQ-010](../../requirement/19-REQ-010-plugin-distribution-safety.md) |
 | Design | [DES-007 sections 2, 4 and 6](../../design/09-DES-007-governed-resource-delivery.md) |
@@ -39,8 +39,15 @@ can be streamed, verified and referenced without placing credentials or mutable 
 - [ ] Filesystem backend limitation for multi-replica deployment is documented.
 - [ ] Command output and measured streaming memory evidence are recorded.
 
+### Current evidence — 2026-08-14
+
+The 94-test Rust run covers deterministic ZIPs, Local object migration, Git push/credential rollback and
+admin migration between backends. `docs/object-storage.md` documents Local/S3/Azure/Git. The artifact
+HTTP response is still buffered and PostgreSQL/streaming memory evidence is absent.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | DES-007 approved by project owner |
+| 2026-08-14 | Implemented | Content-addressed Local/S3/Azure/Git storage, Bundle V2 and verified migration landed; artifact responses still buffer bytes |

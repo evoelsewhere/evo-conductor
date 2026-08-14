@@ -4,7 +4,7 @@
 |---|---|
 | ID | REQ-020 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-10 |
+| Updated | 2026-08-14 |
 | Status | Accepted (2026-08-09) — partial implementation |
 | Priority | P0 |
 | Build order | Step 1 of 23 |
@@ -38,7 +38,7 @@ that runs it on every change, and a regression suite covering authentication and
 |---|---|
 | Backend unit, repository, SQLite pool-isolation/migration and Axum route harness from merged PR #1 | `cargo nextest` JUnit and `cargo llvm-cov` reports |
 | Shared `TestApp`, user seeding, JWT helpers and isolated database URLs | PostgreSQL migration execution in CI |
-| Domain role/user tests and backend integration suites; current workspace run passes 42 tests | Complete endpoint/three-role authorization matrix |
+| Domain, storage and Axum integration suites; the 2026-08-14 workspace run passes 94 tests | Complete endpoint/three-role authorization matrix |
 | `cargo fmt`, strict clippy, TypeScript typecheck and production builds are runnable | Conductor Vitest/Testing Library and committed Playwright scripts/reporting |
 | Ad-hoc Playwright visual evidence exists for the member analytics PR | GitHub Actions or another merge-blocking CI workflow |
 | | One full-suite local command and measured/targeted suite duration |
@@ -49,7 +49,7 @@ that runs it on every change, and a regression suite covering authentication and
 |---|---|
 | AC-1 | Implemented |
 | AC-8 | Partial — protected feature routes have negative tests, not every endpoint/role combination |
-| AC-11 | Partial — recent workspace run completed in about 3.2 seconds, but no formal target is recorded |
+| AC-11 | Partial — the current suite is fast enough for local use, but no formal target or CI measurement is recorded |
 | AC-2–AC-7, AC-9, AC-10 | Not complete |
 
 ## 4. Acceptance criteria
@@ -96,3 +96,4 @@ that runs it on every change, and a regression suite covering authentication and
 |---|---|---|
 | 2026-08-09 | Created | |
 | 2026-08-10 | Recorded merged backend harness and remaining frontend/reporting/CI gaps | Codex |
+| 2026-08-14 | Reconciled the expanded 94-test backend suite and confirmed frontend test/lint/CI gaps remain | Codex |

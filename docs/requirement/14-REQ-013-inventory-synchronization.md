@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-013 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Accepted (2026-08-11; owner requested design and task planning) |
+| Updated | 2026-08-14 |
+| Status | Accepted — core desired-versus-observed inventory implemented; fleet views remain partial |
 | Priority | P0 |
 | Build order | Step 14 of 23 |
 | Spec section | [requirements.md section 8](../requirements.md) |
@@ -20,9 +20,10 @@
 Inventory answers the operational questions that usage metrics cannot: who is actually connected, who is
 running an outdated version, whose synchronization is failing, and where a resource has not yet landed.
 
-The current dashboard already claims to answer the first of these and cannot. It computes
-`members_online` from a table that is never written, so the figure is permanently zero. A monitoring
-screen displaying a fabricated number is worse than one that displays nothing.
+At requirement creation the dashboard attempted to derive `members_online` from an unwritten legacy
+table. Current source now uses active realtime owners and has registration/heartbeat plus installation
+inventory; the remaining product question is how realtime presence and heartbeat staleness become one
+configurable, consistently explained health definition.
 
 ## 2. Requirement
 
@@ -34,11 +35,21 @@ synchronization; inventory is observation and can never move a resource or insta
 
 ## 3. Implementation status
 
-| Implemented | Missing | Incorrect |
-|---|---|---|
-| `member_inventory` table with a small subset of fields ([migrate.rs:124-131](../../crates/conductor-storage/src/migrate.rs)) | `client_installations` and `client_heartbeats` tables | `member_inventory` is keyed by `user_id` alone and cannot represent one member with two machines |
-| `MemberPresence` domain type ([telemetry.rs](../../crates/conductor-domain/src/telemetry.rs)) | `PUT /api/v1/client/inventory` | `members_online` reads a table that is never written, so it is always zero ([dashboard.rs](../../crates/conductor-storage/src/repos/dashboard.rs)) |
-| | Installation health views | |
+| Implemented | Missing or incomplete |
+|---|---|
+| `client_installations` supports multiple installations per member; registration/heartbeat keep current last-seen state | Historical heartbeat events and an Admin-configurable online threshold |
+| `PUT /api/v1/client/inventory` requires `sync_inventory`, verifies installation ownership, rejects unknown/cross-scope resources and transactionally replaces `(project, installation, resource)` rows | Project-wide installation filters for online state, client version and member |
+| Inventory records desired/applied version, channel, digest, Plugin installation ID, observed state, safe error category and observed time | Fleet-wide outdated-client and missing-required-resource reports |
+| Resource detail exposes installation/member adoption and desired-versus-observed state; member detail exposes privacy-safe installations | A member-facing full inventory/error panel matching Admin detail |
+| EvoFlux reports the governed reconciler's project-scoped records and omits package bytes, commands, credentials, mutable data and local paths | Packaged project-switch proof preserving old project rows |
+| Dashboard online count is derived from active realtime connection owners; the 1,000-member simulator exercises registration, heartbeat, smart fetch, inventory and analytics | Realtime presence and heartbeat-derived installation health are not yet one configurable definition |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-1–AC-4, AC-8, AC-10–AC-12, AC-14–AC-16 | Implemented or substantially implemented |
+| AC-5–AC-7, AC-9, AC-13, AC-17 | Partial |
 
 ## 4. Acceptance criteria
 
@@ -97,3 +108,4 @@ synchronization; inventory is observation and can never move a resource or insta
 | 2026-08-11 | Added desired/applied release channel and protected Beta targeting from client inventory claims | Codex |
 | 2026-08-11 | Added project-scoped inventory identity and cross-project rejection/isolation criteria | Codex |
 | 2026-08-11 | Accepted into the coordinated governed-resource design by project-owner request | Codex |
+| 2026-08-14 | Reconciled installation-scoped inventory ingestion, resource monitoring and the remaining fleet/member reporting gaps | Codex |

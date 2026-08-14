@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | ID | TSK-007-12 |
-| Created / updated | 2026-08-11 |
-| Status | Todo — waits for TSK-007-01 through TSK-007-11 |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Partial — focused suites and 1,000-member simulator pass; real two-repo E2E remains |
 | Layer | Infra/QA |
 | Requirement | REQ-007, REQ-008, REQ-010, REQ-012 and REQ-013 |
 | Design | [DES-007 sections 12–14](../../design/09-DES-007-governed-resource-delivery.md) |
@@ -42,8 +42,17 @@ Beta leaks, version duplication, cross-project adoption, user-file overwrite or 
 - [ ] Results contain unmodified commands, reports, fixture digests and screenshot links.
 - [ ] Any deviation updates DES-007 before implementation is considered complete.
 
+### Current evidence — 2026-08-14
+
+Conductor passes 94 Rust tests plus frontend typecheck/build. The documented 1,000-member simulator
+completed nine invariants with smart fetch, artifact verification, inventory and telemetry. Focused
+EvoFlux verification passes 37 tests and the connection component suite passes five tests, but no one
+command boots both real applications and proves project
+switch plus Plugin trust end to end.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | DES-007 approved; implementation dependencies remain |
+| 2026-08-14 | Partial | Conductor 94-test suite, EvoFlux focused suites/UI evidence and the public-HTTP fleet simulator exist; one test still does not boot both repositories |

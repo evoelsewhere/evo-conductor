@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-010 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Accepted (2026-08-11; owner requested design and task planning) |
+| Updated | 2026-08-14 |
+| Status | Accepted — static delivery and local trust implemented; publication/audit hardening remains |
 | Priority | P0 |
 | Build order | Step 19 of 23 |
 | Spec section | [requirements.md section 6](../requirements.md), addition |
@@ -50,10 +50,20 @@ suspected embedded credential value cannot enter Beta or Published.
 
 | Implemented | Missing or incorrect |
 |---|---|
-| A legacy technical `ResourceKind::Mcp` variant exists in the catalog ([resource.rs](../../crates/conductor-domain/src/resource.rs)) | `ResourceKind::Plugin`, legacy-data migration, artifact governance and Admin-only executable publication |
-| EvoFlux's portable plugin platform validates packages, rejects unsafe archives, computes a content digest and performs atomic managed updates ([validator.py](../../../evoflux/app/plugin_platform/validator.py), [installer.py](../../../evoflux/app/plugin_platform/installer.py)) | Conductor-to-EvoFlux plugin artifact delivery and stable managed ownership mapping |
-| EvoFlux builds a static trust disclosure for executable commands, remote hosts, environment fields and capabilities ([trust.py](../../../evoflux/app/plugin_platform/trust.py)) | A Conductor sync state that distinguishes staged, trust-pending, update-pending, active and declined |
-| EvoFlux applies normal tool permissions after Plugin activation | The current Conductor reconciler has a legacy configuration path without a Conductor-specific Plugin trust gate ([reconciler.py:163-173](../../../evoflux/app/conductor/reconciler.py)) |
+| Conductor uses first-class `plugin`, backfills legacy `mcp`, statically validates Agent Plugins 1.0 manifests/layout and packages deterministic immutable Bundle V2 artifacts | Plugin release is still available to an owning Contributor; AC-1 requires Admin-only executable publication |
+| ZIP safety rejects traversal, collisions, symlinks/non-files, entry/size/compression limits and invalid UTF-8 without executing package code | Probable embedded-credential value scanning/masking is not implemented |
+| Authorized artifact delivery verifies effective audience and exposes digest/length metadata; EvoFlux rechecks size/SHA and reruns its validator | General project audit events for publication/assignment/retirement remain absent |
+| EvoFlux stages first receipt disabled, exposes static trust review, tracks trust/update pending/declined states and preserves the prior trusted runtime/private data during updates | The Conductor release UI warns that local review is required, but does not summarize the full executable trust surface before publication |
+| Managed identity maps `(project_id, resource_id)` to a stable Plugin installation and reports only privacy-safe state/inventory | Dedicated side-effect fixture and full cross-repository Beta/Published trust E2E remain incomplete |
+| Normal EvoFlux runtime permissions remain in force after local activation | Signed third-party provenance remains explicitly out of scope |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-3–AC-7, AC-9–AC-12, AC-14, AC-16 | Implemented or substantially implemented |
+| AC-2, AC-13 | Partial |
+| AC-1, AC-8, AC-15 | Not complete |
 
 ## 4. Acceptance criteria
 
@@ -113,3 +123,4 @@ suspected embedded credential value cannot enter Beta or Published.
 | 2026-08-11 | Added static-only ZIP/editor validation, masked secret blocking and Beta safety parity | Codex |
 | 2026-08-11 | Renamed the requirement and standardized all product-facing safety behavior on Plugin | Codex |
 | 2026-08-11 | Accepted into the coordinated governed-resource design by project-owner request | Codex |
+| 2026-08-14 | Reconciled first-class Plugin artifacts and EvoFlux trust/update behavior; retained Admin-only, audit and secret-scanning gaps | Codex |

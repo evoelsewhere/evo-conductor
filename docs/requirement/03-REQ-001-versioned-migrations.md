@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-001 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — current schema bootstrap is tested but not versioned |
 | Priority | P0 |
 | Build order | Step 3 of 23 |
 | Spec section | [requirements.md section 15](../requirements.md) |
@@ -35,9 +35,9 @@ shall apply cleanly to PostgreSQL and to SQLite.
 
 | Implemented | Missing | Incorrect |
 |---|---|---|
-| Portable schema using TEXT identifiers and INTEGER flags, working across SQLite, PostgreSQL and MySQL ([migrate.rs:3](../../crates/conductor-storage/src/migrate.rs)) | A schema-version tracking table | `ALTER TABLE` errors are discarded with `let _ = ...` ([migrate.rs:166](../../crates/conductor-storage/src/migrate.rs)) |
-| Idempotent `CREATE TABLE IF NOT EXISTS` statements | Any rollback path | A failed migration is indistinguishable from a successful one |
-| A one-off backfill from `user_tags` into `tag_assignments` ([migrate.rs:170-178](../../crates/conductor-storage/src/migrate.rs)) | Migration ordering guarantees beyond array order | Startup continues after a partial migration |
+| Portable schema bootstrap using TEXT identifiers and INTEGER flags, with fresh-database, declared-index and idempotency tests | A migration tracking table and numbered migration files | Best-effort legacy `ALTER TABLE` and several backfills still discard errors |
+| The current bootstrap includes installation, governed-resource, inventory, telemetry and analytics-view tables | Documented reversal procedures and `make reset-db` | A failed compatibility alteration can remain indistinguishable from an already-applied alteration |
+| Startup returns errors from required `CREATE TABLE`/index statements and from mandatory data reconciliation | PostgreSQL execution in CI | Ordering is still the in-code statement array rather than a recorded migration sequence |
 
 ## 4. Acceptance criteria
 
@@ -77,3 +77,4 @@ shall apply cleanly to PostgreSQL and to SQLite.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-14 | Recorded the expanded tested schema bootstrap without misclassifying it as versioned migrations | Codex |

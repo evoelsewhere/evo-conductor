@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-005 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — partial implementation |
 | Priority | P0 |
 | Build order | Step 7 of 23 |
 | Spec section | [requirements.md section 4](../requirements.md) |
@@ -34,10 +34,17 @@ administrator shall be able to see what was terminated.
 
 | Implemented | Missing | Incorrect |
 |---|---|---|
-| Admin-created member with one-time temporary password and forced password change ([users.rs](../../crates/conductor-server/src/http/routes/users.rs), [auth.rs](../../crates/conductor-server/src/http/routes/auth.rs)) | Link between disabling a member and revoking their tokens | Connection-token validation never checks the owner's status ([resources.rs:31-51](../../crates/conductor-server/src/http/routes/resources.rs)) |
-| SSO-created member entering `pending`, with an approval page and an approve action | Notice before token expiry | `UserStatus::can_authenticate()` governs browser sign-in only ([user.rs:52](../../crates/conductor-domain/src/user.rs)) |
-| Enable, disable and password reset actions | Audit records for these actions | |
-| `invited_by`, `approved_at`, `approved_by` recorded on the user row | | |
+| Admin-created invited members, temporary-password change, pending SSO approval, enable/disable and password reset | Disabling does not mark all connection-secret rows revoked in the same transaction |
+| Browser tokens carry `session_version`; every status/password change invalidates existing sessions | Re-enabling can make an old, unrevoked connection secret usable again, contrary to AC-4 |
+| Connection-secret authentication now loads the owner and immediately rejects any non-active owner | Project-wide audit events and the access-path summary required by AC-7/AC-8 |
+| Disable actively closes the member's realtime connections; resource/history rows are retained | Token-expiry warnings |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-2, AC-3, AC-5, AC-6 | Implemented |
+| AC-1, AC-4, AC-7, AC-8 | Not complete |
 
 ## 4. Acceptance criteria
 
@@ -76,3 +83,4 @@ None. The specification is unambiguous on this section.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-14 | Recorded session invalidation, owner-status token checks and realtime disconnect behavior | Codex |

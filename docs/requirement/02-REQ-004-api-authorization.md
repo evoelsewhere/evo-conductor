@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-004 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — partial implementation in source |
 | Priority | P0 |
 | Build order | Step 2 of 23 |
 | Spec section | [requirements.md sections 3 and 7](../requirements.md) |
@@ -32,11 +32,21 @@ explicitly rather than defaulted.
 
 ## 3. Implementation status
 
-| Implemented | Missing | Incorrect |
-|---|---|---|
-| Role guards on members, tags, sub-roles, settings and SSO ([users.rs](../../crates/conductor-server/src/http/routes/users.rs), [access.rs](../../crates/conductor-server/src/http/routes/access.rs), [settings.rs](../../crates/conductor-server/src/http/routes/settings.rs)) | A guard on `GET /api/dashboard` | `GET /api/dashboard` requires only an authenticated session ([dashboard.rs:8-13](../../crates/conductor-server/src/http/routes/dashboard.rs)) |
-| Capability predicates in the domain layer ([role.rs:33-56](../../crates/conductor-domain/src/role.rs)) | A guard on `GET /api/resources` | `can_view_telemetry()` is defined but is never called anywhere in the codebase |
-| Member list already narrows results for non-managers ([users.rs:45-54](../../crates/conductor-server/src/http/routes/users.rs)) | Role constraints on token issuance | `POST /api/secrets` performs no role check and grants all three scopes when `scopes` is omitted ([secrets.rs:31-38](../../crates/conductor-server/src/http/routes/secrets.rs)) |
+| Implemented | Missing or incorrect |
+|---|---|
+| Project analytics, saved analytics views and resource inventory endpoints call `can_view_telemetry()`; member usage routes allow self or a telemetry-capable role | `GET /api/dashboard` still requires only an authenticated session, so AC-1 remains open |
+| `GET /api/resources` now uses `list_for_actor`, while client delivery uses the server-side effective-audience resolver | There is no generated, exhaustive three-role matrix for every route |
+| Resource authoring is Admin/Contributor only; a Contributor may mutate only owned resources; settings and member management retain their role guards | Connection-secret scopes are explicit and non-empty, but role-to-scope constraints are not defined or enforced |
+| Secret creation rejects an absent/empty scope list; member-secret management is self-or-Admin | Permission denials are not persisted because REQ-018 remains incomplete |
+| The console uses role-aware navigation/action visibility for implemented management surfaces | Several guards remain handler-local rather than enforced by a common route policy layer |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-2, AC-3, AC-4, AC-7, AC-9 | Implemented for the current usage/resource surfaces |
+| AC-6 | Partial — focused negative tests exist, not a complete route matrix |
+| AC-1, AC-5, AC-8 | Not complete |
 
 ## 4. Acceptance criteria
 
@@ -80,3 +90,4 @@ explicitly rather than defaulted.
 |---|---|---|
 | 2026-08-09 | Created | |
 | 2026-08-11 | Required Admin member/resource usage drill-down while preserving self-only access for regular Users | Codex |
+| 2026-08-14 | Reconciled resource/analytics/member guards and retained the dashboard, scope-policy and audit gaps | Codex |

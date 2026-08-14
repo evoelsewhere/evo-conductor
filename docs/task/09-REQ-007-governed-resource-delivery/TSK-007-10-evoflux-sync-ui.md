@@ -3,12 +3,12 @@
 | | |
 |---|---|
 | ID | TSK-007-10 |
-| Created / updated | 2026-08-11 |
-| Status | Todo |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Implemented — complete Playwright state matrix remains |
 | Layer | EvoFlux FE (React) |
 | Requirement | [REQ-012](../../requirement/13-REQ-012-resource-sync-client.md) |
 | Design | [DES-007 section 9](../../design/09-DES-007-governed-resource-delivery.md) |
-| Covers | REQ-012 AC-12, AC-14, AC-16–AC-18, AC-22, AC-27, AC-32, AC-36 |
+| Covers | REQ-012 AC-12, AC-14, AC-16–AC-18, AC-22, AC-27, AC-32, AC-36, AC-39–AC-53 |
 | Depends on | TSK-007-08, TSK-007-09 |
 | Estimate | 3d |
 | Branch | `feat/REQ-007-governed-resource-delivery` in `evoflux` |
@@ -39,8 +39,15 @@ states, with safe member actions that do not imply server delivery equals local 
 - [ ] Screenshots and exact reports are attached before Done.
 - [ ] No credential, command argument, environment value or absolute path renders.
 
+### Current evidence — 2026-08-14
+
+The feature branch includes component coverage and captured UI evidence for managed resource review and
+Intelligence surfaces. EvoFlux web typecheck and the five-test `ConductorConnectionSettings` component
+suite pass. A complete Playwright matrix and exact report path remain.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | DES-007 approved by project owner |
+| 2026-08-14 | Implemented | Project identity, resource review/diff, pending/conflict and trust actions landed with component/UI evidence |

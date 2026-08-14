@@ -4,18 +4,23 @@
 |---|---|
 | ID | DES-011 |
 | Created | 2026-08-10 |
-| Updated | 2026-08-10 |
-| Status | Draft — as-built reconciliation; implementation PRs are in review |
+| Updated | 2026-08-14 |
+| Status | Implemented as-built design — original approval transition was not recorded |
 | Requirement | [REQ-011](../requirement/12-REQ-011-client-registration.md) |
 | References | [architecture.md](../architecture.md), [BASE-CONVENTIONS](../base/BASE-CONVENTIONS.md), [REQ-004](../requirement/02-REQ-004-api-authorization.md), [REQ-005](../requirement/07-REQ-005-member-lifecycle.md), [REQ-006](../requirement/08-REQ-006-connection-tokens.md), [REQ-015](../requirement/11-REQ-015-privacy-controls.md) |
-| Tasks | [TSK-011-01](../task/12-REQ-011-client-registration/TSK-011-01-installation-storage.md) through [TSK-011-05](../task/12-REQ-011-client-registration/TSK-011-05-console-installations.md), all In Review under the recorded lifecycle exception |
+| Tasks | [TSK-011-01](../task/12-REQ-011-client-registration/TSK-011-01-installation-storage.md) through [TSK-011-05](../task/12-REQ-011-client-registration/TSK-011-05-console-installations.md), implemented with verification gaps recorded per task |
 
 > These documents were prepared before the normal lifecycle gate at the user's request. Implementation
-> later proceeded by explicit user direction and is open in
-> [evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2) and
-> [evoflux#4](https://github.com/evoelsewhere/evoflux/pull/4). This update records reality; it does **not**
-> retroactively approve DES-011. REQ-011 was accepted by the project owner on 2026-08-10; design approval
-> remains the next lifecycle decision before this design can be treated as approved.
+> later proceeded by explicit user direction and is now present in both repositories' current source.
+> This records the as-built design; it does **not** invent a historical approval event that was never
+> captured. REQ-011 was accepted by the project owner on 2026-08-10.
+
+### As-built reconciliation
+
+The storage, API, EvoFlux credential/service lifecycle, connection UI and Conductor installation panel
+match the core design. Remaining evidence is PostgreSQL execution, packaged OS credential/restart smoke,
+dedicated connection Playwright coverage and a two-installation console E2E. The server currently returns
+the default 60-second heartbeat interval; an Admin-configurable 30–300 second control is not implemented.
 
 ## 1. Goal
 
@@ -266,7 +271,8 @@ and [settings component](../../../evoflux/web/src/components/settings/ConductorC
 
 ## 10. Performance
 
-Default heartbeat is **60 seconds**, administrator-configurable within 30–300 seconds. One heartbeat is
+Default heartbeat is **60 seconds** and EvoFlux persists a server-returned interval. An administrator
+configuration control is not yet implemented. One heartbeat is
 an indexed row update and a small JSON response; it never loads resources, inventory or telemetry. At
 10,000 concurrent clients, the default is approximately 167 requests/second. PostgreSQL is production;
 SQLite remains development-only per [base conventions](../base/BASE-CONVENTIONS.md#7-technology-stack).
@@ -326,3 +332,4 @@ deleting tokens or installation history; re-enable performs idempotent registrat
 | 2026-08-10 | Created as pre-approval implementation planning | Codex |
 | 2026-08-10 | Reconciled the design and tasks with the open cross-repository implementation PRs | Codex |
 | 2026-08-10 | Parent requirement REQ-011 accepted; design remains Draft | Project owner |
+| 2026-08-14 | Reconciled the merged as-built implementation and retained PostgreSQL/packaged/E2E verification gaps | Codex |

@@ -3,12 +3,12 @@
 | | |
 |---|---|
 | ID | TSK-007-06 |
-| Created / updated | 2026-08-11 |
-| Status | Todo |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Implemented on Conductor — EvoFlux smart-fetch migration remains in TSK-007-08 |
 | Layer | BE (Rust) |
 | Requirement | [REQ-012](../../requirement/13-REQ-012-resource-sync-client.md) |
 | Design | [DES-007 section 6.2](../../design/09-DES-007-governed-resource-delivery.md) |
-| Covers | REQ-012 AC-7–AC-15, AC-23, AC-29–AC-35 |
+| Covers | REQ-012 AC-7–AC-15, AC-23, AC-29–AC-35, AC-54 |
 | Depends on | TSK-007-03, TSK-007-04, TSK-007-05 |
 | Estimate | 3d |
 | Branch | `feat/REQ-007-governed-resource-delivery` |
@@ -39,8 +39,15 @@ endpoints required for offline-safe EvoFlux reconciliation.
 - [ ] OpenAPI/example fixtures are consumable by EvoFlux Pydantic models.
 - [ ] Exact output and compatibility evidence are recorded.
 
+### Current evidence — 2026-08-14
+
+The Rust run passes cursor/Bundle V2 tests and `smart_fetch_negotiates_delta_objects_and_tombstones`.
+The 1,000-member reference run measured change-feed p95 at 190 ms. An OpenAPI artifact and EvoFlux
+smart-fetch consumer are still missing.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | DES-007 approved by project owner |
+| 2026-08-14 | Implemented | HMAC cursor feed, descriptor/artifact authorization, ETag caching, realtime invalidation and smart fetch landed |

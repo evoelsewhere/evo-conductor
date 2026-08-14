@@ -4,8 +4,8 @@
 |---|---|
 | ID | TSK-011-05 |
 | Created | 2026-08-10 |
-| Updated | 2026-08-10 |
-| Status | In Review — lifecycle exception; Conductor PR #2 |
+| Updated | 2026-08-14 |
+| Status | Implemented — merged; component/e2e proof remains |
 | Layer | Conductor FE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 section 7](../../design/12-DES-011-client-registration.md#7-frontend-changes--conductor-console) |
@@ -78,7 +78,7 @@ bun run test:e2e -- member-installations
 ### Command output
 
 ```text
-cargo test --workspace  PASS (42 tests; API authorization included)
+cargo test --workspace  PASS (94 tests; verified 2026-08-14; API authorization included)
 bun run typecheck       PASS
 bun run build           PASS
 Dedicated component/e2e PASS NOT ESTABLISHED
@@ -94,4 +94,5 @@ not prove this task's two-row state.
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
-| 2026-08-10 | In Review | Member installation panel implemented by `ac01ad4`; Conductor PR #2 is open |
+| 2026-08-10 | In Review | Member installation panel implemented by `ac01ad4`; Conductor PR #2 was open |
+| 2026-08-14 | Implemented | Current API/UI is present; two-installation component/e2e and screenshot evidence remains |

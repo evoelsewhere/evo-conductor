@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-012 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Accepted (2026-08-11; owner requested design and task planning) |
+| Updated | 2026-08-14 |
+| Status | Accepted — cursor client implemented; smart-fetch checkout migration remains |
 | Priority | P0 |
 | Build order | Step 13 of 23 |
 | Spec section | [requirements.md sections 6 and 12](../requirements.md) |
@@ -134,15 +134,34 @@ previous project. Previously cached bytes may remain for offline rollback, but t
 loaded, activated, updated or reported as belonging to the new project. Reconnecting the original project
 may reuse only ownership state whose `project_id` matches exactly.
 
+### 2.3 Current transport evolution
+
+The cursor change feed remains the implemented EvoFlux compatibility client. Conductor now additionally
+implements `POST /api/v1/resources/fetch`, a Git-style `have_commit`/`have` negotiation over the complete
+member-specific Agent/Skill/Plugin tree. It returns a deterministic desired commit/tree, changed entries,
+managed tombstones and only missing content-addressed objects. New EvoFlux clients shall migrate to this
+contract and activate one fully verified staged generation atomically; cursor delivery remains supported
+until fleet convergence. [resource-fetch-protocol.md](../resource-fetch-protocol.md) is normative for the
+new checkout algorithm.
+
 ## 3. Implementation status
 
-| Implemented, EvoFlux side | Missing or incomplete |
+| Implemented | Missing or incomplete |
 |---|---|
-| The open integration branch has a typed manifest and checksum validation but still uses the legacy technical kind string `mcp` ([models.py:11-113](../../../evoflux/app/conductor/models.py)) | `plugin` is absent from the Conductor manifest contract and V1 client allowlist |
-| `ResourceReconciler` renders Agents and standalone Skills and has a legacy configuration path that implements drift classification, backup and rollback ([reconciler.py](../../../evoflux/app/conductor/reconciler.py)) | Plugin artifact download, SHA-256 verification and handoff to `app.plugin_platform.installer` |
-| `ConductorSyncService` retrieves manifests on an interval, retains a last-known-good manifest and reports reconciliation state ([service.py](../../../evoflux/app/conductor/service.py)) | Stable mapping from Conductor resource/version IDs to an EvoFlux plugin installation ID; trust/update/removal state reporting |
-| EvoFlux already provides safe portable package validation, managed install/update, a registry and static trust review ([installer.py](../../../evoflux/app/plugin_platform/installer.py), [trust.py](../../../evoflux/app/plugin_platform/trust.py)) | Cursor-based change retrieval; the temporary V1 adapter still converts a full resource snapshot |
-| The reconciler detects `wrong_revision` and `modified` state ([reconciler.py:175-214](../../../evoflux/app/conductor/reconciler.py)) | Managed state is currently keyed by `kind/slug`, does not retain project ownership, exposes no update diff, and `enforce` can replace a modified target after backup instead of preserving an ownership conflict ([reconciler.py:282-309](../../../evoflux/app/conductor/reconciler.py)) |
+| EvoFlux has typed schema-v2 change pages, stable `(project_id, resource_id)` managed state, durable cursor, digest verification and project-scoped Agent/Skill activation | EvoFlux does not yet call Conductor's newer smart-fetch endpoint or atomically switch a complete desired-tree generation |
+| Governed reconciliation preserves user-owned content, detects local drift/ownership conflicts, keeps last-known-good state and processes authorized tombstones | A real two-project packaged switch smoke and same-slug cross-repository fixture remain |
+| Plugin artifacts are downloaded, size/SHA checked, revalidated and staged through the existing Plugin platform with stable installation mapping | Binary bundle support remains outside the current UTF-8 authoring contract |
+| Plugin first install/update uses trust/update-pending states, preserves prior trusted runtime/private data and reports safe inventory | A signed third-party provenance model remains deferred |
+| EvoFlux settings and Intelligence surfaces show project identity, sync state, resource/version/channel, diff/review actions and conflicts | Full Playwright coverage for every pending/error/project-switch state is not committed |
+| Conductor provides cursor changes, direct effective-version authorization, immutable artifacts, realtime invalidation and smart-fetch `have` negotiation | Cursor and smart-fetch are both live during migration; the client currently uses cursor delivery |
+| Current focused EvoFlux tests cover governed reconciliation, runtime provenance, telemetry and review UI | No single automated test boots both repositories and proves the complete checkout/trust/inventory flow |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-1, AC-4–AC-18, AC-20–AC-33, AC-35–AC-37, AC-39–AC-53 | Implemented or substantially implemented on the current EvoFlux feature branch using cursor delivery |
+| AC-2, AC-3, AC-19, AC-34, AC-38, AC-54 | Partial; documentation/workspace-root proof, smart-fetch checkout and packaged cross-repository proof remain |
 
 ## 4. Acceptance criteria
 
@@ -186,6 +205,22 @@ may reuse only ownership state whose `project_id` matches exactly.
 | AC-36 | Agent, Skill and Plugin managed locations, ownership markers and Plugin installation mappings retain `project_id`; the EvoFlux resource/status UI displays the connected project name and exposes the stable project ID in details or diagnostics |
 | AC-37 | Replacing the active token with one for another project disables or unmounts the former project's managed resources before activating the new namespace; cached prior-project bytes remain isolated and are never adopted, updated or reported under the new project |
 | AC-38 | Cross-repository tests create the same Agent, Skill and Plugin slugs in two projects and prove each token receives, stores, loads, inventories and removes only the `(project_id, resource_id)` objects belonging to its authenticated project |
+| AC-39 | Agent mode `work|coding` is materialized in the correct runtime namespace; removing a mode deletes only a managed copy whose ownership and digest still match |
+| AC-40 | Skill mode uses the canonical EvoFlux sidecar, and managed mode/invocation policy is read-only through EvoFlux |
+| AC-41 | An effective Agent retains every built-in/default and managed tool/Skill/MCP entry; local settings are an ordered, deduplicated additive union and cannot subtract the managed base |
+| AC-42 | Local Agent additions are keyed by stable project/resource identity, survive version updates and are re-applied after each atomic managed switch |
+| AC-43 | Tombstone or unassignment removes the managed layer but preserves built-in/default entries, local additions and user-owned resources |
+| AC-44 | The EvoFlux managed-Agent UI clearly separates the locked managed base from locally editable model/additions; raw managed source is not writable |
+| AC-45 | Provider badges/details show project, version and mode; a Coding-only Agent never lends managed provenance to a Work object with the same slug |
+| AC-46 | Regression tests prove managed A+B plus local C becomes A+B+C, and an update to A+B+D still retains C without duplication |
+| AC-47 | A legacy package without a mode sidecar remains compatible as Both; invalid sidecars are rejected before local mutation or cursor commit |
+| AC-48 | An older installation missing one mode copy replays the authoritative feed and backfills the same version; a locally edited target still becomes `ownership_conflict` |
+| AC-49 | Intelligence/status shows installed/current separately from latest desired version for Agent, Skill and Plugin resources |
+| AC-50 | A new desired version creates a visible banner; info/review shows description, every skipped changelog, channel and SemVer gap before Pull |
+| AC-51 | An update to an installed version is never auto-applied. Local `POST /api/settings/conductor/resources/{resource_id}/pull` explicitly refetches the authorized payload, verifies it and performs the atomic apply |
+| AC-52 | Deprecating the installed version emits a change and shows a non-permanently-dismissible `Update required` state with reason; failed Pull preserves last-known-good |
+| AC-53 | Plugin Pull only downloads and stages the new version disabled; local trust approval remains a separate activation step and inventory transition |
+| AC-54 | A smart-fetch client sends the active `have_commit` and managed `have` set, verifies the returned complete-tree commit and missing Bundle V2 objects, then atomically switches one staged generation; a failure leaves the active generation and inventory acknowledgement unchanged |
 
 ## 5. Out of scope
 
@@ -233,3 +268,4 @@ may reuse only ownership state whose `project_id` matches exactly.
 | 2026-08-11 | Added server-resolved Beta channel delivery, target removal fallback and two-member isolation tests | Codex |
 | 2026-08-11 | Added project-scoped resource identity, local namespace isolation and safe project-switch behavior for EvoFlux | Codex |
 | 2026-08-11 | Accepted into the coordinated governed-resource design by project-owner request | Codex |
+| 2026-08-14 | Reconciled the implemented EvoFlux governed reconciler/trust UI and added the newer Conductor smart-fetch migration contract | Codex |

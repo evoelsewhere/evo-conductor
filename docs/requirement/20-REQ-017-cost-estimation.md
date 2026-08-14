@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-017 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — client-estimated cost analytics implemented; pricing and alerts remain |
 | Priority | P1 |
 | Build order | Step 20 of 23 |
 | Spec section | [requirements.md section 11](../requirements.md), addition |
@@ -35,9 +35,18 @@ facts so provenance is visible and the same model call is never charged twice.
 
 | Implemented | Missing |
 |---|---|
-| Token counts will be available once [REQ-014](15-REQ-014-telemetry-ingestion.md) lands | `model_pricing` table |
-| | Cost computation, display and breakdown |
-| | Thresholds and alerting |
+| EvoFlux emits optional estimated micro-USD cost on model-call events with explicit `evoflux_catalog` source | `model_pricing` table and versioned server-side pricing |
+| Conductor persists the nullable estimate/source and keeps unpriced model-call counts separate | Currency, pricing effective date and separate input/output/cache cost components |
+| Member, request, resource and Analytics Studio views display total estimated cost and unpriced calls without adding resource-attributed overlap into project totals | Conductor-priced reconciliation/precedence |
+| Portfolio analytics breaks client estimates down by member, recorded role, resource/version, provider/model and date | Admin-managed member/group thresholds and alert delivery |
+| Personal usage authorization lets a member see the same recorded estimate fields for themselves | Pricing change audit events |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-4, AC-5, AC-7, AC-11 | Partial implementation using client estimates |
+| AC-1–AC-3, AC-6, AC-8–AC-10 | Not complete |
 
 ## 4. Acceptance criteria
 
@@ -83,3 +92,4 @@ facts so provenance is visible and the same model call is never charged twice.
 |---|---|---|
 | 2026-08-09 | Created | |
 | 2026-08-11 | Added role/resource/version cost breakdown, estimate provenance and double-count protection | Codex |
+| 2026-08-14 | Reconciled nullable EvoFlux-catalog estimates, unpriced counts and current analytics; retained pricing/budget/audit work | Codex |

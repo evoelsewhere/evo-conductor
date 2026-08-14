@@ -4,7 +4,7 @@
 |---|---|
 | ID | REQ-021 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-09 |
+| Updated | 2026-08-14 |
 | Status | Draft |
 | Priority | P2 |
 | Build order | Step 16 of 23 |
@@ -21,9 +21,9 @@ The console is English only, with display strings written directly into JSX. Evo
 internationalization, added in commit `2dba74e feat(web): add full app internationalization`, so the team
 is accustomed to using the product in Vietnamese.
 
-The cost of extracting strings grows linearly with the number of screens. There are eight today, and the
-requirements above add dashboards for usage, audit, resources, documents and installations. Doing this
-early is materially cheaper than doing it later.
+The cost of extracting strings grows with every screen. The current console has expanded beyond the
+original eight screens to include Resource Studio, inventory, analytics and saved-view surfaces, while
+display strings are still written directly in English. Retrofitting now is correspondingly larger.
 
 ## 2. Requirement
 
@@ -34,7 +34,7 @@ remember the choice.
 
 | Implemented | Missing |
 |---|---|
-| Eight screens with inline English strings | Internationalization infrastructure |
+| Current management, Resource Studio, inventory and analytics screens use inline English strings | Internationalization infrastructure |
 | | Translations |
 | | Locale-aware formatting |
 
@@ -73,3 +73,4 @@ remember the choice.
 | Date | Change | Author |
 |---|---|---|
 | 2026-08-09 | Created | |
+| 2026-08-14 | Reconciled the expanded English-only console surface with current source | Codex |

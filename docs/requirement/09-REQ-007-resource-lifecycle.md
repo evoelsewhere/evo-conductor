@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-007 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Accepted (2026-08-11; owner requested design and task planning) |
+| Updated | 2026-08-14 |
+| Status | Accepted — substantial implementation landed; residual criteria remain |
 | Priority | P0 |
 | Build order | Step 9 of 23 |
 | Spec section | [requirements.md section 6](../requirements.md) |
@@ -186,14 +186,28 @@ match exactly. Agent and Skill source formats do not gain a Conductor-specific e
 
 ## 3. Implementation status
 
-| Implemented | Missing | Incorrect |
-|---|---|---|
-| Resource and version write paths, lifecycle operations and access-policy storage exist in `ResourceRepo` ([resource.rs](../../crates/conductor-storage/src/repos/resource.rs)) | A `plugin` domain kind and database representation | The console displays a legacy technical `mcp` kind as Plugins instead of providing a real Portable Agent Plugin artifact model ([resources-page.tsx:53-73](../../apps/web/src/features/resources/pages/resources-page.tsx)) |
-| The Rust API exposes create, update, version, publish, archive, access, monitoring and feedback handlers ([resources.rs](../../crates/conductor-server/src/http/routes/resources.rs)) | Artifact upload/download storage and authorization | Inline JSON payloads cannot safely or efficiently represent a versioned `.evoplugin` archive |
-| EvoFlux has package validation, deterministic digesting and managed install/update foundations ([validator.py](../../../evoflux/app/plugin_platform/validator.py), [installer.py](../../../evoflux/app/plugin_platform/installer.py)) | Server-side Agent Plugins 1.0 validation, compatibility metadata and client download contract | `ResourceKind` has no `Plugin` variant; its legacy technical variant must be migrated rather than exposed as product terminology ([resource.rs:7-13](../../crates/conductor-domain/src/resource.rs)) |
-| EvoFlux has Form/Raw agent authoring, a bundle-oriented Skill editor and a Monaco plugin workspace editor ([settings.agents.new.tsx](../../../evoflux/web/src/routes/settings.agents.new.tsx), [SkillBundleEditor.tsx](../../../evoflux/web/src/components/settings/SkillBundleEditor.tsx), [PluginWorkspaceEditor.tsx](../../../evoflux/web/src/components/PluginWorkspaceEditor.tsx)) | Kind guides/templates, ZIP-to-draft import, server-owned source workspaces, Monaco Resource Studio and structured diagnostics | Conductor currently creates resource versions from a JSON textarea and has no editable package tree ([resources-page.tsx](../../apps/web/src/features/resources/pages/resources-page.tsx)) |
-| Current Conductor versions have draft, published and deprecated states ([resource.rs](../../crates/conductor-domain/src/resource.rs)) | Beta state, explicit beta audience and channel-aware desired-version resolution | Current resource/version models have no beta channel or beta-member assignments |
-| The current console pre-fills a client-side `nextPatch(resource.version)` and lets the author edit it ([resources-page.tsx:664-728](../../apps/web/src/features/resources/pages/resources-page.tsx)); the Rust API validates a caller-supplied string ([resources.rs:126-154](../../crates/conductor-server/src/http/routes/resources.rs)) | Server-owned transactional auto allocation, strict SemVer precedence and Plugin manifest synchronization | The client suggestion is not authoritative; concurrent or stale publishers can submit the wrong next version, and the current validator is not a complete SemVer 2.0 parser |
+The governed catalog implementation is now in the main Conductor source. Drafts and immutable releases
+are deterministic ZIP objects outside SQL; SQL keeps content-addressed keys, digests, sizes and Bundle V2
+manifests. Local, S3-compatible, Azure Blob and Git storage backends share that contract, and the admin
+storage migration verifies every copied object before switching the live backend.
+
+| Implemented | Remaining gap |
+|---|---|
+| Real `plugin` domain/API/UI terminology with legacy `mcp` parsing/backfill compatibility | A complete legacy-data compatibility report when an old row cannot be converted safely |
+| Project-scoped resource/version/channel/Beta/change/inventory schema; strict SemVer; transactional Auto/Manual release | General versioned migrations and true multi-project server membership remain REQ-001/REQ-003 gaps |
+| Agent/Skill/Plugin guides, starter templates, direct/ZIP import, safe extraction, editable object-backed Draft tree, Monaco Resource Studio and structured static diagnostics | Binary authoring/executable-bit support and the complete shared cross-repo fixture corpus are deferred |
+| Immutable Bundle V2 artifacts, SHA-256/tree manifests, authorized descriptor/artifact reads, ETag caching, cursor changes and Git-style smart fetch negotiation | The artifact route currently reads an object into memory before responding; streaming proof remains open |
+| Beta/Published effective resolution, active-member targeting, version history, deprecate, restore-to-Draft, archive, monitoring, feedback and inventory views | Beta target validation checks active membership but not full policy eligibility; same-version Beta promotion is not a dedicated source transition |
+| Resource Studio exposes Auto/Manual release, validation, draft editing, version lifecycle and monitoring | Frontend unit/e2e infrastructure is absent under REQ-020 |
+| The 2026-08-14 Rust workspace run passes 94 tests, including archive import, lifecycle, Bundle V2, smart fetch and storage migration coverage | Project-wide audit events, Plugin Admin-only publication, credential-pattern scanning and full PostgreSQL/cross-repo proof remain open |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-1, AC-4, AC-5, AC-7, AC-9, AC-10, AC-12, AC-14–AC-16, AC-19–AC-25, AC-27, AC-30, AC-31, AC-33, AC-34, AC-36, AC-37 | Implemented in current source/tests |
+| AC-2, AC-3, AC-6, AC-8, AC-11, AC-17, AC-18, AC-26, AC-28, AC-29, AC-32, AC-35, AC-38 | Partial or blocked by the residual gaps above |
+| AC-13 | Not complete; REQ-018 remains open |
 
 ## 4. Acceptance criteria
 
@@ -201,12 +215,12 @@ match exactly. Agent and Skill source formats do not gain a Conductor-specific e
 |---|---|
 | AC-1 | `POST /api/resources` creates a resource and draft workspace; `PATCH /api/resources/{id}` updates metadata; Save updates draft source; Beta and Publish create immutable versions; Deprecate and Archive perform validated lifecycle transitions |
 | AC-2 | Each resource carries a stable server-issued resource ID and slug, name, description, type, owner, visibility, lifecycle status, timestamps and tags; each immutable version carries its own server-issued version ID, semantic version, payload/artifact reference, content checksum, publisher and change notes |
-| AC-3 | Resource lifecycle status is one of `draft`, `published`, `deprecated`, `archived`; the version UI/release state is one of `draft`, `beta`, `published`, `deprecated`; invalid transitions return `409` |
+| AC-3 | Resource lifecycle status is one of `draft`, `beta`, `published`, `archived`; immutable version state is one of `draft`, `beta`, `published`, `deprecated`; invalid transitions return `409` |
 | AC-4 | Every Beta or direct Publish creates an immutable content row in `resource_versions` and a channel binding; released payload/artifact bytes are never modified or deleted |
 | AC-5 | `GET /api/resources/{id}/versions` returns the history, and rollback republishes a prior version as a new version rather than mutating history |
 | AC-6 | Only Admin and Contributor may create or update drafts; a User receives `403`. Publication applies the stricter per-kind rules in [REQ-010](19-REQ-010-plugin-distribution-safety.md) |
 | AC-7 | A payload exceeding the size limit is rejected at publish time with a message stating both the limit and the actual size |
-| AC-8 | Size limits match the EvoFlux consumer for each kind; in particular every injected `AGENTS.md`/instruction file is capped at 128 KiB ([workspace_instructions.py:25](../../../evoflux/app/agent/hooks/workspace_instructions.py)), standalone/plugin `SKILL.md` is capped at 512 KiB, and plugin artifact limits match section 2.2 and the EvoFlux package validator |
+| AC-8 | Server limits are explicit and compatible with the current editable bundle contract: archive upload 20 MiB, extracted Draft 50 MiB, 2,000 files, editable UTF-8 file 1 MiB, and standalone/plugin `SKILL.md` 512 KiB; any tighter EvoFlux runtime limit is enforced before activation |
 | AC-9 | For `kind = agent`, the payload is validated as parseable YAML frontmatter plus a body; a malformed payload is rejected |
 | AC-10 | A content checksum is computed and stored, and is exposed to clients for change detection |
 | AC-11 | `ResourceCounts` counts every resource type, including `command` and any type added later |
@@ -287,3 +301,4 @@ match exactly. Agent and Skill source formats do not gain a Conductor-specific e
 | 2026-08-11 | Made project ownership part of every resource lifecycle object and required same-slug cross-project isolation | Codex |
 | 2026-08-11 | Added server-owned automatic patch versioning, strict manual SemVer validation, concurrency rules and Plugin manifest synchronization | Codex |
 | 2026-08-11 | Accepted for coordinated design and task planning by project-owner request | Codex |
+| 2026-08-14 | Reconciled the landed Resource Studio, Bundle V2/object storage, release, smart-fetch and monitoring source; retained verified residual gaps | Codex |

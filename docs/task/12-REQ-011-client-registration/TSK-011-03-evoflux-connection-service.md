@@ -4,8 +4,8 @@
 |---|---|
 | ID | TSK-011-03 |
 | Created | 2026-08-10 |
-| Updated | 2026-08-10 |
-| Status | In Review — lifecycle exception; EvoFlux PR #4 |
+| Updated | 2026-08-14 |
+| Status | Implemented — merged; packaged OS/restart smoke remains |
 | Layer | EvoFlux |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 3, 5 and 8](../../design/12-DES-011-client-registration.md#8-evoflux-changes) |
@@ -87,6 +87,7 @@ uv run pytest --no-cov -q tests/conductor/test_client_service.py tests/api/test_
 ```text
 uv run ruff check app/ tests/                    PASS
 uv run pytest --no-cov -q tests/conductor       PASS (25 tests)
+focused registration/reconcile/runtime/telemetry suite PASS (37 tests; verified 2026-08-14)
 uv run ruff format --check app/ tests/           BASELINE FAIL (31 pre-existing files)
 uv run ty check app/                             BASELINE FAIL (25 pre-existing diagnostics)
 ```
@@ -96,4 +97,5 @@ uv run ty check app/                             BASELINE FAIL (25 pre-existing 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
-| 2026-08-10 | In Review | Connection service implemented by `4995fac3`; EvoFlux PR #4 is open |
+| 2026-08-10 | In Review | Connection service implemented by `4995fac3`; EvoFlux PR #4 was open |
+| 2026-08-14 | Implemented | Current EvoFlux source retains the service/credential tests; packaged OS and restart smoke remain |

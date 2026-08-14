@@ -4,8 +4,8 @@
 |---|---|
 | ID | TSK-011-01 |
 | Created | 2026-08-10 |
-| Updated | 2026-08-10 |
-| Status | In Review — lifecycle exception; Conductor PR #2 |
+| Updated | 2026-08-14 |
+| Status | Implemented — merged; PostgreSQL verification remains |
 | Layer | Conductor BE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 4 and 6](../../design/12-DES-011-client-registration.md#4-data-model-changes) |
@@ -82,7 +82,7 @@ cargo test -p conductor-domain -p conductor-storage
 ```text
 cargo fmt --check                                                   PASS
 cargo clippy --workspace --all-targets --all-features -- -D warnings PASS
-cargo test --workspace                                              PASS (42 tests)
+cargo test --workspace                                              PASS (94 tests; verified 2026-08-14)
 PostgreSQL migration/integration run                                NOT RUN
 ```
 
@@ -91,4 +91,5 @@ PostgreSQL migration/integration run                                NOT RUN
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
-| 2026-08-10 | In Review | Implemented by `cec8571`; Conductor PR #2 is open |
+| 2026-08-10 | In Review | Implemented by `cec8571`; Conductor PR #2 was open |
+| 2026-08-14 | Implemented | Source is in the current Conductor history; SQLite/API evidence passes and PostgreSQL remains unverified |

@@ -4,12 +4,12 @@
 |---|---|
 | ID | DES-007 |
 | Created | 2026-08-11 |
-| Updated | 2026-08-11 |
-| Status | Approved (2026-08-11; project owner directed implementation) |
+| Updated | 2026-08-14 |
+| Status | Approved — implemented as-built baseline; residual work is called out below |
 | Primary requirement | [REQ-007](../requirement/09-REQ-007-resource-lifecycle.md) |
 | Coordinated requirements | [REQ-008](../requirement/10-REQ-008-resource-access-policy.md), [REQ-010](../requirement/19-REQ-010-plugin-distribution-safety.md), [REQ-012](../requirement/13-REQ-012-resource-sync-client.md), [REQ-013](../requirement/14-REQ-013-inventory-synchronization.md) |
 | References | [architecture.md](../architecture.md), [resource-authoring-guide.md](../resource-authoring-guide.md), [BASE-CONVENTIONS](../base/BASE-CONVENTIONS.md) |
-| Tasks | [TSK-007-01 through TSK-007-12](../task/09-REQ-007-governed-resource-delivery/) — Todo |
+| Tasks | [TSK-007-01 through TSK-007-12](../task/09-REQ-007-governed-resource-delivery/) — implemented/partial; see task register |
 
 ## 1. Goal
 
@@ -33,9 +33,9 @@ machines.
 | Concern | Option | Advantages | Disadvantages | Outcome |
 |---|---|---|---|---|
 | Draft storage | JSON in database | Simple backup | Poor fit for trees/binary assets and Monaco | Rejected |
-| Draft storage | Server-owned filesystem workspace | Natural file operations, bounded extraction and deterministic packaging | Requires configured data directory and cleanup | Selected for V1 |
+| Draft storage | Content-addressed object-backed ZIP plus revisioned SQL metadata | Same integrity/provider migration contract as releases; SQL contains no authored bytes | Each edit rewrites one bounded Draft object | Implemented |
 | Artifact storage | Database BLOB | Transactional with metadata | Large packages inflate DB and backups | Rejected |
-| Artifact storage | `ArtifactStore` abstraction with content-addressed filesystem backend | Local V1 works with SQLite/PostgreSQL; future S3 backend does not change API | Multi-replica production needs shared backend | Selected |
+| Artifact storage | `ArtifactStore` abstraction with Local, S3-compatible, Azure Blob and Git backends | Provider-independent keys, verified migration and no authored bytes in SQL | Git is unsuitable for high-churn/high-volume catalogs | Implemented |
 | Sync | Full snapshot by kind/slug | Already partially implemented | Cannot safely represent tombstones, Beta fallback or project switching | Rejected after compatibility period |
 | Sync | Ordered cursor change feed by stable IDs | Incremental, replayable, audit-friendly | More state and tests | Selected |
 | Plugin activation | Server-controlled enablement | Central convenience | Remote execution without local consent | Rejected |
@@ -46,7 +46,7 @@ machines.
 ## 3. System boundaries and invariants
 
 1. Conductor owns project membership, access policy, Draft source, immutable versions, release channels,
-   desired state, audit records and artifact metadata.
+   desired state, resource-version events and artifact metadata. The general audit service remains REQ-018.
 2. EvoFlux owns local activation, Plugin credentials, `PLUGIN_DATA`, local conflicts and runtime state.
 3. Managed identity is `(project_id, resource_id)`; desired content identity is `version_id` plus SHA-256.
    Kind, slug, display name, path and SemVer are never reconciliation keys.
@@ -125,29 +125,29 @@ CREATE TABLE installation_resource_inventory (
 );
 ```
 
-Additional constraints and indexes:
+Additional constraints and indexes in the implemented V1:
 
 - every child row has a composite project/resource foreign key or an equivalent transactionally checked
   constraint supported by both dialects;
-- `resource_access_rules` gains `project_id`, an `effect` enum (`allow`, `exclude`) and project-scoped
-  subject validation;
+- `resource_access_rules` carries `project_id` and stores allow subjects only. The physical `effect`
+  compatibility column defaults to `allow`; deny/exclusion behavior is not exposed by the domain/API;
 - Plugin replaces the legacy technical resource kind. Existing rows are migrated only when their payload
   is a valid portable package reference; otherwise startup/migration reports a compatibility error;
 - change-feed indexes cover `(project_id, effective_user_id, sequence)` and
   `(project_id, resource_id, sequence)`;
 - inventory indexes cover project/member, online state, client version, observed state and error category.
 
-Draft metadata is stored in the database, while files live below:
+Draft and release metadata is stored in the database, while deterministic ZIP bytes use provider-neutral
+content keys:
 
 ```text
-<conductor-data>/projects/<project_id>/resources/<resource_id>/draft/
-<conductor-data>/artifacts/sha256/<first-two>/<digest>
+sha256/<first-two>/<digest>
 ```
 
-Paths are generated from server IDs only. No API accepts an absolute root. Artifact writes use a staging
-file, fsync, digest verification and atomic rename before the database transaction publishes metadata.
-Orphan staging files are swept; immutable content-addressed artifacts are garbage-collected only when no
-version references them and retention permits it.
+The Local backend roots keys below the configured object directory. S3/Azure apply a provider prefix;
+Git writes the same key into its managed repository prefix. No object key contains a server filesystem
+path. Backend reconfiguration pauses object access, health-checks the candidate, verifies every source and
+copied digest, persists sanitized settings and only then switches the live adapter.
 
 EvoFlux adds a versioned local table (or equivalent durable store) keyed by
 `(project_id, resource_id)` with desired/applied version IDs, SemVer, channel, digest, ownership marker,
@@ -180,8 +180,8 @@ release requires the saved manifest value to match.
 
 ### 5.2 Effective audience
 
-The server first evaluates project membership, active status, private ownership, exclusion and allow
-rules. Only then does it resolve channel:
+The server first evaluates project membership, active status, private/no-policy ownership and allow
+rules. V1 has no deny/exclusion expression. Only then does it resolve channel:
 
 ```text
 not eligible                        -> no desired state / authorized tombstone
@@ -212,14 +212,20 @@ trust surface requires a new review; the previous runnable version stays active 
 |---|---|---|---|---|
 | `GET` | `/api/resources/guides/{kind}` | session | Admin/Contributor | Versioned guide and limits |
 | `GET` | `/api/resources/templates/{kind}` | session | Admin/Contributor | Starter source/package |
+| `POST` | `/api/resources/imports/{kind}/inspect` | session | Admin/Contributor | Inspect an Agent/Skill ZIP before creation |
+| `POST` | `/api/resources/imports/{kind}` | session | Admin/Contributor | Create an editable Agent/Skill Draft from ZIP |
+| `POST` | `/api/resources/plugins/inspect` | session | Admin/Contributor | Inspect a Portable Agent Plugin archive |
+| `POST` | `/api/resources/plugins/import` | session | Admin/Contributor | Create a validated Plugin Draft |
 | `POST` | `/api/resources/{id}/draft/import` | session | Admin/owner Contributor | Quarantine and safe extraction |
-| `GET/PUT` | `/api/resources/{id}/draft/files/{path}` | session | Admin/owner Contributor | Read/write UTF-8 file |
-| `POST/DELETE` | `/api/resources/{id}/draft/entries` | session | Admin/owner Contributor | Create/rename/delete entry |
+| `GET` | `/api/resources/{id}/draft/files` | session | Admin/owner Contributor | Hydrated editable Draft tree |
+| `PUT` | `/api/resources/{id}/draft/files/{path}` | session | Admin/owner Contributor | Save one UTF-8 file with Draft revision |
+| `POST/PATCH/DELETE` | `/api/resources/{id}/draft/entries` | session | Admin/owner Contributor | Create/move/delete entry |
 | `POST` | `/api/resources/{id}/draft/validate` | session | Admin/owner Contributor | Structured diagnostics |
-| `POST` | `/api/resources/{id}/versions` | session | Admin/owner Contributor | Release Beta or Published |
-| `PUT` | `/api/resources/{id}/beta/members` | session | Admin/eligible owner | Replace explicit Beta audience |
-| `POST` | `/api/resources/{id}/publish` | session | Admin/eligible owner | Direct publish or promote Beta |
-| `GET` | `/api/resources/{id}/audience-preview` | session | Admin/owner Contributor | Policy/channel/effective version preview |
+| `POST` | `/api/resources/{id}/release` | session | Admin/owner Contributor | Release Beta or Published, including explicit Beta members |
+| `GET/PUT` | `/api/resources/{id}/access` | session | Admin/owner Contributor | Read/replace allow-only access policy |
+| `GET` | `/api/resources/{id}/versions` | session | Admin/owner Contributor | Immutable version history |
+| `POST` | `/api/resources/{id}/versions/{version_id}/deprecate` | session | Admin/owner Contributor | Deprecate an inactive released version |
+| `POST` | `/api/resources/{id}/versions/{version_id}/restore-to-draft` | session | Admin/owner Contributor | Restore source into the mutable Draft |
 
 Release request:
 
@@ -254,8 +260,9 @@ Release response:
 | Method | Path | Scope | Purpose |
 |---|---|---|---|
 | `GET` | `/api/v1/resources/changes?cursor=&limit=` | `subscribe_resources` | Ordered authorized desired-state changes |
+| `POST` | `/api/v1/resources/fetch` | `subscribe_resources` | Complete-tree `have` negotiation and missing object plan |
 | `GET` | `/api/v1/resources/{id}/versions/{version_id}` | `subscribe_resources` | Effective version metadata/text payload |
-| `GET` | `/api/v1/resources/{id}/versions/{version_id}/artifact` | `subscribe_resources` | Authorized immutable Plugin bytes |
+| `GET` | `/api/v1/resources/{id}/versions/{version_id}/artifact` | `subscribe_resources` | Authorized immutable Agent/Skill/Plugin ZIP bytes |
 | `PUT` | `/api/v1/client/inventory` | `sync_inventory` | Idempotent observed state |
 
 Change page:
@@ -283,7 +290,7 @@ Change page:
 }
 ```
 
-The cursor is opaque and bound to project/member/schema. The client persists it only after every change
+The cursor is HMAC-protected and bound to project/member/schema. The client persists it only after every change
 has a durable terminal/pending result. A page replay is idempotent. The compatibility snapshot remains
 read-only for one release and never advertises Plugin artifacts; schema-v2 capable clients use changes.
 
@@ -311,7 +318,7 @@ package content.
 |---|---|---|
 | Domain | `crates/conductor-domain/src/resource.rs` | Plugin kind, strict enums, SemVer release request/result, channels, diagnostics, change and inventory types |
 | Storage | `crates/conductor-storage/src/migrate.rs`, `repos/resource.rs` | Versioned schema, project-scoped transactions, audience resolver, change feed and inventory repositories |
-| Server core | `crates/conductor-server/src/core/config.rs`, `state.rs` | Data-root and `ArtifactStore` dependencies |
+| Server core | `crates/conductor-server/src/core/artifacts.rs`, `state.rs` | Live Local/S3/Azure/Git `ArtifactStore`, legacy externalization and verified provider migration |
 | HTTP | `crates/conductor-server/src/http/routes/resources.rs` plus focused route modules | Thin authoring, release, changes, artifact and inventory handlers |
 | Tests | crate integration tests | Migration, transaction, authorization and cursor proofs |
 
@@ -370,23 +377,24 @@ rollback. Conductor unavailability never blocks EvoFlux startup or previously tr
 - Default change page 100, maximum 500; indexed sequence query target p95 below 200 ms for 100k changes.
 - Draft editor target: 2,000 entries, 1 MiB editable file, kind-specific package limits no greater than
   EvoFlux, tree response paginated/lazy when necessary.
-- Artifact streams; it is never buffered wholly in Axum or Python. Digest verification is incremental.
+- Bundle writes are bounded and content-addressed. The current Axum artifact response buffers the object;
+  streaming with incremental verification remains a production hardening follow-up.
 - Version allocation locks/compares only one resource row and release-channel rows.
 - Inventory upsert is one transaction per installation, maximum 2,000 observed resources, with lightweight
   heartbeat separate from inventory.
-- Filesystem `ArtifactStore` is supported only for one server process or a shared mounted data root.
-  Multi-replica rollout requires a shared object-store implementation and transactional outbox.
+- Local storage is supported for one process or a suitably shared filesystem. S3/Azure provide shared
+  object storage; Git is serialized per process and intended for moderate-volume auditable catalogs.
+  Multi-replica rollout still requires concurrency/convergence validation and a transactional outbox.
 
 ## 12. Rollout and rollback
 
-1. Land prerequisite versioned/project-scoped migration support.
-2. Add schema and read-compatible domain types without serving schema v2.
-3. Add authoring/artifact backend behind `governed_resource_delivery` feature flag.
-4. Ship Conductor Resource Studio; existing JSON resources remain readable but cannot be converted to
-   Plugin without explicit import/validation.
-5. Ship EvoFlux schema-v2 client with old snapshot fallback for Agent/Skill only.
-6. Enable Beta for internal members, then Published delivery after cross-repo tests.
-7. Enable inventory reconciliation and retire the compatibility snapshot after one supported client cycle.
+1. Completed: land project-scoped governed-resource schema/domain and legacy `mcp` backfill.
+2. Completed: ship object-backed authoring, Resource Studio, validation, releases, channels and inventory.
+3. Completed: ship schema-v2 cursor delivery and the EvoFlux governed reconciler/trust UI on its feature branch.
+4. Completed on Conductor: add Bundle V2 for every portable kind, realtime invalidation and Git-style smart fetch.
+5. Next: move EvoFlux from cursor pages to full-tree smart fetch plus one atomic active-generation switch.
+6. Next: complete cross-repository/project-switch/Plugin trust E2E and PostgreSQL/authorization evidence.
+7. After fleet convergence: retire mutation through the legacy snapshot path while retaining a bounded compatibility window.
 
 Rollback disables new release creation and schema-v2 advertisement, leaves immutable rows/artifacts in
 place, and returns clients to last-known-good managed content. Migrations are forward-only; destructive
@@ -421,24 +429,27 @@ suites with the same SHA-256. Each documented starter must pass both validators.
 | REQ-012 AC-1–AC-14 | sync scheduling, managed locations and status | TSK-007-06, 08, 10 |
 | REQ-012 AC-15–AC-34 | Plugin staging/update and Beta convergence | TSK-007-06, 08, 09, 10, 12 |
 | REQ-012 AC-35–AC-38 | project isolation and switching | TSK-007-08, 12 |
+| REQ-012 AC-39–AC-48 | mode materialization, managed base and additive local overlay | TSK-007-08, 10, 12 |
+| REQ-012 AC-49–AC-53 | current/latest review, explicit Pull and deprecation/trust flow | TSK-007-09, 10, 12 |
+| REQ-012 AC-54 | smart-fetch generation checkout | TSK-007-06, 08, 12 |
 | REQ-013 AC-1–AC-17 | inventory ingest, collector and health views | TSK-007-11, 12 |
 
 ## 15. Task breakdown
 
-| Task | Layer | Description | Depends on |
+| Task | Layer | Description | Current state |
 |---|---|---|---|
-| TSK-007-01 | BE | Add project-scoped resource/release schema and domain | prerequisite REQ-001/003 |
-| TSK-007-02 | BE | Build safe Draft workspace, archive import and validators | 01 |
-| TSK-007-03 | BE | Add content-addressed Plugin artifact storage | 01, 02 |
-| TSK-007-04 | BE | Implement transactional Auto/Manual releases and lifecycle | 01–03 |
-| TSK-007-05 | BE | Resolve access, Beta audience and effective versions | 01, 04 |
-| TSK-007-06 | BE | Expose cursor changes and authorized artifact delivery | 03–05 |
-| TSK-007-07 | FE | Build Resource Studio, release and audience UI | 02, 04, 05 |
-| TSK-007-08 | EvoFlux | Persist project-scoped managed state and reconcile Agent/Skill | 06 |
-| TSK-007-09 | EvoFlux | Integrate Plugin staging, trust and atomic update | 06, 08 |
-| TSK-007-10 | EvoFlux FE | Build sync status, diff and trust-review experience | 08, 09 |
-| TSK-007-11 | Cross-repo | Implement privacy-safe desired-versus-observed inventory | 05, 08, 09 |
-| TSK-007-12 | QA/Infra | Prove security, Beta, version, project isolation and compatibility | 01–11 |
+| TSK-007-01 | BE | Add project-scoped resource/release schema and domain | Implemented; REQ-001/003 general gaps remain |
+| TSK-007-02 | BE | Build safe Draft object, archive import and validators | Implemented for UTF-8 bundles |
+| TSK-007-03 | BE | Add content-addressed artifact storage | Implemented and expanded to four backends; response streaming remains |
+| TSK-007-04 | BE | Implement transactional Auto/Manual releases and lifecycle | Implemented; general audit/PostgreSQL proof remains |
+| TSK-007-05 | BE | Resolve access, Beta audience and effective versions | Partial; allow resolver is live, previews/policy-eligible Beta validation remain |
+| TSK-007-06 | BE | Expose cursor/smart-fetch changes and authorized artifacts | Implemented on Conductor |
+| TSK-007-07 | FE | Build Resource Studio, release and audience UI | Implemented; automated FE suite remains |
+| TSK-007-08 | EvoFlux | Persist project-scoped managed state and reconcile Agent/Skill | Implemented with cursor; smart-fetch generation checkout remains |
+| TSK-007-09 | EvoFlux | Integrate Plugin staging, trust and atomic update | Implemented; packaged E2E remains |
+| TSK-007-10 | EvoFlux FE | Build sync status, diff and trust-review experience | Implemented with component evidence |
+| TSK-007-11 | Cross-repo | Implement privacy-safe desired-versus-observed inventory | Implemented core; fleet/member reporting remains |
+| TSK-007-12 | QA/Infra | Prove security, Beta, version, project isolation and compatibility | Partial; focused suites and fleet simulator exist, one real cross-repo E2E does not |
 
 ## History
 
@@ -447,3 +458,4 @@ suites with the same SHA-256. Each documented starter must pass both validators.
 | 2026-08-11 | Created coordinated cross-repository design from accepted resource-delivery requirements | Codex |
 | 2026-08-11 | Task planning created as an explicit owner-requested exception; tasks remain blocked until design approval | Codex |
 | 2026-08-11 | Approved when the project owner directed implementation, build and full-stack verification | Codex |
+| 2026-08-14 | Reconciled object-backed multi-provider storage, current routes, Bundle V2/smart fetch, EvoFlux source and task outcomes | Codex |

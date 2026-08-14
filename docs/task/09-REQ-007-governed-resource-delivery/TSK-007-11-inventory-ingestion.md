@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | ID | TSK-007-11 |
-| Created / updated | 2026-08-11 |
-| Status | Todo |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Implemented core — fleet/member reporting remains partial |
 | Layer | BE (Rust) |
 | Requirement | [REQ-013](../../requirement/14-REQ-013-inventory-synchronization.md) |
 | Design | [DES-007 sections 4, 6.2 and 10](../../design/09-DES-007-governed-resource-delivery.md) |
@@ -40,8 +40,15 @@ version/channel drift, trust, compatibility and sync-error data to authorized Co
 - [ ] `members_online` is proven from actual heartbeat/inventory data, not a fabricated default.
 - [ ] Exact outputs and populated/empty/error UI evidence are recorded.
 
+### Current evidence — 2026-08-14
+
+The Rust suite proves scoped inventory acceptance and resource installation monitoring; EvoFlux reports
+typed governed state. Dashboard online presence currently comes from active realtime owners, while
+fleet-wide filters and a unified heartbeat staleness policy remain.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | DES-007 approved by project owner |
+| 2026-08-14 | Implemented core | Scoped transactional inventory ingest, EvoFlux reporting and resource desired-versus-observed monitoring landed |

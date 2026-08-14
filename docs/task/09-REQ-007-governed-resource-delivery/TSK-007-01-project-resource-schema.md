@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | ID | TSK-007-01 |
-| Created / updated | 2026-08-11 |
-| Status | Todo — REQ-001/REQ-003 remain prerequisites |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Implemented — general REQ-001/REQ-003 and PostgreSQL proof remain |
 | Layer | BE (Rust) |
 | Requirement | [REQ-007](../../requirement/09-REQ-007-resource-lifecycle.md), coordinated REQ-008/012/013 |
 | Design | [DES-007 sections 3–5](../../design/09-DES-007-governed-resource-delivery.md) |
@@ -48,8 +48,15 @@ later authoring, release, synchronization and inventory work depends.
 - [ ] No repository resource write exists without project scope.
 - [ ] Results contain exact command output and migration evidence; until then status cannot leave Blocked/Todo.
 
+### Current evidence — 2026-08-14
+
+`cargo test --workspace` passes 94 tests, including fresh/idempotent schema and governed-resource storage
+tests. PostgreSQL and general migration-version tracking remain unverified, so this task is implemented
+rather than closed as Done.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | Design approved; waits only for prerequisite implementation |
+| 2026-08-14 | Implemented | Project-scoped resource domain/schema landed; full versioned migrations and multi-project membership remain separate requirements |

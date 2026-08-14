@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-014 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Accepted (2026-08-10; project-owner usage-audit extension 2026-08-11) — partial implementation in review |
+| Updated | 2026-08-14 |
+| Status | Accepted — privacy-safe ingestion and attribution implemented; transport/aggregation gaps remain |
 | Priority | P0 |
 | Build order | Step 15 of 23 |
 | Spec section | [requirements.md section 9](../requirements.md) |
@@ -63,33 +63,32 @@ attributed usage rather than added together as a new project total.
 
 ## 3. Implementation status
 
-The project owner accepted this requirement on 2026-08-10. Partial implementation is open in
-[evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2) and
-[evoflux#4](https://github.com/evoelsewhere/evoflux/pull/4).
+The current source carries the expanded contract in both repositories.
 
-| Delivered in review | Evidence |
+| Implemented | Evidence |
 |---|---|
-| Typed allowlisted model/tool events, token counters, duration and sanitized status/error metadata | Conductor commits [`b7d6f93`](https://github.com/evoelsewhere/evo-conductor/commit/b7d6f937b078ad24fb152d6e0b1f3b8175b08aa3) and [`6149a2c`](https://github.com/evoelsewhere/evo-conductor/commit/6149a2c39b60a5b5feaecbdece1d707079e3a4be) |
-| Idempotent scoped `POST /api/v1/telemetry/batch`, owner/installation checks and server receipt timestamp | `telemetry_is_idempotent_private_and_queryable_by_member` and `telemetry_rejects_sensitive_or_cross_owner_payloads` |
-| Indexed persistence by member/time, request and installation/time | Conductor commit [`ea39b6b`](https://github.com/evoelsewhere/evo-conductor/commit/ea39b6bbb4188049839f740958956c32d08ea42e) |
-| Durable bounded EvoFlux outbox with atomic file replacement, retry and idempotent batch export | EvoFlux commits [`fb1b0be7`](https://github.com/evoelsewhere/evoflux/commit/fb1b0be70889156ee4431a4c7cb0b4e9f744595b) and [`919d8ede`](https://github.com/evoelsewhere/evoflux/commit/919d8ede498da7f0dc29b0e28f94daed49a3ab27) |
+| Typed, allowlisted request/model/tool events with request/session IDs, sequence, provider/requested/response model, separated token categories, duration, tool category, status and sanitized error category | Rust domain/schema tests plus EvoFlux hook tests that assert prompt/response/reasoning/path/argument/result absence |
+| Idempotent scoped `POST /api/v1/telemetry/batch`; server derives project/member/role/sub-role/tag snapshot and receipt time | `telemetry_is_idempotent_private_and_queryable_by_member`, cross-owner/sensitive rejection tests and storage ingestion transaction |
+| Managed Agent/Skill/Plugin version relations and Plugin installation attribution are verified against visible resources/inventory | `resource_usage_analytics_attributes_member_role_version_tokens_and_cost` and EvoFlux governed runtime/telemetry tests |
+| Optional client-estimated cost with explicit source, EvoFlux version, request terminal events and distinct model/tool call rows | Current telemetry domain and member/resource analytics DTOs |
+| Durable bounded EvoFlux outbox, atomic replacement, retry/replay and L0 flush gate | `TelemetryOutbox`, `ConductorTelemetryHook` and focused pytest coverage |
+| Server-time resource analytics indexes/filters and a reference 1,000-member replay workload | [fleet-simulator.md](../fleet-simulator.md): 9,000 accepted plus 9,000 duplicate events, p95 655 ms on the reference SQLite run |
 
 | Remaining gap | Affected criteria |
 |---|---|
-| Aggregation currently filters/groups on client `reported_at`, not server `received_at` | AC-3 |
-| Queue drops oldest items at its bound but does not report the dropped count | AC-5 |
-| Stable project/resource/version attribution, Plugin installation/tool ownership, explicit request/session boundaries, member-role snapshot, estimated cost and EvoFlux version are absent from the event contract | AC-6, AC-11–AC-16 |
-| No replay-burst/load test has established the required throughput | AC-8 |
+| Legacy personal member queries still group/filter on `reported_at`; portfolio resource analytics uses `received_at` | AC-3 |
+| Bounded outbox drops oldest events but does not expose the dropped count | AC-5 |
+| Run/parent-call identity, explicit session start/end and contributed Skill/tool stable identity beyond the Plugin installation relation are not complete | AC-6, AC-11, AC-14 |
 | The flush path defers every HTTP rejection, so permanent malformed/4xx batches are not terminally classified | AC-10 |
+| Cost is one optional client-estimated micro-USD value/source, not separated pricing components | AC-15 |
+| There is no single automated cross-repository end-to-end fixture for the complete Agent + Skill + Plugin retry scenario | AC-16 |
 
 ### Acceptance progress
 
 | AC | State |
 |---|---|
-| AC-1, AC-2, AC-4, AC-7, AC-9 | Implemented in review |
-| AC-3, AC-5, AC-6, AC-10 | Partial |
-| AC-8 | Not verified |
-| AC-11–AC-16 | Not implemented |
+| AC-1, AC-2, AC-4, AC-7–AC-9, AC-12, AC-13 | Implemented |
+| AC-3, AC-5, AC-6, AC-10, AC-11, AC-14–AC-16 | Partial |
 
 ## 4. Acceptance criteria
 
@@ -106,7 +105,7 @@ The project owner accepted this requirement on 2026-08-10. Partial implementatio
 | AC-9 | No field in the payload can carry conversation content, file content or credentials, asserted by a schema test |
 | AC-10 | A rejected or malformed batch returns a specific error, and the client does not retry indefinitely on a permanent error |
 | AC-11 | A completed user request has exactly one terminal request event; each model and tool call has its own idempotent event linked by request/run/parent identity, so retries remain visible without multiplying the request count |
-| AC-12 | Every managed resource attribution includes matching `project_id`, `resource_id` and immutable `version_id` plus kind and relation; Conductor rejects the complete event transaction on a cross-project, inaccessible or unknown resource/version reference |
+| AC-12 | Every managed resource attribution carries `resource_id`, immutable `version_id` and relation; Conductor derives/stores `project_id` and kind from authenticated server state and rejects the complete event transaction on a cross-project, inaccessible or unknown resource/version reference |
 | AC-13 | The server derives member ID, project ID, primary role, sub-role IDs and tag IDs from authenticated server state and stores an ingestion-time membership snapshot; client-supplied identity or role fields are rejected or ignored and never become query dimensions |
 | AC-14 | A Plugin-contributed tool or Skill is attributed through the known managed Plugin installation/resource mapping; an identical tool/Skill name from local or another-project content is not attributed to that Plugin |
 | AC-15 | Token and optional client-estimated-cost fields exist only on model-call events, are non-negative and bounded, and preserve input/output/cache/reasoning/tool-use and cost components separately; missing usage or price data is represented as unknown/unpriced, not zero |
@@ -147,3 +146,4 @@ The project owner accepted this requirement on 2026-08-10. Partial implementatio
 | 2026-08-10 | Recorded partial implementation and remaining gaps from Conductor PR #2 and EvoFlux PR #4 | Codex |
 | 2026-08-10 | Accepted by project owner | Project owner |
 | 2026-08-11 | Added project-owner-required member/resource attribution, event hierarchy, role, model-call, token, cost and outcome audit contract | Codex |
+| 2026-08-14 | Reconciled the merged server/client attribution, content-redaction, cost and 1,000-member replay source; retained timestamp/drop/permanent-error gaps | Codex |

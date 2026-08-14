@@ -4,8 +4,8 @@
 |---|---|
 | ID | TSK-020-01 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-10 |
-| Status | In Review — implementation merged; reporting gaps remain |
+| Updated | 2026-08-14 |
+| Status | Implemented — backend harness expanded; nextest/JUnit reporting remains |
 | Layer | BE |
 | Requirement | [REQ-020](../../requirement/01-REQ-020-automated-testing-ci.md) |
 | Design | [DES-020 sections 2, 5](../../design/01-DES-020-automated-testing-ci.md) |
@@ -104,7 +104,7 @@ Record the wall-clock time of the suite; AC-11 needs a measured number.
 | AC-1 | `migrations_apply_to_an_empty_database` | `crates/conductor-storage/tests/migrations.rs` | Pass |
 | AC-1 | `migrations_are_idempotent` | `crates/conductor-storage/tests/migrations.rs` | Pass |
 | AC-1 | Shared-cache visibility, pool concurrency and isolation | `crates/conductor-storage/tests/step0_pool_isolation.rs` | Pass |
-| AC-11 | `cargo test --workspace` wall-clock | local verification | About 3.2 seconds; formal target pending |
+| AC-11 | `cargo test --workspace` wall-clock | local verification | Pass; current suite has 94 tests, formal target/report pending |
 
 ### Step 0 outcome
 
@@ -116,15 +116,16 @@ connections, isolation between test databases and concurrency within the configu
 ```
 cargo fmt --check                                                   PASS
 cargo clippy --workspace --all-targets --all-features -- -D warnings PASS
-cargo test --workspace                                              PASS (42 tests, about 3.2s)
+cargo test --workspace                                              PASS (94 tests; verified 2026-08-14)
 cargo build -p conductor-server --release                           PASS
 cargo nextest run / JUnit                                           NOT RUN
 ```
 
 ### Notes
 
-The harness merged through PR #1. The task remains In Review because nextest/JUnit and a formal AC-11
-target were not recorded; PostgreSQL belongs to TSK-020-05/REQ-001 rather than this SQLite harness proof.
+The harness is present in the current branch and has expanded with the product surface. The remaining
+nextest/JUnit and formal AC-11 duration target belong to REQ-020 reporting/CI completion; PostgreSQL
+belongs to TSK-020-05/REQ-001 rather than this SQLite harness proof.
 
 ## History
 
@@ -132,3 +133,4 @@ target were not recorded; PostgreSQL belongs to TSK-020-05/REQ-001 rather than t
 |---|---|---|
 | 2026-08-09 | Todo | Created |
 | 2026-08-10 | In Review | Backend harness merged in PR #1; nextest/JUnit and formal duration target remain |
+| 2026-08-14 | Implemented | Current workspace suite passes 94 tests; reporting and CI gaps remain tracked separately |

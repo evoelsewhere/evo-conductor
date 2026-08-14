@@ -101,9 +101,10 @@ The Rust API, web console and storage layer exist and are layered cleanly
 [architecture.md](architecture.md)). Storage uses `sqlx` with the `Any` driver, so PostgreSQL is already
 reachable through configuration.
 
-The EvoFlux side of this diagram does not exist. Searching the entire `evoflux` repository for the string
-`conductor` across Python, TypeScript, Rust and Markdown returns zero matches. The integration currently
-exists only on the server side.
+The current EvoFlux feature branch implements the client side under `app/conductor` plus settings and
+Intelligence UI: registration/heartbeat, OS credential storage, project-scoped cursor reconciliation,
+Agent/Skill activation, Plugin trust/update review, inventory and privacy-safe telemetry. Conductor's
+newer smart-fetch checkout is not yet consumed by EvoFlux, and packaged two-repository E2E remains open.
 
 ---
 
@@ -161,15 +162,14 @@ assignment is already generic over entity type: `entity_type` is a free-form val
 ([access.rs:27-39](../crates/conductor-server/src/http/routes/access.rs)), so tagging a resource works
 today without schema changes.
 
-Two gaps contradict the requirement text:
+The current authorization picture is mixed:
 
-- `can_view_telemetry()` is defined but **is not called anywhere in the codebase**. `GET /api/dashboard`
-  requires only an authenticated session, with no role check at all
-  ([dashboard.rs:8-13](../crates/conductor-server/src/http/routes/dashboard.rs)). `GET /api/resources`
-  behaves the same way. The requirement that a User shall not view project-wide telemetry is therefore
-  not enforced.
-- Sub-roles and tags are currently display-only, exactly as the requirement warns against. No query
-  anywhere joins them to resource visibility.
+- `GET /api/dashboard` still requires only an authenticated session and does not call
+  `can_view_telemetry()` ([dashboard.rs](../crates/conductor-server/src/http/routes/dashboard.rs)).
+- Resource listing, effective-version delivery, installations and analytics now apply actor/capability or
+  ownership checks. Sub-roles and tags participate in the allow-only resource audience resolver.
+- Focused negative tests exist beside high-risk features, but no generated inventory proves every mounted
+  session route against Admin, Contributor and User.
 
 See [REQ-004](requirement/02-REQ-004-api-authorization.md) and
 [REQ-008](requirement/10-REQ-008-resource-access-policy.md).
@@ -420,31 +420,16 @@ two projects and prove complete pull, runtime, inventory and removal isolation.
 
 ### Implementation status
 
-The current Conductor source now implements resource/version write paths, publication, archive, access
-policy, monitoring and feedback operations
-([resource.rs](../crates/conductor-storage/src/repos/resource.rs),
-[resources.rs](../crates/conductor-server/src/http/routes/resources.rs)). EvoFlux also has a portable
-plugin validator, installer, atomic update path, registry and trust-review model
-([installer.py](../../evoflux/app/plugin_platform/installer.py),
-[trust.py](../../evoflux/app/plugin_platform/trust.py)).
+Conductor now implements `plugin` as a governed product kind, safe Agent/Skill/Plugin import, object-backed
+Drafts, Resource Studio, strict server-owned SemVer release allocation, immutable versions/channels,
+allow-only audience resolution, Local/S3/Azure/Git artifacts, authorized download, cursor changes and
+smart fetch. EvoFlux implements project-scoped managed state, digest/ownership checks, Agent/Skill atomic
+activation and Plugin trust/update staging through its existing Plugin platform.
 
-The remaining plugin-specific gap is cross-repo rather than a missing local runtime:
-
-- Conductor `ResourceKind` has no `Plugin` variant
-  ([resource.rs:7-13](../crates/conductor-domain/src/resource.rs)).
-- The console currently maps a legacy technical `mcp` kind to the Plugins label instead of implementing
-  Portable Agent Plugin artifacts
-  ([resources-page.tsx:53-73](../apps/web/src/features/resources/pages/resources-page.tsx)).
-- Conductor has no immutable binary artifact storage/download contract or Agent Plugins package
-  validation.
-- EvoFlux's Conductor manifest still accepts a legacy technical `mcp` kind and does not hand `plugin`
-  artifacts to the existing Plugin installer ([models.py:11](../../evoflux/app/conductor/models.py)).
-
-Version allocation is also incomplete across all resource kinds. The console calculates `nextPatch`
-only in React and the API accepts a caller-supplied version after a partial `major.minor.patch` check;
-allocation is not server-owned, precedence-aware or concurrency-safe
-([resources-page.tsx:664](../apps/web/src/features/resources/pages/resources-page.tsx),
-[resources.rs:126](../crates/conductor-server/src/http/routes/resources.rs)).
+Remaining lifecycle gaps are general audit coverage, embedded credential-value scanning, Admin-only
+Plugin publication, policy-aware Beta-target validation, streaming large artifact responses,
+PostgreSQL concurrency proof, the EvoFlux smart-fetch generation client and one packaged cross-repository
+security/convergence E2E.
 
 ### Addition — validate payload size at publish time
 
@@ -513,18 +498,14 @@ versions, missing required resources, resource-version drift, and failed synchro
 
 ### Implementation status
 
-A `member_inventory` table exists with a small subset of these fields
-([migrate.rs:124-131](../crates/conductor-storage/src/migrate.rs)) and a `MemberPresence` type is defined
-([telemetry.rs](../crates/conductor-domain/src/telemetry.rs)). There is no endpoint that writes to it.
+`client_installations` and project-scoped `installation_resource_inventory` now represent multiple
+installations per member. Registration/heartbeat maintain last-seen state; EvoFlux submits idempotent
+desired-versus-observed inventory and Conductor exposes authorized inventory queries. Core state includes
+desired/applied version, channel, digest, trust/sync state, client version and sanitized errors.
 
-The consequence is visible today: the dashboard computes `members_online` from
-`member_inventory` ([dashboard.rs](../crates/conductor-storage/src/repos/dashboard.rs)), and because the
-table is never written, that figure is permanently zero. The monitoring screen currently displays a
-fabricated number.
-
-The existing table is also keyed by `user_id` alone, which cannot represent one member with two machines.
-The requirement calls for an installation identifier, so this needs a `client_installations` table keyed
-by installation rather than by user.
+Fleet-wide filters, outdated/missing compliance summaries, complete member UI coverage and a packaged
+multi-installation E2E remain incomplete. Online counts must continue to use real heartbeat timestamps,
+not a client-claimed boolean.
 
 See [REQ-013](requirement/14-REQ-013-inventory-synchronization.md).
 
@@ -562,24 +543,15 @@ prompts, responses, reasoning text, tool arguments/results, file contents/paths 
 
 ### Implementation status
 
-A `telemetry_events` table exists but carries only `tokens_in`, `tokens_out`, `tool_calls`,
-`active_agents` and `reported_at` ([migrate.rs:133-143](../crates/conductor-storage/src/migrate.rs)).
-It has no tool name, no model, no installation, no session times and no error category.
+The current pipeline uses typed request/resource/model/tool grains with idempotent batch ingestion,
+token-derived member/project identity, installation ownership, server-validated managed-resource/version
+attribution, role snapshots, categorized tokens, provider/model/tool, outcomes, duration, cost provenance
+and both reported/received timestamps. Tables have member/project/time/resource indexes; EvoFlux uses a
+durable bounded outbox and a privacy-safe allowlist.
 
-A separate catalog path now accepts `resource_usage_events` with resource ID, semantic-version string,
-member derived from token, session, outcome, duration, input/output tokens and reported/received times
-([resource.rs:427](../crates/conductor-storage/src/repos/resource.rs),
-[resources.rs:283](../crates/conductor-server/src/http/routes/resources.rs)). It has no immutable version
-ID, project identity, Agent/Skill/Plugin attribution relation, model/provider, call hierarchy, role
-snapshot, token categories or estimated cost. Meanwhile EvoFlux's telemetry hook emits privacy-safe
-model/tool events and richer token categories but no managed resource identity
-([conductor_telemetry.py](../../evoflux/app/agent/hooks/conductor_telemetry.py),
-[telemetry.py](../../evoflux/app/conductor/constants/telemetry.py)). The design must converge these partial
-paths into one correlated fact model or an explicit one-to-one linkage; it must not ingest both and count
-the same work twice.
-
-The table also has **no index of any kind**, while five indexes were created for `users` and `tags` in the
-same migration. Any query filtered by member or by date will perform a full table scan.
+Remaining gaps include a single canonical time policy for personal versus portfolio queries, exposing
+dropped-event counts, treating permanent 4xx failures as terminal, completing run/parent/session/cost
+dimensions, differentiating L1/L2 fields on the client and a live cross-repository replay/load proof.
 
 ### Addition — offline buffering and clock skew
 
@@ -619,9 +591,10 @@ encrypted secret-management system.
 
 ### Implementation status
 
-The existing `TelemetrySnapshot` type already respects this boundary: it carries counters only and no
-content ([telemetry.rs](../crates/conductor-domain/src/telemetry.rs)). This is the correct starting point
-and should be preserved as the schema grows.
+The current telemetry domain has expanded beyond the original counter-only `TelemetrySnapshot` into
+typed request/resource/model/tool events, but it preserves the same boundary: no prompt, response,
+reasoning, source, tool argument/result, credential or absolute path appears in the wire contract
+([telemetry.rs](../crates/conductor-domain/src/telemetry.rs)).
 
 ### Addition — members must be able to see their own record
 
@@ -632,17 +605,18 @@ test turns the privacy policy from a written promise into a property of the syst
 
 ### Addition — the tension between "what was it used for" and "no content"
 
-Answering what a member used the system for cannot be done from counters alone. Three collection levels
-are possible, and one must be chosen deliberately rather than drifted into:
+Current source defines three privacy-safe collection levels. They change whether telemetry is disabled or
+how much operational attribution is included; none permits prompt, response, reasoning, tool arguments,
+headers, environment values or source content:
 
 | Level | Collected | Answers "used for what" | Cost |
 |---|---|---|---|
-| L0 | Mode, agent or prompt used, tool mix, counts, durations | At the level of work category | Safe but vague |
-| L1 | L0 plus agent-generated session title, task name, repository identifier if enabled | At the level of concrete task | Titles may leak incidental context |
-| L2 | Full prompt and response content | Completely | Becomes a surveillance system |
+| L0 | No usage events | No usage answer | Maximum privacy; no operational analytics |
+| L1 | Counters and bounded operational metadata: event grain, outcome, provider/model, token categories, duration and cost provenance | Operational usage and reliability | Default privacy-safe analytics surface |
+| L2 | L1 plus extended server-validated resource/version/relation and organizational attribution | Managed-resource effectiveness | More metadata, still no work content |
 
-L1 is recommended as the default. L2 must satisfy the four conditions the baseline already states in this
-section, and must never become a configuration flag that can be flipped without process.
+The rollout default remains an owner decision. Adding any future content-capture mode requires a separate
+requirement, explicit member notice/consent, narrowly scoped readers and retention; it is not L2.
 
 See [REQ-015](requirement/11-REQ-015-privacy-controls.md) and
 [REQ-019](requirement/21-REQ-019-data-retention.md).
@@ -685,11 +659,11 @@ A regular User should only see personal usage unless granted broader permission.
 
 ### Implementation status
 
-`DashboardSummary` provides counts only, and as noted in section 8 one of those counts is always zero
-([dashboard.rs](../crates/conductor-storage/src/repos/dashboard.rs)). The open member slice adds member
-KPIs, charts, activity and request detail, but current event contracts cannot attribute them completely
-to Agent/Skill/Plugin versions or supply role/cost provenance. There is no aggregate/project-wide filter
-model, and `ResourceCounts` omits `Command`.
+The console now includes personal/member/resource analytics plus portfolio Analytics Studio with typed
+widgets/filters and optimistic-revision saved views. It exposes request/resource/model/tool grains,
+managed version attribution, token categories, estimated cost source and unpriced calls. Queries still
+read raw events rather than a `usage_aggregates` table/job, some filter/view combinations remain partial,
+and current-scale performance/retention/export proof is still open.
 
 ### Addition — cost requires a priced model table
 
@@ -702,8 +676,8 @@ than being silently restated when a provider changes rates. Models with no price
 ### Addition — distinguish "no data" from "zero"
 
 An empty monitoring screen must state why it is empty: nobody has connected yet, versus no activity in
-the selected range. A dashboard that shows zero forever is worse than no dashboard, and the current code
-already demonstrates that failure.
+the selected range. Current analytics surfaces have explicit empty/loading/error states; their remaining
+UI tests must preserve that distinction.
 
 See [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) and
 [REQ-017](requirement/20-REQ-017-cost-estimation.md).
@@ -848,12 +822,11 @@ version.
 
 ### Implementation status
 
-The current Conductor source exposes the temporary `GET /api/v1/subscribe/resources` snapshot and the
-catalog administration/version/access/monitoring handlers
-([routes/mod.rs](../crates/conductor-server/src/http/routes/mod.rs),
-[resources.rs](../crates/conductor-server/src/http/routes/resources.rs)). Registration and heartbeat are
-implemented in the open cross-repo integration work. Cursor-based changes, plugin artifact upload and
-authorized artifact download remain missing, and the temporary V1 snapshot has no `plugin` kind.
+The current Conductor router exposes registration/heartbeat, governed import/Draft/release/access/version
+lifecycle, HMAC cursor changes, smart fetch, authorized immutable artifacts, inventory, telemetry,
+personal/member/resource/portfolio analytics and saved views. EvoFlux currently consumes the cursor
+contract; migration to atomic smart-fetch generation checkout remains. Document management and a general
+audit API are still absent.
 
 The existing router already separates session-authenticated routes from token-authenticated ones by
 convention rather than by structure. As the `/api/v1/client/*` family is added, that separation should
@@ -896,12 +869,11 @@ Database changes should use versioned migrations rather than only runtime `CREAT
 
 ### Implementation status
 
-The current schema contains the baseline `instance`, user, role, tag, secret, resource and
-`telemetry_events` tables plus the partial `resource_usage_events` and `member_inventory` paths.
-`member_inventory` is superseded by installation-scoped inventory, while the two usage-event paths need
-one correlated fact model and `telemetry_event_resources` attribution before aggregation. Client
-installation/heartbeat, document, normalized aggregate, model-pricing and audit storage remain missing.
-A legacy `user_tags` table is migrated into `tag_assignments` at startup.
+The current schema now includes installation registration/last-seen, project-scoped governed resources,
+Draft/version/channel/Beta/policy/change/inventory records, typed telemetry attribution and analytics
+saved views. Heartbeat is represented on `client_installations` rather than a separate history table.
+Document storage, normalized usage aggregates, server model pricing and a general audit log remain
+missing. A legacy `user_tags` table is migrated into `tag_assignments` at startup.
 
 The migration mechanism is exactly what this section warns against: an array of
 `CREATE TABLE IF NOT EXISTS` statements followed by an array of `ALTER TABLE` statements whose errors are
@@ -909,8 +881,9 @@ The migration mechanism is exactly what this section warns against: an array of
 no `schema_version` table, so the system cannot report which migrations have been applied, and a failed
 migration is indistinguishable from a successful one.
 
-This must be replaced before the remaining project, client, attribution, aggregate and governance tables
-are added, not after.
+This must be replaced before further production schema evolution. Governed-delivery tables have already
+landed on the best-effort mechanism, increasing the need for an explicit baseline/version ledger and
+tested upgrade path rather than making the requirement obsolete.
 
 ### Addition — protect configuration secrets
 
@@ -958,7 +931,7 @@ The V1 integration shall be considered complete when:
 | 11 | Admin can audit which Agent/Skill/Plugin versions a member used, when, their recorded role, request/model/tool outcomes, token usage, model calls and estimated cost, alongside that member's connection tokens | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-8, [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) AC-6, AC-11–AC-16, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-5, AC-6, AC-12–AC-25 |
 | 12 | Revoking a token removes EvoFlux access immediately | [REQ-006](requirement/08-REQ-006-connection-tokens.md) AC-6, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-11 |
 | 13 | Disabling a member blocks both browser session and EvoFlux connection | [REQ-005](requirement/07-REQ-005-member-lifecycle.md) AC-1, AC-2, AC-3 |
-| 14 | A newly released agent, standalone Skill or Portable Agent Plugin receives the correct automatically incremented or validated manual version and is synchronized by EvoFlux at the correct project and Published/Beta version; same-name resources from another project remain isolated, Beta is isolated to selected eligible members and executable plugin components remain disabled until locally trusted | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-4, AC-12, AC-14–AC-38, [REQ-008](requirement/10-REQ-008-resource-access-policy.md) AC-11–AC-14, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-8, AC-9, AC-14–AC-38, [REQ-010](requirement/19-REQ-010-plugin-distribution-safety.md) AC-3, AC-13–AC-16 |
+| 14 | A newly released agent, standalone Skill or Portable Agent Plugin receives the correct automatically incremented or validated manual version and is synchronized by EvoFlux at the correct project and Published/Beta version; same-name resources from another project remain isolated, Beta is isolated to selected eligible members and executable plugin components remain disabled until locally trusted | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-4, AC-12, AC-14–AC-38, [REQ-008](requirement/10-REQ-008-resource-access-policy.md) AC-11–AC-14, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-8, AC-9, AC-14–AC-54, [REQ-010](requirement/19-REQ-010-plugin-distribution-safety.md) AC-3, AC-13–AC-16 |
 | 15 | Source code, prompts, tool arguments and credentials are not uploaded by default | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) AC-9, [REQ-015](requirement/11-REQ-015-privacy-controls.md) AC-3, AC-10 |
 | 16 | Every administrative change appears in the audit log | [REQ-018](requirement/05-REQ-018-audit-logging.md) AC-3 |
 
@@ -970,10 +943,9 @@ Two criteria resolve questions that were previously left open in the requirement
   in [REQ-004](requirement/02-REQ-004-api-authorization.md) and
   [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) for Admin. Whether Contributor also has
   per-member drill-down, or only project totals, is still unstated.
-- Criterion 15 states that prompts are not uploaded by default, which confirms the collection level is
-  not L2. This is consistent with the recommended default of L1 in
-  [REQ-015](requirement/11-REQ-015-privacy-controls.md), since L1 carries an agent-generated session title
-  rather than prompt content.
+- Criterion 15 establishes a minimum acceptance boundary. The reconciled REQ-015/source contract is
+  stricter: prompt, response, reasoning, tool arguments, credentials and source content are excluded at
+  every current L0/L1/L2 level.
 
 ### Criteria that required a sharper acceptance criterion
 
@@ -984,14 +956,13 @@ only indirectly. Acceptance criteria were added so each has something concrete t
 |---|---|---|
 | 7 | The heartbeat endpoint and its idempotency were specified, but no criterion required the client to send on an interval | [REQ-011](requirement/12-REQ-011-client-registration.md) AC-12 |
 | 11 | Tokens and usage were covered separately, but no criterion required one fully attributed member/resource view with filters, charts and request drill-down | [REQ-014](requirement/15-REQ-014-telemetry-ingestion.md) AC-11–AC-16, [REQ-016](requirement/17-REQ-016-usage-aggregation-dashboards.md) AC-12–AC-25 |
-| 14 | Checksums and cursor-based change retrieval were specified, but no criterion required transactional version allocation, project-scoped stable-ID reconciliation, safe cursor commit, ownership-aware diff, project/Beta isolation or convergence on a newly released version | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-33–AC-38, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-14, AC-23–AC-38 |
+| 14 | Checksums and cursor-based change retrieval were specified, but no criterion required transactional version allocation, project-scoped stable-ID reconciliation, safe cursor commit, ownership-aware diff, project/Beta isolation, mode/additive-overlay behavior, explicit update review or smart-fetch generation convergence | [REQ-007](requirement/09-REQ-007-resource-lifecycle.md) AC-33–AC-38, [REQ-012](requirement/13-REQ-012-resource-sync-client.md) AC-14, AC-23–AC-54 |
 
-The current codebase has largely implemented the member, role, tag, project-settings, connection-token
-and Conductor catalog foundations. The open EvoFlux integration implements registration, Agent/Skill
-reconciliation, a legacy configuration path and telemetry foundations. Its current `kind/slug` managed
-state does not distinguish project ownership. Portable Agent Plugin distribution, project-scoped stable artifact
-delivery, inventory synchronization, document management and the remaining dashboard aggregation are the
-main implementation work.
+The current codebase has implemented most of the member/token, governed catalog, registration, cursor
+reconciliation, Plugin trust, inventory, telemetry and analytics product path with stable project/resource
+identity. The main remaining work is foundation hardening (versioned migrations, OIDC secret encryption,
+dashboard authorization and general audit), EvoFlux smart-fetch checkout, aggregate/retention/cost policy,
+document/model policy/i18n features and complete PostgreSQL/frontend/packaged cross-repository proof.
 
 ### Addition — foundation work that must precede the acceptance run
 
@@ -1006,11 +977,13 @@ can be added safely on the current migration mechanism.
 | API-enforced authorization | [REQ-004](requirement/02-REQ-004-api-authorization.md) | Criteria 6 and 13; section 7 states this explicitly |
 | Audit logging | [REQ-018](requirement/05-REQ-018-audit-logging.md) | Criterion 16 |
 
-### Addition — no automated test currently protects any of these criteria
+### Addition — automated coverage is substantial but incomplete
 
-The Rust workspace contains zero tests (`#[test]` and `#[tokio::test]` both return no matches across
-`crates/`), and `apps/web/package.json` declares no test tooling and no lint script. Sixteen acceptance
-criteria that are verified only by hand will not stay verified. See
+The Rust workspace currently passes 94 tests across domain, storage and Axum integration surfaces.
+Conductor web passes typecheck/build but still has no Vitest, Playwright, ESLint or CI workflow, and the
+backend suite lacks the exhaustive route-role inventory, nextest/JUnit/coverage and PostgreSQL matrix.
+Cross-repository behavior has focused suites and a documented fleet simulator, but not one packaged live
+two-application E2E. See
 [REQ-020](requirement/01-REQ-020-automated-testing-ci.md).
 
 ---

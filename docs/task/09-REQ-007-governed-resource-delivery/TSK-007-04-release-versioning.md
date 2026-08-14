@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | ID | TSK-007-04 |
-| Created / updated | 2026-08-11 |
-| Status | Todo |
+| Created / updated | 2026-08-11 / 2026-08-14 |
+| Status | Implemented — general audit and PostgreSQL concurrency proof remain |
 | Layer | BE (Rust) |
 | Requirement | [REQ-007](../../requirement/09-REQ-007-resource-lifecycle.md) |
 | Design | [DES-007 sections 5.1 and 6](../../design/09-DES-007-governed-resource-delivery.md) |
@@ -39,8 +39,15 @@ Plugin manifest synchronization, promotion, rollback-as-new-version and audit be
 - [ ] Audit rows record mode, prior highest, request, allocation and version ID without payloads.
 - [ ] Exact test output is attached before Done.
 
+### Current evidence — 2026-08-14
+
+Strict SemVer domain tests plus lifecycle/storage integration tests pass in the 94-test workspace run.
+Release/deprecate/restore version events exist; the full REQ-018 audit record and concurrent PostgreSQL
+proof do not.
+
 ## History
 
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-11 | Todo | DES-007 approved by project owner |
+| 2026-08-14 | Implemented | Strict SemVer, Auto/Manual allocation, Draft revision conflict, immutable releases and Plugin manifest synchronization landed |

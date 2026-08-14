@@ -4,8 +4,8 @@
 |---|---|
 | ID | TSK-011-04 |
 | Created | 2026-08-10 |
-| Updated | 2026-08-10 |
-| Status | In Review — lifecycle exception; EvoFlux PR #4 |
+| Updated | 2026-08-14 |
+| Status | Implemented — merged; dedicated Playwright evidence remains |
 | Layer | EvoFlux FE |
 | Requirement | [REQ-011](../../requirement/12-REQ-011-client-registration.md) |
 | Design | [DES-011 sections 5, 7 and 8](../../design/12-DES-011-client-registration.md#8-evoflux-changes) |
@@ -81,8 +81,9 @@ bun run test:e2e -- conductor-connection
 
 ```text
 bun run lint       PASS (one unrelated scheduler warning)
-bun run typecheck  PASS
-bun run test       PASS (203 tests across 57 files; 3 Conductor settings component tests)
+bun run typecheck  PASS (verified 2026-08-14)
+bun run test:unit -- ConductorConnectionSettings PASS (5 tests; verified 2026-08-14)
+bun run test       PASS (historical full-suite evidence: 203 tests across 57 files)
 bun run build      PASS
 ```
 
@@ -95,4 +96,5 @@ Not captured for the EvoFlux connection flow. Dedicated Playwright evidence rema
 | Date | Status | Note |
 |---|---|---|
 | 2026-08-10 | Draft planning | Created before design approval at user request |
-| 2026-08-10 | In Review | Connection UI implemented by `57b3f6b8`; EvoFlux PR #4 is open |
+| 2026-08-10 | In Review | Connection UI implemented by `57b3f6b8`; EvoFlux PR #4 was open |
+| 2026-08-14 | Implemented | Current connection/settings UI and component tests remain; dedicated browser screenshots are still missing |

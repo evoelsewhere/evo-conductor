@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-015 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-11 |
-| Status | Draft |
+| Updated | 2026-08-14 |
+| Status | Draft — collection policy and privacy-safe telemetry boundary partially implemented |
 | Priority | P0 |
 | Build order | Step 11 of 23 |
 | Spec section | [requirements.md section 10](../requirements.md) |
@@ -29,34 +29,42 @@ should be preserved as the schema grows.
 
 ## 2. Requirement
 
-Conductor shall define, publish and enforce a project collection level. By default EvoFlux shall not
-upload prompt or response content, source code, terminal output, tool arguments containing project data,
-document content, environment variables, credentials, or local file paths beyond an approved normalized
-identifier.
+Conductor shall define, publish and enforce a project collection level. No supported level uploads prompt
+or response content, reasoning text, source code, terminal output, tool arguments/results, document
+content, environment values, credentials or absolute local paths. Collection levels control whether
+privacy-safe operational metadata is disabled, counted or enriched with managed-resource attribution.
 
 ## 3. The collection level decision
 
-Specification section 10 permits detailed audit content under conditions but does not define the
-intermediate ground. Answering what a member used the system for cannot be done from counters alone, so
-one of three levels must be chosen deliberately rather than drifted into.
+The implementation deliberately does not use a level to authorize work-content capture. The three values
+govern progressively richer content-free telemetry:
 
 | Level | Collected | Answers "used for what" | Cost |
 |---|---|---|---|
-| L0 | Mode, agent or prompt used, tool mix, counts, durations | At the level of work category | Safe, but too vague to act on |
-| L1 | L0 plus agent-generated session title, task name, and repository identifier if enabled | At the level of a concrete task | Titles may carry incidental context |
-| L2 | Full prompt and response content | Completely | Becomes a surveillance system and changes the relationship with the team |
+| L0 | No telemetry upload | No | Strongest privacy boundary; inventory/heartbeat may still operate |
+| L1 | Content-free request/model/tool counters, timing, provider/model, token and sanitized outcome metadata | Operational usage patterns | Default; excludes managed-resource attribution that is not required for basic counters |
+| L2 | L1 plus the richer privacy-safe managed Agent/Skill/Plugin attribution contract | Which governed resource/version contributed | Still excludes prompt/response/reasoning and tool argument/result content |
 
-L1 is recommended as the default. It answers the real operational question, which is what the team is
-using AI for, without turning Conductor into a system that reads people's work.
+L1 is the schema and runtime default. An Admin may select L0/L1/L2 in Project Settings; registration
+returns the active value and the server refuses telemetry when L0 is active.
 
 ## 4. Implementation status
 
 | Implemented | Missing |
 |---|---|
-| `TelemetrySnapshot` carries counters only, with no content ([telemetry.rs](../../crates/conductor-domain/src/telemetry.rs)) | Collection-level configuration and enforcement |
-| | Any client-side redaction |
-| | Member-facing disclosure |
-| | The personal transparency view |
+| Project Settings stores L0/L1/L2, exposes an Admin-only update API/UI and returns the active policy during registration | L1-versus-L2 field-level enforcement is not yet differentiated in the EvoFlux hook; both currently use the same privacy-safe allowlist |
+| L0 blocks server ingestion and stops EvoFlux telemetry flushing | Changing the policy is not audit logged because REQ-018 remains open |
+| EvoFlux uses typed field allowlists/redaction and tests that prompts, responses, reasoning, paths, arguments and results never enter the wire payload | A complete normalized-workspace identifier contract and inventory schema proof |
+| Personal member usage/activity/tool/request views expose the same privacy-safe event fields through self-or-privileged authorization | Automated administrator-versus-self field-set subset proof and an explicit all-member policy disclosure page |
+| Project Settings explains that Conductor never requests work content through this policy | Retention controls under REQ-019 |
+
+### Acceptance progress
+
+| AC | State |
+|---|---|
+| AC-1–AC-3, AC-7, AC-10, AC-11 | Implemented or substantially implemented for the content-free V1 contract |
+| AC-4, AC-8, AC-9 | Partial |
+| AC-5, AC-6 | Not complete |
 
 ## 5. Acceptance criteria
 
@@ -66,7 +74,7 @@ using AI for, without turning Conductor into a system that reads people's work.
 | AC-2 | The active level is returned to EvoFlux at registration, per [REQ-011](12-REQ-011-client-registration.md) AC-5 |
 | AC-3 | EvoFlux enforces the level before transmission; content that the level excludes is never placed on the wire |
 | AC-4 | Local file paths are normalized to an approved identifier; absolute paths are never transmitted |
-| AC-5 | Enabling L2 requires all four conditions from specification section 10: explicit Admin action, visible disclosure to members, a restricted viewer list, and a retention period |
+| AC-5 | L2 remains content-free. Enabling any future work-content collection mode would require a separate accepted requirement with explicit Admin action, visible disclosure, restricted viewers and retention; it cannot be introduced by reinterpreting L2 |
 | AC-6 | Changing the collection level is recorded in the audit log ([REQ-018](05-REQ-018-audit-logging.md)) |
 | AC-7 | A member can view a personal page showing exactly the fields an administrator can see about them, no more and no less |
 | AC-8 | An automated test asserts that the field set visible to an administrator about a member is a subset of the field set visible to that member about themselves |
@@ -93,12 +101,11 @@ using AI for, without turning Conductor into a system that reads people's work.
 
 ## 8. Open questions
 
-- **Narrowed.** Acceptance criterion 15 in [requirements.md section 16](../requirements.md) states that
-  prompts are not uploaded by default, which rules out L2 as the V1 default. The remaining choice is
-  between L0 and L1. L1 is recommended, and it stays consistent with criterion 15 because it carries an
-  agent-generated session title rather than prompt content.
-- Should repository names be transmitted at L1 by default, or only when the project enables it?
-  Recommendation: disabled by default.
+- Should L1 and L2 retain distinct schemas, or should L2 be renamed to make its governed-resource
+  attribution purpose clearer? The current wire value is already deployed, so preserve it until a
+  versioned client-policy contract can migrate safely.
+- Should a normalized workspace identifier be added at L2? Recommendation: only an explicit user label or
+  server-issued opaque ID; never repository name or an absolute/local path by default.
 
 ## History
 
@@ -106,3 +113,4 @@ using AI for, without turning Conductor into a system that reads people's work.
 |---|---|---|
 | 2026-08-09 | Created | |
 | 2026-08-11 | Extended personal transparency to the member/resource usage-audit fields required by REQ-016 | Codex |
+| 2026-08-14 | Replaced the obsolete content-capture interpretation with the implemented L0 off/L1 counters/L2 privacy-safe attribution policy | Codex |

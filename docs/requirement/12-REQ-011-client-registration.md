@@ -4,8 +4,8 @@
 |---|---|
 | ID | REQ-011 |
 | Created | 2026-08-09 |
-| Updated | 2026-08-10 |
-| Status | Accepted (2026-08-10) — implementation in review |
+| Updated | 2026-08-14 |
+| Status | Accepted — implementation merged in both repositories; release verification gaps remain |
 | Priority | P0 |
 | Build order | Step 12 of 23 |
 | Spec section | [requirements.md sections 5 and 14](../requirements.md) |
@@ -13,7 +13,7 @@
 | Depends on | REQ-001, REQ-006 |
 | Blocks | REQ-012, REQ-013, REQ-014, V1 acceptance criteria 3 and 4 |
 | Repositories | `evo-conductor` and `evoflux` |
-| Design | [DES-011](../design/12-DES-011-client-registration.md) — Draft as-built reconciliation; approval is still unrecorded |
+| Design | [DES-011](../design/12-DES-011-client-registration.md) — implemented as-built design; original approval was not recorded |
 
 ## 1. Context
 
@@ -35,25 +35,25 @@ the telemetry and privacy configuration.
 
 ## 3. Implementation status
 
-The project owner accepted this requirement on 2026-08-10. Implementation is open for review in
-[evo-conductor#2](https://github.com/evoelsewhere/evo-conductor/pull/2) and
-[evoflux#4](https://github.com/evoelsewhere/evoflux/pull/4). Acceptance does not imply that DES-011 is
-approved or that the PRs have merged.
+The project owner accepted this requirement on 2026-08-10. The Conductor and EvoFlux implementations
+from the former review branches are now present in their current source histories. DES-011 remains an
+as-built record because its original approval transition was never captured.
 
 | Area | State | Evidence | Remaining verification |
 |---|---|---|---|
-| Installation storage and idempotent registration | Implemented in review | Conductor commits [`cec8571`](https://github.com/evoelsewhere/evo-conductor/commit/cec8571e66ed7b674d0e531a4f1cdfbcd3cca29e) and API contract tests | PostgreSQL migration run |
-| Scoped registration and heartbeat APIs | Implemented in review | `client_registration.rs`: idempotency, invalid input/scope, owner scoping and revocation tests in Conductor PR #2 | Real cross-repo smoke after merge |
-| EvoFlux credential, registration and heartbeat lifecycle | Implemented in review | EvoFlux commit [`4995fac3`](https://github.com/evoelsewhere/evoflux/commit/4995fac33469dd42b94f93636a3364a6e76b8194), keyring adapter and service tests | Packaged desktop/keyring smoke on each supported OS |
-| EvoFlux connection UI and branding | Implemented in review | EvoFlux commit [`57b3f6b8`](https://github.com/evoelsewhere/evoflux/commit/57b3f6b85694e9a792a7d16badfa0b9ae7955fc8) and three component tests | Dedicated Playwright connect/revoke/disconnect flow |
-| Conductor member installations | Implemented in review | Conductor commit [`ac01ad4`](https://github.com/evoelsewhere/evo-conductor/commit/ac01ad4c7329679b4e3364c87765b8c531b25a60) and privacy/authorization API test | Component/e2e proof for two installations in the console |
+| Installation storage and idempotent registration | Implemented | `client_installations`, replay storage and five current Axum contract tests | PostgreSQL migration run |
+| Scoped registration and heartbeat APIs | Implemented | Shared connection-secret extractor; owner/scope/revocation/idempotency tests in `client_registration.rs` | Disposable packaged cross-repo smoke |
+| EvoFlux credential, registration and heartbeat lifecycle | Implemented | OS credential-store adapter, persisted non-secret state and focused service tests | Packaged desktop/keyring and restart smoke on each supported OS |
+| EvoFlux connection UI and branding | Implemented | Current settings connection screen and component tests | Dedicated Playwright connect/revoke/disconnect flow |
+| Conductor member installations | Implemented | Privacy-safe member installation API/panel and authorization test | Component/e2e proof for two installations in the console |
 
 ### Acceptance progress
 
 | AC | State | Note |
 |---|---|---|
-| AC-1–AC-10, AC-12 | Implemented in review | Covered by Rust, pytest or component tests; final cross-repo smoke remains |
+| AC-1–AC-10 | Implemented | Covered by current Rust, pytest or component tests; packaged smoke remains release evidence |
 | AC-11 | Partially verified | Two installations and safe authorization are covered at the API boundary; console two-row e2e remains |
+| AC-12 | Partial | Default/server interval persistence is tested; packaged restart scheduling remains |
 
 ## 4. Acceptance criteria
 
@@ -104,3 +104,4 @@ approved or that the PRs have merged.
 | 2026-08-10 | Linked pre-approval design and task planning requested for implementation preparation | Codex |
 | 2026-08-10 | Reconciled implementation and test evidence from Conductor PR #2 and EvoFlux PR #4 | Codex |
 | 2026-08-10 | Accepted by project owner | Project owner |
+| 2026-08-14 | Replaced stale PR-in-review language with the merged as-built source and retained packaged/PostgreSQL/UI verification gaps | Codex |
