@@ -32,4 +32,37 @@ impl DatabaseKind {
             Self::Mysql => "mysql",
         }
     }
+
+    /// Return the positional bind marker understood by this database.
+    ///
+    /// SQLx's runtime `Any` driver does not rewrite `?` markers for PostgreSQL,
+    /// so queries assembled outside a compile-time database must select the
+    /// native marker explicitly.
+    pub fn bind_parameter(self, position: usize) -> String {
+        assert!(position > 0, "bind positions are one-based");
+        match self {
+            Self::Postgres => format!("${position}"),
+            Self::Sqlite | Self::Mysql => "?".to_string(),
+        }
+    }
+
+    /// Return `count` comma-separated bind markers beginning at position 1.
+    pub fn bind_parameters(self, count: usize) -> String {
+        (1..=count)
+            .map(|position| self.bind_parameter(position))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DatabaseKind;
+
+    #[test]
+    fn bind_parameters_follow_native_dialect_syntax() {
+        assert_eq!(DatabaseKind::Postgres.bind_parameters(3), "$1, $2, $3");
+        assert_eq!(DatabaseKind::Sqlite.bind_parameters(3), "?, ?, ?");
+        assert_eq!(DatabaseKind::Mysql.bind_parameters(3), "?, ?, ?");
+    }
 }

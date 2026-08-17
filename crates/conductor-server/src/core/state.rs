@@ -33,6 +33,31 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(database_url: &str, realtime_config: RealtimeConfig) -> anyhow::Result<Self> {
+        let (db, jwt, realtime_config) = Self::connect(database_url, realtime_config).await?;
+        let storage_settings = db.instance().storage_settings().await?;
+        let artifacts = ArtifactStore::from_settings(storage_settings).await?;
+        Self::finish_initialization(db, jwt, realtime_config, artifacts).await
+    }
+
+    /// Construct state with an already configured artifact store.
+    ///
+    /// This is an integration seam for callers that own the object-store
+    /// lifecycle, including isolated HTTP fixtures. Normal server startup
+    /// should use [`Self::new`] so project storage settings remain authoritative.
+    #[doc(hidden)]
+    pub async fn new_with_artifact_store(
+        database_url: &str,
+        realtime_config: RealtimeConfig,
+        artifacts: ArtifactStore,
+    ) -> anyhow::Result<Self> {
+        let (db, jwt, realtime_config) = Self::connect(database_url, realtime_config).await?;
+        Self::finish_initialization(db, jwt, realtime_config, artifacts).await
+    }
+
+    async fn connect(
+        database_url: &str,
+        realtime_config: RealtimeConfig,
+    ) -> anyhow::Result<(Db, Arc<RwLock<Option<JwtService>>>, RealtimeConfig)> {
         let db = Db::connect(database_url).await?;
         let jwt = Arc::new(RwLock::new(None));
 
@@ -43,8 +68,15 @@ impl AppState {
         // Limits saved via the network settings override the environment config.
         let overrides = db.instance().network_overrides().await?;
         let realtime_config = realtime_config.with_overrides(&overrides);
-        let storage_settings = db.instance().storage_settings().await?;
-        let artifacts = ArtifactStore::from_settings(storage_settings).await?;
+        Ok((db, jwt, realtime_config))
+    }
+
+    async fn finish_initialization(
+        db: Db,
+        jwt: Arc<RwLock<Option<JwtService>>>,
+        realtime_config: RealtimeConfig,
+        artifacts: ArtifactStore,
+    ) -> anyhow::Result<Self> {
         let migrated_payloads = artifacts.externalize_legacy_payloads(&db).await?;
         if migrated_payloads > 0 {
             tracing::info!(

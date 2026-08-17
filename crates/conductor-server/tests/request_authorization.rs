@@ -2,6 +2,7 @@ mod support;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use chrono::{Duration, Utc};
 use conductor_auth::hash_token;
 use conductor_domain::{DecisionReason, PrimaryRole, SecretScope};
 use conductor_server::core::authorization::{
@@ -42,6 +43,38 @@ async fn seed_secret(
         .await
         .expect("seed connection secret")
         .id
+}
+
+async fn assert_invalid_connection_principal_does_not_mark_used(
+    app: &TestApp,
+    raw_token: &str,
+    secret_id: Uuid,
+) {
+    let (status, body) = app
+        .get("/api/v1/subscribe/resources", Some(raw_token))
+        .await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], "unauthorized");
+    assert_eq!(body["code"], 401);
+    assert_eq!(body["error_code"], "unauthorized");
+    let request_id = body["request_id"]
+        .as_str()
+        .expect("invalid-principal response request ID");
+    Uuid::parse_str(request_id).expect("server-generated request ID");
+    assert_eq!(
+        body.as_object().map(serde_json::Map::len),
+        Some(4),
+        "invalid-principal response must expose only the safe error contract"
+    );
+
+    let last_used: Option<String> =
+        sqlx::query_scalar("SELECT last_used_at FROM connection_secrets WHERE id = ?")
+            .bind(secret_id.to_string())
+            .fetch_one(app.state.db.pool())
+            .await
+            .expect("read denied credential last-used metadata");
+    assert!(last_used.is_none());
 }
 
 #[tokio::test]
@@ -133,6 +166,37 @@ async fn wrong_scope_is_forbidden_and_does_not_mark_the_secret_used() {
     assert_eq!(denial.authorization_result, AuthorizationResult::Denied);
     assert_eq!(denial.reason_code, Some(DecisionReason::DenyScope));
     assert_eq!(denial.required_scope, Some(SecretScope::SubscribeResources));
+}
+
+#[tokio::test]
+async fn expired_connection_token_is_unauthorized_and_does_not_mark_the_secret_used() {
+    let app = test_app().await;
+    let member = app.seed_user(PrimaryRole::User).await;
+    let raw = "evc_expired_authorization_boundary_secret";
+    let secret_id = seed_secret(&app, &member, raw, &[SecretScope::SubscribeResources]).await;
+    sqlx::query("UPDATE connection_secrets SET expires_at = ? WHERE id = ?")
+        .bind((Utc::now() - Duration::minutes(1)).to_rfc3339())
+        .bind(secret_id.to_string())
+        .execute(app.state.db.pool())
+        .await
+        .expect("expire connection token without using it");
+
+    assert_invalid_connection_principal_does_not_mark_used(&app, raw, secret_id).await;
+}
+
+#[tokio::test]
+async fn connection_token_with_a_removed_owner_is_unauthorized_and_not_marked_used() {
+    let app = test_app().await;
+    let member = app.seed_user(PrimaryRole::User).await;
+    let raw = "evc_missing_owner_authorization_boundary_secret";
+    let secret_id = seed_secret(&app, &member, raw, &[SecretScope::SubscribeResources]).await;
+    sqlx::query("DELETE FROM users WHERE id = ?")
+        .bind(member.id.to_string())
+        .execute(app.state.db.pool())
+        .await
+        .expect("remove connection-token owner without revoking the token");
+
+    assert_invalid_connection_principal_does_not_mark_used(&app, raw, secret_id).await;
 }
 
 #[tokio::test]

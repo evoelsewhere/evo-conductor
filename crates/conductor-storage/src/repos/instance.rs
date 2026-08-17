@@ -524,7 +524,10 @@ impl InstanceRepo {
         )
         .bind(logo.map(|value| value.key.as_str()))
         .bind(logo.map(|value| value.sha256.as_str()))
-        .bind(logo.map(|value| i64::try_from(value.size).unwrap_or(i64::MAX)))
+        .bind(
+            logo.map(|value| i64::try_from(value.size).unwrap_or(i64::MAX))
+                .unwrap_or(0),
+        )
         .bind(logo.map(|value| value.media_type.as_str()))
         .bind(Utc::now().to_rfc3339())
         .execute(&self.pool)

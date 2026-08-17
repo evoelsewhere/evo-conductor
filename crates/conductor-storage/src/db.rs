@@ -84,7 +84,7 @@ impl Db {
     }
 
     pub fn users(&self) -> UserRepo {
-        UserRepo::new(self.pool.clone())
+        UserRepo::new(self.pool.clone(), self.kind)
     }
 
     pub fn member_access(&self) -> MemberAccessRepo {

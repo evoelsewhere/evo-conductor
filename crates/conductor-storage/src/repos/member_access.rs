@@ -267,10 +267,10 @@ impl MemberAccessRepo {
     ) -> Result<MemberAccessResult, MemberAccessError> {
         lock_project_security_state(&mut *tx, self.kind).await?;
 
-        let actor = load_member_on(&mut *tx, command.actor_id)
+        let actor = load_member_on(&mut *tx, self.kind, command.actor_id)
             .await?
             .ok_or(MemberAccessError::ActorNotFound)?;
-        let target = load_member_on(&mut *tx, command.target_id)
+        let target = load_member_on(&mut *tx, self.kind, command.target_id)
             .await?
             .ok_or(MemberAccessError::TargetNotFound)?;
         let before = target.snapshot();
@@ -291,6 +291,7 @@ impl MemberAccessRepo {
         ensure_active_admin(&actor)?;
         validate_assignment_rows(
             &mut *tx,
+            self.kind,
             command.sub_role_ids.as_deref(),
             command.tag_ids.as_deref(),
         )
@@ -303,30 +304,36 @@ impl MemberAccessRepo {
             .as_deref()
             .unwrap_or(&target.user.display_name);
         let session_increment = i64::from(admin_elevation);
-        let update = sqlx::query(
-            "UPDATE users SET display_name = ?, primary_role = ?, \
-             session_version = session_version + ? WHERE id = ?",
-        )
-        .bind(next_display_name)
-        .bind(next_role.as_str())
-        .bind(session_increment)
-        .bind(command.target_id.to_string())
-        .execute(&mut **tx)
-        .await?;
+        let update_sql = format!(
+            "UPDATE users SET display_name = {}, primary_role = {}, \
+             session_version = session_version + {} WHERE id = {}",
+            self.kind.bind_parameter(1),
+            self.kind.bind_parameter(2),
+            self.kind.bind_parameter(3),
+            self.kind.bind_parameter(4)
+        );
+        let update = sqlx::query(&update_sql)
+            .bind(next_display_name)
+            .bind(next_role.as_str())
+            .bind(session_increment)
+            .bind(command.target_id.to_string())
+            .execute(&mut **tx)
+            .await?;
         if update.rows_affected() != 1 {
             return Err(MemberAccessError::TargetNotFound);
         }
 
         if let Some(sub_role_ids) = command.sub_role_ids.as_deref() {
-            replace_sub_roles_on(&mut *tx, command.target_id, sub_role_ids).await?;
+            replace_sub_roles_on(&mut *tx, self.kind, command.target_id, sub_role_ids).await?;
         }
         if let Some(tag_ids) = command.tag_ids.as_deref() {
-            replace_tags_on(&mut *tx, command.target_id, tag_ids).await?;
+            replace_tags_on(&mut *tx, self.kind, command.target_id, tag_ids).await?;
         }
 
         let revoked_credentials =
-            reconcile_credential_policy_on(&mut *tx, command.target_id, next_role).await?;
-        let after_member = load_member_on(&mut *tx, command.target_id)
+            reconcile_credential_policy_on(&mut *tx, self.kind, command.target_id, next_role)
+                .await?;
+        let after_member = load_member_on(&mut *tx, self.kind, command.target_id)
             .await?
             .ok_or(MemberAccessError::TargetNotFound)?;
         let after = after_member.snapshot();
@@ -356,10 +363,10 @@ impl MemberAccessRepo {
     ) -> Result<MemberAccessResult, MemberAccessError> {
         lock_project_security_state(&mut *tx, self.kind).await?;
 
-        let actor = load_member_on(&mut *tx, command.actor_id)
+        let actor = load_member_on(&mut *tx, self.kind, command.actor_id)
             .await?
             .ok_or(MemberAccessError::ActorNotFound)?;
-        let target = load_member_on(&mut *tx, command.target_id)
+        let target = load_member_on(&mut *tx, self.kind, command.target_id)
             .await?
             .ok_or(MemberAccessError::TargetNotFound)?;
         let before = target.snapshot();
@@ -382,19 +389,22 @@ impl MemberAccessRepo {
         ensure_active_admin(&actor)?;
         let status_changed = target.user.status != command.target_status;
         if status_changed {
-            let update = sqlx::query(
-                "UPDATE users SET status = ?, session_version = session_version + 1 WHERE id = ?",
-            )
-            .bind(command.target_status.as_str())
-            .bind(command.target_id.to_string())
-            .execute(&mut **tx)
-            .await?;
+            let update_sql = format!(
+                "UPDATE users SET status = {}, session_version = session_version + 1 WHERE id = {}",
+                self.kind.bind_parameter(1),
+                self.kind.bind_parameter(2)
+            );
+            let update = sqlx::query(&update_sql)
+                .bind(command.target_status.as_str())
+                .bind(command.target_id.to_string())
+                .execute(&mut **tx)
+                .await?;
             if update.rows_affected() != 1 {
                 return Err(MemberAccessError::TargetNotFound);
             }
         }
 
-        let after_member = load_member_on(&mut *tx, command.target_id)
+        let after_member = load_member_on(&mut *tx, self.kind, command.target_id)
             .await?
             .ok_or(MemberAccessError::TargetNotFound)?;
         let after = after_member.snapshot();
@@ -422,10 +432,10 @@ impl MemberAccessRepo {
         command: &ApproveMemberAccess,
     ) -> Result<MemberAccessResult, MemberAccessError> {
         lock_project_security_state(&mut *tx, self.kind).await?;
-        let actor = load_member_on(&mut *tx, command.actor_id)
+        let actor = load_member_on(&mut *tx, self.kind, command.actor_id)
             .await?
             .ok_or(MemberAccessError::ActorNotFound)?;
-        let target = load_member_on(&mut *tx, command.target_id)
+        let target = load_member_on(&mut *tx, self.kind, command.target_id)
             .await?
             .ok_or(MemberAccessError::TargetNotFound)?;
         ensure_active_admin(&actor)?;
@@ -437,6 +447,7 @@ impl MemberAccessRepo {
         }
         validate_assignment_rows(
             &mut *tx,
+            self.kind,
             command.sub_role_ids.as_deref(),
             command.tag_ids.as_deref(),
         )
@@ -447,29 +458,35 @@ impl MemberAccessRepo {
         let admin_elevation =
             target.user.primary_role != PrimaryRole::Admin && next_role == PrimaryRole::Admin;
         let now = Utc::now().to_rfc3339();
-        let update = sqlx::query(
-            "UPDATE users SET status = 'active', primary_role = ?, approved_at = ?, \
-             approved_by = ?, must_change_password = 0, \
-             session_version = session_version + 1 WHERE id = ?",
-        )
-        .bind(next_role.as_str())
-        .bind(&now)
-        .bind(command.actor_id.to_string())
-        .bind(command.target_id.to_string())
-        .execute(&mut **tx)
-        .await?;
+        let update_sql = format!(
+            "UPDATE users SET status = 'active', primary_role = {}, approved_at = {}, \
+             approved_by = {}, must_change_password = 0, \
+             session_version = session_version + 1 WHERE id = {}",
+            self.kind.bind_parameter(1),
+            self.kind.bind_parameter(2),
+            self.kind.bind_parameter(3),
+            self.kind.bind_parameter(4)
+        );
+        let update = sqlx::query(&update_sql)
+            .bind(next_role.as_str())
+            .bind(&now)
+            .bind(command.actor_id.to_string())
+            .bind(command.target_id.to_string())
+            .execute(&mut **tx)
+            .await?;
         if update.rows_affected() != 1 {
             return Err(MemberAccessError::TargetNotFound);
         }
         if let Some(sub_role_ids) = command.sub_role_ids.as_deref() {
-            replace_sub_roles_on(&mut *tx, command.target_id, sub_role_ids).await?;
+            replace_sub_roles_on(&mut *tx, self.kind, command.target_id, sub_role_ids).await?;
         }
         if let Some(tag_ids) = command.tag_ids.as_deref() {
-            replace_tags_on(&mut *tx, command.target_id, tag_ids).await?;
+            replace_tags_on(&mut *tx, self.kind, command.target_id, tag_ids).await?;
         }
         let revoked_credentials =
-            reconcile_credential_policy_on(&mut *tx, command.target_id, next_role).await?;
-        let after_member = load_member_on(&mut *tx, command.target_id)
+            reconcile_credential_policy_on(&mut *tx, self.kind, command.target_id, next_role)
+                .await?;
+        let after_member = load_member_on(&mut *tx, self.kind, command.target_id)
             .await?
             .ok_or(MemberAccessError::TargetNotFound)?;
         let after = after_member.snapshot();
@@ -571,9 +588,11 @@ async fn lock_project_security_state(
 
 async fn load_member_on(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     id: Uuid,
 ) -> Result<Option<LoadedMember>, MemberAccessError> {
-    let row = sqlx::query(&format!("{USER_SELECT} WHERE id = ?"))
+    let sql = format!("{USER_SELECT} WHERE id = {}", kind.bind_parameter(1));
+    let row = sqlx::query(&sql)
         .bind(id.to_string())
         .fetch_optional(&mut *connection)
         .await?;
@@ -642,8 +661,8 @@ async fn load_member_on(
     }
 
     let mut user = map_user_row(&row).map_err(MemberAccessError::from)?;
-    user.sub_role_ids = sub_role_ids_for_on(&mut *connection, id).await?;
-    user.tag_ids = tag_ids_for_on(&mut *connection, id).await?;
+    user.sub_role_ids = sub_role_ids_for_on(&mut *connection, kind, id).await?;
+    user.tag_ids = tag_ids_for_on(&mut *connection, kind, id).await?;
     Ok(Some(LoadedMember {
         user,
         session_version,
@@ -678,12 +697,17 @@ async fn active_admin_count_on(connection: &mut AnyConnection) -> Result<i64, Me
 
 async fn validate_assignment_rows(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     sub_role_ids: Option<&[String]>,
     tag_ids: Option<&[String]>,
 ) -> Result<(), MemberAccessError> {
     if let Some(sub_role_ids) = sub_role_ids {
         for sub_role_id in sub_role_ids {
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sub_roles WHERE id = ?")
+            let sql = format!(
+                "SELECT COUNT(*) FROM sub_roles WHERE id = {}",
+                kind.bind_parameter(1)
+            );
+            let count: i64 = sqlx::query_scalar(&sql)
                 .bind(sub_role_id)
                 .fetch_one(&mut *connection)
                 .await?;
@@ -694,7 +718,11 @@ async fn validate_assignment_rows(
     }
     if let Some(tag_ids) = tag_ids {
         for tag_id in tag_ids {
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE id = ?")
+            let sql = format!(
+                "SELECT COUNT(*) FROM tags WHERE id = {}",
+                kind.bind_parameter(1)
+            );
+            let count: i64 = sqlx::query_scalar(&sql)
                 .bind(tag_id)
                 .fetch_one(&mut *connection)
                 .await?;
@@ -708,16 +736,19 @@ async fn validate_assignment_rows(
 
 async fn reconcile_credential_policy_on(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     owner_user_id: Uuid,
     next_role: PrimaryRole,
 ) -> Result<Vec<CredentialPolicyEffect>, MemberAccessError> {
-    let rows = sqlx::query(
+    let select_sql = format!(
         "SELECT id, scopes FROM connection_secrets \
-         WHERE owner_user_id = ? AND revoked_at IS NULL ORDER BY created_at ASC",
-    )
-    .bind(owner_user_id.to_string())
-    .fetch_all(&mut *connection)
-    .await?;
+         WHERE owner_user_id = {} AND revoked_at IS NULL ORDER BY created_at ASC",
+        kind.bind_parameter(1)
+    );
+    let rows = sqlx::query(&select_sql)
+        .bind(owner_user_id.to_string())
+        .fetch_all(&mut *connection)
+        .await?;
     let mut effects = Vec::new();
     for row in rows {
         let id: String = row.try_get("id").map_err(|_| {
@@ -767,15 +798,19 @@ async fn reconcile_credential_policy_on(
             .copied()
             .any(|scope| !scope_is_role_compatible(next_role, scope))
         {
-            let update = sqlx::query(
-                "UPDATE connection_secrets SET revoked_at = ? \
-                 WHERE id = ? AND owner_user_id = ? AND revoked_at IS NULL",
-            )
-            .bind(Utc::now().to_rfc3339())
-            .bind(credential_id.to_string())
-            .bind(owner_user_id.to_string())
-            .execute(&mut *connection)
-            .await?;
+            let update_sql = format!(
+                "UPDATE connection_secrets SET revoked_at = {} \
+                 WHERE id = {} AND owner_user_id = {} AND revoked_at IS NULL",
+                kind.bind_parameter(1),
+                kind.bind_parameter(2),
+                kind.bind_parameter(3)
+            );
+            let update = sqlx::query(&update_sql)
+                .bind(Utc::now().to_rfc3339())
+                .bind(credential_id.to_string())
+                .bind(owner_user_id.to_string())
+                .execute(&mut *connection)
+                .await?;
             if update.rows_affected() != 1 {
                 return Err(invalid_credential(
                     Some(credential_id),

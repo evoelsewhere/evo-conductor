@@ -9,6 +9,54 @@ use std::process::Command;
 use support::test_app;
 
 #[tokio::test]
+async fn admin_can_delete_a_project_logo_without_writing_a_null_size() {
+    let app = test_app().await;
+    let (_, admin) = app
+        .state
+        .db
+        .instance()
+        .complete_setup(
+            &SetupRequest {
+                project_name: "delete-logo-test".into(),
+                display_name: Some("Delete logo test".into()),
+                bind_host: "127.0.0.1".into(),
+                bind_port: 4700,
+                public_url: None,
+                admin_email: "delete-logo-admin@example.test".into(),
+                admin_display_name: "Delete Logo Admin".into(),
+                admin_password: "unused".into(),
+                sso: None,
+            },
+            "unused-test-password-hash",
+            "unused-test-jwt-secret",
+            None,
+        )
+        .await
+        .expect("configure project");
+    let token = app.token_for(&admin).await;
+    let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    png.extend_from_slice(b"delete-logo-test");
+    let (status, uploaded) = app
+        .put_bytes("/api/settings/logo", Some(&token), "image/png", png)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{uploaded}");
+
+    let (status, settings) = app
+        .delete("/api/settings/logo", Some(&token), serde_json::json!({}))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{settings}");
+    assert_eq!(settings["logo_url"], serde_json::Value::Null);
+    assert!(app
+        .state
+        .db
+        .instance()
+        .logo_artifact()
+        .await
+        .expect("read logo metadata")
+        .is_none());
+}
+
+#[tokio::test]
 async fn admin_migrates_project_objects_between_local_backends() {
     let app = test_app().await;
     let (_, admin) = app

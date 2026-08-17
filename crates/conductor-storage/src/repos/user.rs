@@ -8,6 +8,7 @@ use crate::core::error::{
     StorageResult,
 };
 use crate::core::mapping::map_user_row;
+use crate::DatabaseKind;
 
 pub(crate) const USER_SELECT: &str = r#"
     SELECT id, email, display_name, password_hash, primary_role, status,
@@ -18,42 +19,57 @@ pub(crate) const USER_SELECT: &str = r#"
 
 pub(crate) async fn sub_role_ids_for_on(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     user_id: Uuid,
 ) -> Result<Vec<String>, sqlx::Error> {
-    let rows = sqlx::query(
-        "SELECT sub_role_id FROM user_sub_roles WHERE user_id = ? ORDER BY sub_role_id ASC",
-    )
-    .bind(user_id.to_string())
-    .fetch_all(connection)
-    .await?;
+    let sql = format!(
+        "SELECT sub_role_id FROM user_sub_roles WHERE user_id = {} ORDER BY sub_role_id ASC",
+        kind.bind_parameter(1)
+    );
+    let rows = sqlx::query(&sql)
+        .bind(user_id.to_string())
+        .fetch_all(connection)
+        .await?;
     Ok(rows.iter().map(|row| row.get("sub_role_id")).collect())
 }
 
 pub(crate) async fn tag_ids_for_on(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     user_id: Uuid,
 ) -> Result<Vec<String>, sqlx::Error> {
-    let rows = sqlx::query(
+    let sql = format!(
         "SELECT tag_id FROM tag_assignments \
-         WHERE entity_type = 'member' AND entity_id = ? ORDER BY tag_id ASC",
-    )
-    .bind(user_id.to_string())
-    .fetch_all(connection)
-    .await?;
+         WHERE entity_type = 'member' AND entity_id = {} ORDER BY tag_id ASC",
+        kind.bind_parameter(1)
+    );
+    let rows = sqlx::query(&sql)
+        .bind(user_id.to_string())
+        .fetch_all(connection)
+        .await?;
     Ok(rows.iter().map(|row| row.get("tag_id")).collect())
 }
 
 pub(crate) async fn replace_sub_roles_on(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     user_id: Uuid,
     sub_role_ids: &[String],
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM user_sub_roles WHERE user_id = ?")
+    let delete_sql = format!(
+        "DELETE FROM user_sub_roles WHERE user_id = {}",
+        kind.bind_parameter(1)
+    );
+    sqlx::query(&delete_sql)
         .bind(user_id.to_string())
         .execute(&mut *connection)
         .await?;
     for sub_role_id in sub_role_ids {
-        sqlx::query("INSERT INTO user_sub_roles (user_id, sub_role_id) VALUES (?, ?)")
+        let insert_sql = format!(
+            "INSERT INTO user_sub_roles (user_id, sub_role_id) VALUES ({})",
+            kind.bind_parameters(2)
+        );
+        sqlx::query(&insert_sql)
             .bind(user_id.to_string())
             .bind(sub_role_id)
             .execute(&mut *connection)
@@ -64,33 +80,44 @@ pub(crate) async fn replace_sub_roles_on(
 
 pub(crate) async fn replace_tags_on(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     user_id: Uuid,
     tag_ids: &[String],
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM tag_assignments WHERE entity_type = 'member' AND entity_id = ?")
+    let delete_sql = format!(
+        "DELETE FROM tag_assignments WHERE entity_type = 'member' AND entity_id = {}",
+        kind.bind_parameter(1)
+    );
+    sqlx::query(&delete_sql)
         .bind(user_id.to_string())
         .execute(&mut *connection)
         .await?;
     let now = Utc::now().to_rfc3339();
     for tag_id in tag_ids {
-        sqlx::query(
+        let insert_sql = format!(
             "INSERT INTO tag_assignments (tag_id, entity_type, entity_id, created_at) \
-             VALUES (?, 'member', ?, ?)",
-        )
-        .bind(tag_id)
-        .bind(user_id.to_string())
-        .bind(&now)
-        .execute(&mut *connection)
-        .await?;
+             VALUES ({}, 'member', {}, {})",
+            kind.bind_parameter(1),
+            kind.bind_parameter(2),
+            kind.bind_parameter(3)
+        );
+        sqlx::query(&insert_sql)
+            .bind(tag_id)
+            .bind(user_id.to_string())
+            .bind(&now)
+            .execute(&mut *connection)
+            .await?;
     }
     Ok(())
 }
 
 pub(crate) async fn find_by_id_on(
     connection: &mut AnyConnection,
+    kind: DatabaseKind,
     id: Uuid,
 ) -> StorageResult<Option<User>> {
-    let row = sqlx::query(&format!("{USER_SELECT} WHERE id = ?"))
+    let sql = format!("{USER_SELECT} WHERE id = {}", kind.bind_parameter(1));
+    let row = sqlx::query(&sql)
         .bind(id.to_string())
         .fetch_optional(&mut *connection)
         .await?;
@@ -99,8 +126,8 @@ pub(crate) async fn find_by_id_on(
         return Ok(None);
     };
     let mut user = map_user_row(&row)?;
-    user.sub_role_ids = sub_role_ids_for_on(&mut *connection, id).await?;
-    user.tag_ids = tag_ids_for_on(&mut *connection, id).await?;
+    user.sub_role_ids = sub_role_ids_for_on(&mut *connection, kind, id).await?;
+    user.tag_ids = tag_ids_for_on(&mut *connection, kind, id).await?;
     Ok(Some(user))
 }
 
@@ -145,11 +172,12 @@ impl From<StorageError> for SsoLoginError {
 #[derive(Clone)]
 pub struct UserRepo {
     pool: Pool<Any>,
+    kind: DatabaseKind,
 }
 
 impl UserRepo {
-    pub fn new(pool: Pool<Any>) -> Self {
-        Self { pool }
+    pub fn new(pool: Pool<Any>, kind: DatabaseKind) -> Self {
+        Self { pool, kind }
     }
 
     async fn attach_junctions(&self, mut user: User) -> StorageResult<User> {
@@ -163,7 +191,7 @@ impl UserRepo {
             return Ok(users);
         }
         let ids: Vec<String> = users.iter().map(|u| u.id.to_string()).collect();
-        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let placeholders = self.kind.bind_parameters(ids.len());
 
         let sub_sql = format!(
             "SELECT user_id, sub_role_id FROM user_sub_roles WHERE user_id IN ({placeholders})"
@@ -208,12 +236,12 @@ impl UserRepo {
 
     pub async fn sub_role_ids_for(&self, user_id: Uuid) -> Result<Vec<String>, sqlx::Error> {
         let mut connection = self.pool.acquire().await?;
-        sub_role_ids_for_on(&mut connection, user_id).await
+        sub_role_ids_for_on(&mut connection, self.kind, user_id).await
     }
 
     pub async fn tag_ids_for(&self, user_id: Uuid) -> Result<Vec<String>, sqlx::Error> {
         let mut connection = self.pool.acquire().await?;
-        tag_ids_for_on(&mut connection, user_id).await
+        tag_ids_for_on(&mut connection, self.kind, user_id).await
     }
 
     pub async fn find_by_email(
@@ -454,9 +482,9 @@ impl UserRepo {
         .execute(&mut *tx)
         .await?;
 
-        replace_sub_roles_on(&mut tx, id, &req.sub_role_ids).await?;
-        replace_tags_on(&mut tx, id, &req.tag_ids).await?;
-        let user = find_by_id_on(&mut tx, id)
+        replace_sub_roles_on(&mut tx, self.kind, id, &req.sub_role_ids).await?;
+        replace_tags_on(&mut tx, self.kind, id, &req.tag_ids).await?;
+        let user = find_by_id_on(&mut tx, self.kind, id)
             .await?
             .ok_or_else(|| StorageError::Database(sqlx::Error::RowNotFound))?;
         tx.commit().await?;
