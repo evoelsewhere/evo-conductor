@@ -36,7 +36,6 @@ import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/component
 import {
   MEMBER_QUERY_KEYS,
   MEMBER_STATUS_TONES,
-  PRIMARY_ROLE,
   PRIMARY_ROLE_OPTIONS,
 } from "@/shared/constants/member"
 import { CONNECTION_SECRET_SCOPES } from "@/shared/constants/secret"
@@ -45,6 +44,11 @@ import {
   TELEMETRY_RECENT_ACTIVITY_LIMIT,
 } from "@/shared/constants/telemetry"
 import { useAuthStore } from "@/shared/stores/auth"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
@@ -57,9 +61,29 @@ import { Select } from "@/shared/ui/select"
 
 export function MemberDetailPage() {
   const { userId } = useParams({ strict: false }) as { userId: string }
-  const actor = useAuthStore((state) => state.user)
-  const canManage = actor?.primary_role === PRIMARY_ROLE.ADMIN
-  const canViewSecrets = canManage || actor?.id === userId
+  const can = useAuthStore((state) => state.can)
+  const canManage = mayRequest(can(PERMISSION.MEMBER_MANAGE, { targetId: userId }))
+  const canViewSecrets = mayRequest(
+    bestAuthorizationDecision([
+      can(PERMISSION.CONNECTION_TOKEN_READ_SELF, {
+        targetId: userId,
+        ownerId: userId,
+      }),
+      can(PERMISSION.CONNECTION_TOKEN_READ_ANY, { targetId: userId }),
+    ]),
+  )
+  const canIssueToken = mayRequest(
+    can(PERMISSION.CONNECTION_TOKEN_ISSUE_SELF, { ownerId: userId }),
+  )
+  const canRevokeToken = mayRequest(
+    bestAuthorizationDecision([
+      can(PERMISSION.CONNECTION_TOKEN_REVOKE_SELF, {
+        targetId: userId,
+        ownerId: userId,
+      }),
+      can(PERMISSION.CONNECTION_TOKEN_REVOKE_ANY, { targetId: userId }),
+    ]),
+  )
   const qc = useQueryClient()
   const dates = useUsageRange()
   const [editOpen, setEditOpen] = useState(false)
@@ -211,7 +235,12 @@ export function MemberDetailPage() {
           </CardContent>
         </Card>
         {canViewSecrets && (
-          <MemberSecretsCard userId={userId} onCreate={() => setTokenOpen(true)} />
+          <MemberSecretsCard
+            userId={userId}
+            canCreate={canIssueToken}
+            canRevoke={canRevokeToken}
+            onCreate={() => setTokenOpen(true)}
+          />
         )}
       </div>
 
@@ -225,14 +254,24 @@ export function MemberDetailPage() {
           }}
         />
       )}
-      {tokenOpen && (
+      {tokenOpen && canIssueToken && (
         <CreateTokenDialog userId={userId} onClose={() => setTokenOpen(false)} />
       )}
     </PageFrame>
   )
 }
 
-function MemberSecretsCard({ userId, onCreate }: { userId: string; onCreate: () => void }) {
+function MemberSecretsCard({
+  userId,
+  canCreate,
+  canRevoke,
+  onCreate,
+}: {
+  userId: string
+  canCreate: boolean
+  canRevoke: boolean
+  onCreate: () => void
+}) {
   const qc = useQueryClient()
   const query = useQuery({ queryKey: MEMBER_QUERY_KEYS.secrets(userId), queryFn: () => api.memberSecrets(userId) })
   const revoke = useMutation({
@@ -244,19 +283,30 @@ function MemberSecretsCard({ userId, onCreate }: { userId: string; onCreate: () 
     <Card>
       <CardHeader>
         <div><CardTitle>Connection tokens</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Tokens this member can use to connect EvoFlux.</p></div>
-        <Button size="sm" variant="outline" onClick={onCreate}><Plus className="size-3.5" />Create</Button>
+        {canCreate && (
+          <Button size="sm" variant="outline" onClick={onCreate}>
+            <Plus className="size-3.5" />Create
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         {query.error && <ErrorState message={query.error.message} />}
         {active.length === 0 ? (
-          <EmptyState icon={KeyRound} title="No active tokens" description="Create a scoped token and share it once with this member." className="border-0 py-7" />
+          <EmptyState
+            icon={KeyRound}
+            title="No active tokens"
+            description={canCreate ? "Create a scoped token for your own EvoFlux client." : "This member has no active connection-token metadata."}
+            className="border-0 py-7"
+          />
         ) : (
           <div className="divide-y divide-(--border-soft)">
             {active.map((secret) => (
               <div key={secret.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{secret.name}</div><code className="text-xs text-(--color-text-subtle)">{secret.prefix}…</code></div>
                 <div className="text-right text-[0.65rem] text-(--color-text-subtle)">{secret.last_used_at ? `Used ${new Date(secret.last_used_at).toLocaleDateString()}` : "Never used"}</div>
-                <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate(secret.id)}>Revoke</Button>
+                {canRevoke && (
+                  <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate(secret.id)}>Revoke</Button>
+                )}
               </div>
             ))}
           </div>

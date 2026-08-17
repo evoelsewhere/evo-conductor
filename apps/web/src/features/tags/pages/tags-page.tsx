@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { api, type Tag } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
 import { Card, CardHeader, CardList, CardTitle } from "@/shared/ui/card"
@@ -14,9 +15,8 @@ import { Label } from "@/shared/ui/label"
 import { SkeletonRows } from "@/shared/ui/skeleton"
 
 export function TagsPage() {
-  const user = useAuthStore((s) => s.user)
-  const canManage =
-    user?.primary_role === "admin" || user?.primary_role === "contribute"
+  const can = useAuthStore((state) => state.can)
+  const canManage = mayRequest(can(PERMISSION.TAXONOMY_DEFINITION_MANAGE))
   const qc = useQueryClient()
   const { data = [], isLoading, error } = useQuery({
     queryKey: ["tags"],
@@ -47,6 +47,11 @@ export function TagsPage() {
         ) : undefined
       }
     >
+      {!canManage && (
+        <p className="mb-4 rounded-lg border border-(--border-soft) bg-(--bg-key) px-3 py-2 text-sm text-(--color-text-muted)">
+          This shared taxonomy is read-only. You can select existing tags when managing an owned resource.
+        </p>
+      )}
       {error && (
         <ErrorState
           className="mb-4"

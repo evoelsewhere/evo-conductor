@@ -478,8 +478,116 @@ export interface AuthSession {
   expires_at: string
 }
 
+export const AUTHORIZATION_PERMISSION_KEYS = [
+  "authorization.grants.read_self",
+  "session.self.read",
+  "session.password.change",
+  "project.branding.read",
+  "project.dashboard.read",
+  "project.settings.read",
+  "project.settings.manage",
+  "member.directory.read",
+  "member.manage",
+  "member.private.read_self",
+  "member.private.read_any",
+  "telemetry.project.read",
+  "telemetry.member.read_self",
+  "telemetry.member.read_any",
+  "taxonomy.read",
+  "taxonomy.definition.manage",
+  "member.tag_assignment.manage",
+  "resource.consume",
+  "resource.author",
+  "resource.access.manage",
+  "resource.lifecycle.manage",
+  "resource.release.non_executable",
+  "resource.release.restricted",
+  "resource.monitoring.aggregate.read",
+  "resource.monitoring.member_detail.read",
+  "resource.feedback.submit",
+  "resource.feedback.read",
+  "analytics_view.read",
+  "analytics_view.manage_self",
+  "analytics_view.manage_any",
+  "connection_token.issue_self",
+  "connection_token.read_self",
+  "connection_token.revoke_self",
+  "connection_token.read_any",
+  "connection_token.revoke_any",
+  "audit.read",
+  "audit.export",
+] as const
+
+export type PermissionKey = (typeof AUTHORIZATION_PERMISSION_KEYS)[number]
+export type AuthorizationLifecycle =
+  | "draft"
+  | "beta"
+  | "published"
+  | "archived"
+  | "deprecated"
+export type AuthorizationResponseProjection =
+  | "full"
+  | "directory_safe"
+  | "aggregate_only"
+
+export type AuthorizationConstraint =
+  | { kind: "any" }
+  | { kind: "self" }
+  | { kind: "owner" }
+  | { kind: "effective_audience" }
+  | { kind: "same_project" }
+  | { kind: "resource_kind_in"; values: ResourceKind[] }
+  | { kind: "lifecycle_in"; values: AuthorizationLifecycle[] }
+  | { kind: "all_of"; items: AuthorizationConstraint[] }
+  | { kind: "any_of"; items: AuthorizationConstraint[] }
+
+export interface PermissionGrant {
+  permission: PermissionKey
+  constraints: AuthorizationConstraint
+  response_projection?: AuthorizationResponseProjection
+}
+
+export interface FixedRolePolicy {
+  role: PrimaryRole
+  grants: PermissionGrant[]
+}
+
+export interface PermissionMetadata {
+  key: PermissionKey
+}
+
+export interface ConditionMetadata {
+  kind:
+    | "any"
+    | "self"
+    | "owner"
+    | "resource_kind_in"
+    | "lifecycle_in"
+    | "same_project"
+    | "effective_audience"
+  evaluation: "ui_target_context" | "server_only"
+}
+
+export interface AuthorizationProjection {
+  schema_version: 1
+  policy_revision: string
+  current_role: PrimaryRole
+  current_grants: PermissionGrant[]
+  fixed_roles: FixedRolePolicy[]
+  permission_metadata: PermissionMetadata[]
+  condition_metadata: ConditionMetadata[]
+}
+
+export interface DirectoryMember {
+  id: string
+  display_name: string
+  primary_role: PrimaryRole
+}
+
+export type MemberListItem = User | DirectoryMember
+
 export interface MemberListResponse {
-  items: User[]
+  items: MemberListItem[]
   total: number
   page: number
   limit: number
@@ -885,6 +993,237 @@ export interface ResourceFeedback {
   updated_at: string
 }
 
+const PRIMARY_ROLES = new Set<string>(["admin", "contribute", "user"])
+const RESOURCE_KINDS = new Set<string>([
+  "agent",
+  "skill",
+  "plugin",
+  "workflow",
+  "command",
+])
+const AUTHORIZATION_LIFECYCLES = new Set<string>([
+  "draft",
+  "beta",
+  "published",
+  "archived",
+  "deprecated",
+])
+const RESPONSE_PROJECTIONS = new Set<string>([
+  "full",
+  "directory_safe",
+  "aggregate_only",
+])
+const PERMISSION_KEYS = new Set<string>(AUTHORIZATION_PERMISSION_KEYS)
+const CONDITION_EVALUATION = {
+  any: "ui_target_context",
+  self: "ui_target_context",
+  owner: "ui_target_context",
+  resource_kind_in: "ui_target_context",
+  lifecycle_in: "ui_target_context",
+  same_project: "server_only",
+  effective_audience: "server_only",
+} as const
+
+function authorizationSchemaError(detail: string): Error {
+  return new Error(`Authorization policy could not be loaded: ${detail}.`)
+}
+
+function objectValue(value: unknown, detail: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw authorizationSchemaError(detail)
+  }
+  return value as Record<string, unknown>
+}
+
+function stringValue(value: unknown, detail: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw authorizationSchemaError(detail)
+  }
+  return value
+}
+
+function enumValue<T extends string>(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+  detail: string,
+): T {
+  const parsed = stringValue(value, detail)
+  if (!allowed.has(parsed)) throw authorizationSchemaError(detail)
+  return parsed as T
+}
+
+function uniqueEnumArray<T extends string>(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+  detail: string,
+): T[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw authorizationSchemaError(detail)
+  }
+  const parsed = value.map((item) => enumValue<T>(item, allowed, detail))
+  if (new Set(parsed).size !== parsed.length) throw authorizationSchemaError(detail)
+  return parsed
+}
+
+function parseConstraint(value: unknown): AuthorizationConstraint {
+  const record = objectValue(value, "invalid permission constraint")
+  const kind = stringValue(record.kind, "invalid permission constraint kind")
+  switch (kind) {
+    case "any":
+    case "self":
+    case "owner":
+    case "effective_audience":
+    case "same_project":
+      return { kind }
+    case "resource_kind_in":
+      return {
+        kind,
+        values: uniqueEnumArray<ResourceKind>(
+          record.values,
+          RESOURCE_KINDS,
+          "invalid resource kind constraint",
+        ),
+      }
+    case "lifecycle_in":
+      return {
+        kind,
+        values: uniqueEnumArray<AuthorizationLifecycle>(
+          record.values,
+          AUTHORIZATION_LIFECYCLES,
+          "invalid lifecycle constraint",
+        ),
+      }
+    case "all_of":
+    case "any_of": {
+      if (!Array.isArray(record.items) || record.items.length === 0) {
+        throw authorizationSchemaError(`empty ${kind} constraint`)
+      }
+      return { kind, items: record.items.map(parseConstraint) }
+    }
+    default:
+      throw authorizationSchemaError("unknown permission constraint")
+  }
+}
+
+function parseGrant(value: unknown): PermissionGrant {
+  const record = objectValue(value, "invalid permission grant")
+  const permission = enumValue<PermissionKey>(
+    record.permission,
+    PERMISSION_KEYS,
+    "unknown permission",
+  )
+  const responseProjection = record.response_projection === undefined
+    ? undefined
+    : enumValue<AuthorizationResponseProjection>(
+        record.response_projection,
+        RESPONSE_PROJECTIONS,
+        "invalid response projection",
+      )
+  return {
+    permission,
+    constraints: parseConstraint(record.constraints),
+    ...(responseProjection ? { response_projection: responseProjection } : {}),
+  }
+}
+
+function parseGrantArray(value: unknown, detail: string): PermissionGrant[] {
+  if (!Array.isArray(value)) throw authorizationSchemaError(detail)
+  const grants = value.map(parseGrant)
+  if (new Set(grants.map((grant) => grant.permission)).size !== grants.length) {
+    throw authorizationSchemaError("duplicate permission grant")
+  }
+  return grants
+}
+
+export function parseAuthorizationProjection(value: unknown): AuthorizationProjection {
+  const record = objectValue(value, "invalid response")
+  if (record.schema_version !== 1) {
+    throw authorizationSchemaError("unsupported schema version")
+  }
+  const currentRole = enumValue<PrimaryRole>(
+    record.current_role,
+    PRIMARY_ROLES,
+    "invalid current role",
+  )
+  const currentGrants = parseGrantArray(record.current_grants, "invalid current grants")
+
+  if (!Array.isArray(record.fixed_roles) || record.fixed_roles.length !== 3) {
+    throw authorizationSchemaError("incomplete fixed role metadata")
+  }
+  const fixedRoles = record.fixed_roles.map((item): FixedRolePolicy => {
+    const role = objectValue(item, "invalid fixed role")
+    return {
+      role: enumValue<PrimaryRole>(role.role, PRIMARY_ROLES, "invalid fixed role"),
+      grants: parseGrantArray(role.grants, "invalid fixed role grants"),
+    }
+  })
+  if (new Set(fixedRoles.map((item) => item.role)).size !== PRIMARY_ROLES.size) {
+    throw authorizationSchemaError("duplicate fixed role metadata")
+  }
+
+  if (!Array.isArray(record.permission_metadata)) {
+    throw authorizationSchemaError("invalid permission metadata")
+  }
+  const permissionMetadata = record.permission_metadata.map((item): PermissionMetadata => {
+    const metadata = objectValue(item, "invalid permission metadata")
+    return {
+      key: enumValue<PermissionKey>(metadata.key, PERMISSION_KEYS, "unknown permission metadata"),
+    }
+  })
+  if (
+    permissionMetadata.length !== AUTHORIZATION_PERMISSION_KEYS.length ||
+    new Set(permissionMetadata.map((item) => item.key)).size !== PERMISSION_KEYS.size
+  ) {
+    throw authorizationSchemaError("incomplete permission metadata")
+  }
+
+  if (!Array.isArray(record.condition_metadata)) {
+    throw authorizationSchemaError("invalid condition metadata")
+  }
+  const conditionMetadata = record.condition_metadata.map((item): ConditionMetadata => {
+    const metadata = objectValue(item, "invalid condition metadata")
+    const kind = stringValue(metadata.kind, "invalid condition kind")
+    if (!(kind in CONDITION_EVALUATION)) {
+      throw authorizationSchemaError("unknown condition metadata")
+    }
+    const typedKind = kind as keyof typeof CONDITION_EVALUATION
+    const evaluation = CONDITION_EVALUATION[typedKind]
+    if (metadata.evaluation !== evaluation) {
+      throw authorizationSchemaError("invalid condition evaluation")
+    }
+    return { kind: typedKind, evaluation }
+  })
+  if (
+    conditionMetadata.length !== Object.keys(CONDITION_EVALUATION).length ||
+    new Set(conditionMetadata.map((item) => item.kind)).size !== conditionMetadata.length
+  ) {
+    throw authorizationSchemaError("incomplete condition metadata")
+  }
+
+  return {
+    schema_version: 1,
+    policy_revision: stringValue(record.policy_revision, "invalid policy revision"),
+    current_role: currentRole,
+    current_grants: currentGrants,
+    fixed_roles: fixedRoles,
+    permission_metadata: permissionMetadata,
+    condition_metadata: conditionMetadata,
+  }
+}
+
+interface AuthorizationFailureHandler {
+  onUnauthorized: () => void
+  refreshAfterForbidden: () => Promise<void>
+}
+
+let authorizationFailureHandler: AuthorizationFailureHandler | null = null
+
+export function configureAuthorizationFailureHandler(
+  handler: AuthorizationFailureHandler,
+) {
+  authorizationFailureHandler = handler
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authSession.getToken()
   const headers = new Headers(init?.headers)
@@ -896,19 +1235,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, { ...init, headers })
   if (!res.ok) {
     let message = res.statusText
+    let errorCode: string | null = null
+    let requestId = res.headers.get("X-Request-ID")
     try {
-      const body = (await res.json()) as { error?: string }
-      if (body.error) message = body.error
+      const body = objectValue(await res.json(), "invalid error response")
+      if (typeof body.error === "string") message = body.error
+      if (typeof body.error_code === "string") errorCode = body.error_code
+      if (typeof body.request_id === "string") requestId = body.request_id
     } catch {
       /* ignore */
     }
     if (res.status === 401 && path !== "/auth/login") {
       authSession.clear()
+      authorizationFailureHandler?.onUnauthorized()
       if (window.location.pathname !== "/login") {
         window.location.assign("/login?reason=session_expired")
       }
     }
-    throw new ApiError(message, res.status)
+    if (res.status === 403 && path !== "/authorization/me") {
+      try {
+        await authorizationFailureHandler?.refreshAfterForbidden()
+      } catch {
+        // Preserve the original denial; the store exposes any projection refresh failure.
+      }
+    }
+    throw new ApiError(message, res.status, errorCode, requestId)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -916,11 +1267,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export class ApiError extends Error {
   readonly status: number
+  readonly errorCode: string | null
+  readonly requestId: string | null
 
-  constructor(message: string, status: number) {
-    super(message)
+  constructor(
+    message: string,
+    status: number,
+    errorCode: string | null = null,
+    requestId: string | null = null,
+  ) {
+    super(requestId ? `${message} \u00b7 Request ${requestId}` : message)
     this.name = "ApiError"
     this.status = status
+    this.errorCode = errorCode
+    this.requestId = requestId
   }
 }
 
@@ -945,6 +1305,8 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => request<User>("/auth/me"),
+  authorizationMe: async () =>
+    parseAuthorizationProjection(await request<unknown>("/authorization/me")),
   changePassword: (body: { current_password?: string; new_password: string }) =>
     request<AuthSession>("/auth/change-password", {
       method: "POST",

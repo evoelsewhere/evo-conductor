@@ -1,14 +1,13 @@
 use axum::{
     extract::{Path, Query, State},
-    http::HeaderMap,
-    Json,
+    Extension, Json,
 };
 use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
-    ConductorError, MemberActivityResponse, MemberRequestDetail, MemberToolsSummary,
-    MemberUsageSummary, PrimaryRole, ResourceKind, ResourceUsageAnalytics, SecretScope,
-    TelemetryBatchRequest, TelemetryBatchResponse, TelemetryEventRequest, TelemetryEventStatus,
-    TelemetryEventType, TelemetryResourceRelation,
+    AuthorizationTarget, ConductorError, MemberActivityResponse, MemberRequestDetail,
+    MemberToolsSummary, MemberUsageSummary, PrimaryRole, ResourceKind, ResourceUsageAnalytics,
+    ResponseProjection, TargetType, TelemetryBatchRequest, TelemetryBatchResponse,
+    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType, TelemetryResourceRelation,
 };
 use conductor_storage::repos::ResourceUsageQuery;
 use serde::Deserialize;
@@ -21,7 +20,11 @@ use crate::core::constants::telemetry::{
 };
 use crate::core::error::ApiResult;
 use crate::core::state::AppState;
-use crate::http::extractors::{authenticate_connection_secret, AuthUser};
+use crate::http::authorization::{
+    authorize_current_browser_target, authorize_current_browser_target_with_aggregate_fact,
+    authorize_current_connection_target, RouteAuthorization,
+};
+use crate::http::extractors::{AuthUser, ConnectionPrincipal};
 
 #[derive(Debug, Deserialize)]
 pub struct RangeQuery {
@@ -58,11 +61,10 @@ pub struct ResourceAnalyticsQuery {
 
 pub async fn ingest(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     Json(request): Json<TelemetryBatchRequest>,
 ) -> ApiResult<Json<TelemetryBatchResponse>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::ReportTelemetry).await?;
     if request.events.len() < MIN_BATCH_SIZE || request.events.len() > MAX_BATCH_SIZE {
         return Err(ConductorError::msg(format!(
             "events must contain {MIN_BATCH_SIZE}–{MAX_BATCH_SIZE} items"
@@ -74,7 +76,6 @@ pub async fn ingest(
         .client_installations()
         .find_by_id(request.installation_id)
         .await?
-        .filter(|item| item.user_id == principal.user.id)
         .ok_or_else(|| ConductorError::NotFound("client installation".into()))?;
     let instance = state
         .db
@@ -82,6 +83,27 @@ pub async fn ingest(
         .get()
         .await?
         .ok_or(ConductorError::SetupRequired)?;
+    if let Err(error) = authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(installation.instance_id),
+            target_type: TargetType::ClientInstallation,
+            target_id: Some(installation.id),
+            owner_id: Some(installation.user_id),
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: None,
+        },
+    )
+    .await
+    {
+        if installation.user_id != principal.user.id || installation.instance_id != instance.id {
+            return Err(ConductorError::NotFound("client installation".into()).into());
+        }
+        return Err(error);
+    }
     if installation.instance_id != instance.id {
         return Err(ConductorError::NotFound("client installation".into()).into());
     }
@@ -175,11 +197,12 @@ pub async fn ingest(
 
 pub async fn usage_summary(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(user_id): Path<Uuid>,
     Query(query): Query<RangeQuery>,
 ) -> ApiResult<Json<MemberUsageSummary>> {
-    ensure_member_access(&state, &actor, user_id).await?;
+    ensure_member_access(&state, &route, &actor, user_id).await?;
     let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
     Ok(Json(
         state
@@ -192,11 +215,12 @@ pub async fn usage_summary(
 
 pub async fn activity(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(user_id): Path<Uuid>,
     Query(query): Query<ActivityQuery>,
 ) -> ApiResult<Json<MemberActivityResponse>> {
-    ensure_member_access(&state, &actor, user_id).await?;
+    ensure_member_access(&state, &route, &actor, user_id).await?;
     let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
     Ok(Json(
         state
@@ -218,10 +242,11 @@ pub async fn activity(
 
 pub async fn request_detail(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path((user_id, request_id)): Path<(Uuid, String)>,
 ) -> ApiResult<Json<MemberRequestDetail>> {
-    ensure_member_access(&state, &actor, user_id).await?;
+    ensure_member_access(&state, &route, &actor, user_id).await?;
     if request_id.is_empty() || request_id.len() > MAX_LABEL_LENGTH {
         return Err(ConductorError::NotFound("request".into()).into());
     }
@@ -237,11 +262,12 @@ pub async fn request_detail(
 
 pub async fn tools_summary(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(user_id): Path<Uuid>,
     Query(query): Query<RangeQuery>,
 ) -> ApiResult<Json<MemberToolsSummary>> {
-    ensure_member_access(&state, &actor, user_id).await?;
+    ensure_member_access(&state, &route, &actor, user_id).await?;
     let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
     Ok(Json(
         state
@@ -254,12 +280,33 @@ pub async fn tools_summary(
 
 pub async fn resource_usage(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Query(query): Query<ResourceAnalyticsQuery>,
 ) -> ApiResult<Json<ResourceUsageAnalytics>> {
-    if !actor.primary_role.can_view_telemetry() {
-        return Err(ConductorError::Forbidden.into());
-    }
+    let instance = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?;
+    let identifying_filter = query.member_id.is_some() || query.installation_id.is_some();
+    let decision = authorize_current_browser_target_with_aggregate_fact(
+        &state,
+        &route,
+        &actor,
+        AuthorizationTarget {
+            project_id: Some(instance.id),
+            target_type: TargetType::Project,
+            target_id: query.member_id.or(query.installation_id),
+            owner_id: None,
+            resource_kind: query.resource_kind,
+            lifecycle: None,
+            effective_audience: None,
+        },
+        !identifying_filter,
+    )
+    .await?;
     for (name, value) in [
         ("provider", query.provider.as_deref()),
         ("model", query.model.as_deref()),
@@ -272,56 +319,75 @@ pub async fn resource_usage(
             .into());
         }
     }
-    let instance = state
-        .db
-        .instance()
-        .get()
-        .await?
-        .ok_or(ConductorError::SetupRequired)?;
     let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
-    Ok(Json(
-        state
-            .db
-            .resource_usage()
-            .analytics(&ResourceUsageQuery {
-                project_id: instance.id,
-                from,
-                to,
-                user_id: query.member_id,
-                primary_role: query.primary_role,
-                resource_kind: query.resource_kind,
-                resource_id: query.resource_id,
-                version_id: query.version_id,
-                status: query.status,
-                provider: query.provider,
-                model: query.model,
-                installation_id: query.installation_id,
-                relation: query.relation,
-                tool_name: query.tool_name,
-                limit: query
-                    .limit
-                    .unwrap_or(DEFAULT_ACTIVITY_LIMIT)
-                    .clamp(MIN_ACTIVITY_LIMIT, MAX_ACTIVITY_LIMIT),
-                offset: query.offset.unwrap_or(0),
-            })
-            .await?,
-    ))
+    let mut analytics = state
+        .db
+        .resource_usage()
+        .analytics(&ResourceUsageQuery {
+            project_id: instance.id,
+            from,
+            to,
+            user_id: query.member_id,
+            primary_role: query.primary_role,
+            resource_kind: query.resource_kind,
+            resource_id: query.resource_id,
+            version_id: query.version_id,
+            status: query.status,
+            provider: query.provider,
+            model: query.model,
+            installation_id: query.installation_id,
+            relation: query.relation,
+            tool_name: query.tool_name,
+            limit: query
+                .limit
+                .unwrap_or(DEFAULT_ACTIVITY_LIMIT)
+                .clamp(MIN_ACTIVITY_LIMIT, MAX_ACTIVITY_LIMIT),
+            offset: query.offset.unwrap_or(0),
+        })
+        .await?;
+    if decision.response_projection == Some(ResponseProjection::AggregateOnly) {
+        // These are the only panels in this DTO containing member or request
+        // identity. Contributors receive the remaining project aggregates.
+        analytics.members.clear();
+        analytics.activity.clear();
+        analytics.activity_total = 0;
+    }
+    Ok(Json(analytics))
 }
 
 async fn ensure_member_access(
     state: &AppState,
+    route: &RouteAuthorization,
     actor: &conductor_domain::User,
     user_id: Uuid,
 ) -> ApiResult<()> {
-    if actor.id != user_id && !actor.primary_role.can_view_telemetry() {
-        return Err(ConductorError::Forbidden.into());
-    }
-    state
+    let member = state
         .db
         .users()
         .find_by_id(user_id)
         .await?
         .ok_or_else(|| ConductorError::NotFound("member".into()))?;
+    let project_id = state
+        .db
+        .instance()
+        .authorization_project_id()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?;
+    authorize_current_browser_target(
+        state,
+        route,
+        actor,
+        AuthorizationTarget {
+            project_id: Some(project_id),
+            target_type: TargetType::Member,
+            target_id: Some(member.id),
+            owner_id: Some(member.id),
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: None,
+        },
+    )
+    .await?;
     Ok(())
 }
 

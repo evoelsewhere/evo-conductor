@@ -14,4 +14,14 @@ mod db;
 mod migrate;
 
 pub use core::dialect::DatabaseKind;
+pub use core::error::{
+    InvalidPersistedCredential, InvalidPersistedPrincipal, InvalidPersistedResource,
+    PersistedCredentialField, PersistedPrincipalField, PersistedResourceField,
+    PersistedSecurityReason, StorageError, StorageResult,
+};
 pub use db::Db;
+pub use repos::{
+    ApproveMemberAccess, ChangeMemberStatus, CredentialPolicyEffect, MemberAccessChange,
+    MemberAccessError, MemberAccessResult, MemberSecuritySnapshot, MemberStatusReason,
+    UpdateAccessProfile,
+};

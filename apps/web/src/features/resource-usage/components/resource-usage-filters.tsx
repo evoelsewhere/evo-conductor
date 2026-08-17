@@ -4,8 +4,8 @@ import { useState } from "react"
 import type {
   ClientInstallationSummary,
   ManagedResource,
+  MemberListItem,
   ResourceVersion,
-  User,
 } from "@/shared/api/client"
 import type { ResourceKind } from "@/shared/constants/resource"
 import {
@@ -54,14 +54,16 @@ export function ResourceUsageFilters({
   resources,
   versions,
   lockedKind,
+  allowMemberDetail,
   onChange,
 }: {
   value: ResourceUsageFilterState
-  members: User[]
+  members: MemberListItem[]
   installations: ClientInstallationSummary[]
   resources: ManagedResource[]
   versions: ResourceVersion[]
   lockedKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
+  allowMemberDetail: boolean
   onChange: (value: ResourceUsageFilterState) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -90,22 +92,24 @@ export function ResourceUsageFilters({
   return (
     <div className="rounded-xl border border-(--border-card) bg-(--bg-card)">
       <div className="flex flex-col gap-2 p-3 lg:flex-row lg:items-center">
-        <Select
-          value={value.memberId}
-          onValueChange={(next) =>
-            onChange({
-              ...value,
-              memberId: next,
-              installationId: RESOURCE_USAGE_ALL_FILTER,
-            })
-          }
-          options={[
-            { value: RESOURCE_USAGE_ALL_FILTER, label: "All members" },
-            ...members.map((member) => ({ value: member.id, label: member.display_name })),
-          ]}
-          aria-label="Filter by member"
-          className="lg:w-48"
-        />
+        {allowMemberDetail && (
+          <Select
+            value={value.memberId}
+            onValueChange={(next) =>
+              onChange({
+                ...value,
+                memberId: next,
+                installationId: RESOURCE_USAGE_ALL_FILTER,
+              })
+            }
+            options={[
+              { value: RESOURCE_USAGE_ALL_FILTER, label: "All members" },
+              ...members.map((member) => ({ value: member.id, label: member.display_name })),
+            ]}
+            aria-label="Filter by member"
+            className="lg:w-48"
+          />
+        )}
         {!lockedKind && (
           <Select
             value={value.resourceKind}
@@ -173,19 +177,21 @@ export function ResourceUsageFilters({
             </Button>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <Select
-              value={value.installationId}
-              onValueChange={(next) => set("installationId", next)}
-              options={[
-                { value: RESOURCE_USAGE_ALL_FILTER, label: "All installations" },
-                ...installations.map((installation) => ({
-                  value: installation.id,
-                  label: `${installation.display_name} · ${installation.platform}`,
-                })),
-              ]}
-              disabled={value.memberId === RESOURCE_USAGE_ALL_FILTER}
-              aria-label="Filter by EvoFlux installation"
-            />
+            {allowMemberDetail && (
+              <Select
+                value={value.installationId}
+                onValueChange={(next) => set("installationId", next)}
+                options={[
+                  { value: RESOURCE_USAGE_ALL_FILTER, label: "All installations" },
+                  ...installations.map((installation) => ({
+                    value: installation.id,
+                    label: `${installation.display_name} · ${installation.platform}`,
+                  })),
+                ]}
+                disabled={value.memberId === RESOURCE_USAGE_ALL_FILTER}
+                aria-label="Filter by EvoFlux installation"
+              />
+            )}
             <Select value={value.primaryRole} onValueChange={(next) => set("primaryRole", next)} options={[...RESOURCE_USAGE_ROLE_OPTIONS]} aria-label="Filter by role" />
             <Select
               value={value.versionId}

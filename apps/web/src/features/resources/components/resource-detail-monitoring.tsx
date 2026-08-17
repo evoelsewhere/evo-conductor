@@ -41,7 +41,13 @@ const MONITORING_TABS: Array<{ value: ResourceMonitoringTab; label: string }> = 
   { value: RESOURCE_MONITORING_TAB.USAGE, label: "Usage" },
 ]
 
-export function ResourceDetailMonitoring({ resource }: { resource: ManagedResource }) {
+export function ResourceDetailMonitoring({
+  resource,
+  showMemberDetail,
+}: {
+  resource: ManagedResource
+  showMemberDetail: boolean
+}) {
   const dates = useUsageRange()
   const [tab, setTab] = useState<ResourceMonitoringTab>(RESOURCE_MONITORING_TAB.OVERVIEW)
   const usage = useQuery({
@@ -67,7 +73,14 @@ export function ResourceDetailMonitoring({ resource }: { resource: ManagedResour
         <DateRangeFilter preset={dates.preset} onPresetChange={dates.setPreset} customFrom={dates.customFrom} onCustomFromChange={dates.setCustomFrom} customTo={dates.customTo} onCustomToChange={dates.setCustomTo} />
       </div>
       <div className="mb-4 flex gap-1 overflow-x-auto border-b border-(--border-soft)">
-        {MONITORING_TABS.map((item) => (
+        {MONITORING_TABS
+          .filter(
+            (item) =>
+              showMemberDetail ||
+              (item.value !== RESOURCE_MONITORING_TAB.INSTALLATIONS &&
+                item.value !== RESOURCE_MONITORING_TAB.ACTIVITY),
+          )
+          .map((item) => (
           <button
             key={item.value}
             type="button"
@@ -82,9 +95,9 @@ export function ResourceDetailMonitoring({ resource }: { resource: ManagedResour
         <ErrorState message={(usage.error ?? inventory.error)?.message ?? "Resource monitoring could not be loaded."} />
       )}
       {tab === RESOURCE_MONITORING_TAB.OVERVIEW && <MonitoringOverview usage={usage.data} inventory={inventory.data} loading={usage.isLoading || inventory.isLoading} />}
-      {tab === RESOURCE_MONITORING_TAB.INSTALLATIONS && <InstallationsPanel data={inventory.data} loading={inventory.isLoading} />}
-      {tab === RESOURCE_MONITORING_TAB.ACTIVITY && <ActivityPanel data={usage.data} loading={usage.isLoading} />}
-      {tab === RESOURCE_MONITORING_TAB.USAGE && <UsagePanel resource={resource} data={usage.data} loading={usage.isLoading} dates={dates} />}
+      {showMemberDetail && tab === RESOURCE_MONITORING_TAB.INSTALLATIONS && <InstallationsPanel data={inventory.data} loading={inventory.isLoading} />}
+      {showMemberDetail && tab === RESOURCE_MONITORING_TAB.ACTIVITY && <ActivityPanel data={usage.data} loading={usage.isLoading} />}
+      {tab === RESOURCE_MONITORING_TAB.USAGE && <UsagePanel resource={resource} data={usage.data} loading={usage.isLoading} dates={dates} showMemberDetail={showMemberDetail} />}
     </div>
   )
 }
@@ -103,7 +116,7 @@ function MonitoringOverview({ usage, inventory, loading }: { usage?: ResourceUsa
           <MonitoringMetric label="Pending" value={inventoryTotals?.pending_installations ?? 0} hint={`${inventoryTotals?.attention_installations ?? 0} need attention`} icon={Gauge} />
           <MonitoringMetric label="Requests" value={totals?.requests ?? 0} hint={`${totals?.resource_uses ?? 0} attributed uses`} icon={Activity} />
           <MonitoringMetric label="Success" value={`${successRate}%`} hint={`${totals?.errors ?? 0} errors`} icon={Gauge} />
-          <MonitoringMetric label="Members" value={usage?.members.length ?? 0} hint="active in range" icon={Users} />
+          <MonitoringMetric label="Installed members" value={totals?.installed_members ?? 0} hint="aggregate only" icon={Users} />
           <MonitoringMetric label="Model calls" value={totals?.model_calls ?? 0} hint={`${usage?.models.length ?? 0} models`} icon={Bot} />
           <MonitoringMetric label="Tool calls" value={totals?.tool_calls ?? 0} hint={`${usage?.tools.length ?? 0} tools`} icon={Wrench} />
           <MonitoringMetric label="Est. cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} />
@@ -181,11 +194,13 @@ function UsagePanel({
   data,
   loading,
   dates,
+  showMemberDetail,
 }: {
   resource: ManagedResource
   data?: ResourceUsageAnalytics
   loading: boolean
   dates: ReturnType<typeof useUsageRange>
+  showMemberDetail: boolean
 }) {
   const query: AnalyticsQuery = {
     date_range: monitoringDateRange(dates.preset),
@@ -204,8 +219,11 @@ function UsagePanel({
         scope={{ resourceKind: resource.kind, resourceId: resource.id }}
         query={query}
         onApplyQuery={(saved) => applyMonitoringDateRange(saved, dates)}
+        allowMemberDetail={showMemberDetail}
       />
-      <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and estimated cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
+      {showMemberDetail && (
+        <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and estimated cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
+      )}
       <Breakdown title="Calls by role" description="Requests, model calls and tool calls by the role captured at ingest time.">{data?.roles.length ? <ResourceRoleBreakdownTable items={data.roles} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Tool calls" description="Which tools this resource drives most, including outcome, average duration and last use.">{data?.tools.length ? <ResourceToolBreakdownTable items={data.tools} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Provider and model calls" description="Model volume, total tokens, estimated cost and pricing coverage.">{data?.models.length ? <ResourceModelBreakdownTable items={data.models} /> : <UsageEmpty />}</Breakdown>

@@ -3,10 +3,14 @@ import { Link, useRouterState } from "@tanstack/react-router"
 import { RESOURCE_KIND_USAGE_PATHS } from "@/shared/constants/resource-monitoring"
 import { RESOURCE_USAGE_PATHS, RESOURCE_USAGE_VIEW } from "@/shared/constants/resource-usage"
 import type { ResourceKind } from "@/shared/constants/resource"
+import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { cn } from "@/shared/lib/utils"
+import { useAuthStore } from "@/shared/stores/auth"
 
 export function ResourceUsageNav({ kind }: { kind?: Extract<ResourceKind, "plugin" | "skill" | "agent"> }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const can = useAuthStore((state) => state.can)
+  const showIdentifyingActivity = mayRequest(can(PERMISSION.TELEMETRY_MEMBER_READ_ANY))
   const paths = kind ? RESOURCE_KIND_USAGE_PATHS[kind] : RESOURCE_USAGE_PATHS
   const items = [
     {
@@ -23,7 +27,12 @@ export function ResourceUsageNav({ kind }: { kind?: Extract<ResourceKind, "plugi
       className="mb-5 flex gap-1 overflow-x-auto border-b border-(--border-soft)"
       aria-label="Resource usage analytics"
     >
-      {items.map((item) => {
+      {items
+        .filter(
+          (item) =>
+            item.view !== RESOURCE_USAGE_VIEW.ACTIVITY || showIdentifyingActivity,
+        )
+        .map((item) => {
         const active =
           item.view === RESOURCE_USAGE_VIEW.OVERVIEW
             ? pathname === item.to

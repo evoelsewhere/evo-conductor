@@ -5,20 +5,22 @@ use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
-use axum::Json;
+use axum::{Extension, Json};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use conductor_domain::{
-    ConductorError, CreateDraftFileRequest, CreateResourceRequest, DeleteDraftEntryRequest,
-    DraftFile, DraftFileTree, EffectiveResourceVersion, ManagedResource, MoveDraftEntryRequest,
-    PrimaryRole, ReleaseResourceRequest, ReleaseResourceResult, ResourceBundleKind, ResourceChange,
-    ResourceChangePage, ResourceFetchCommit, ResourceFetchEntry, ResourceFetchObject,
-    ResourceFetchRequest, ResourceFetchResponse, ResourceFetchTombstone, ResourceInventoryRequest,
-    ResourceInventoryResponse, ResourceKind, ResourceTargetMode, ResourceValidation,
-    ResourceVisibility, SaveDraftFileRequest, SecretScope, SemanticVersion, VersionMode,
+    AuthorizationTarget, ConductorError, CreateDraftFileRequest, CreateResourceRequest,
+    DeleteDraftEntryRequest, DraftFile, DraftFileTree, EffectiveResourceVersion, LifecycleState,
+    ManagedResource, MoveDraftEntryRequest, ReleaseResourceRequest, ReleaseResourceResult,
+    ResourceBundleKind, ResourceChange, ResourceChangePage, ResourceFetchCommit,
+    ResourceFetchEntry, ResourceFetchObject, ResourceFetchRequest, ResourceFetchResponse,
+    ResourceFetchTombstone, ResourceInventoryRequest, ResourceInventoryResponse, ResourceKind,
+    ResourceStatus, ResourceTargetMode, ResourceValidation, ResourceVisibility,
+    SaveDraftFileRequest, SemanticVersion, TargetType, VersionMode,
 };
 use conductor_storage::repos::{
-    DraftArtifact, DraftContent, DraftWriteError, ReleaseContent, ReleaseResourceError,
+    DraftArtifact, DraftContent, DraftWriteError, InventoryWriteError, ReleaseContent,
+    ReleaseResourceError,
 };
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -32,7 +34,10 @@ use crate::core::resource_authoring::{
     MAX_EDITABLE_FILE_BYTES,
 };
 use crate::core::state::AppState;
-use crate::http::extractors::{authenticate_connection_secret, AuthUser};
+use crate::http::authorization::{
+    authorize_current_browser_target, authorize_current_connection_target, RouteAuthorization,
+};
+use crate::http::extractors::{AuthUser, ConnectionPrincipal};
 
 const CHANGE_SCHEMA_VERSION: u8 = 2;
 const FETCH_SCHEMA_VERSION: u8 = 1;
@@ -56,11 +61,13 @@ pub struct ResourceGuide {
 }
 
 pub async fn guide(
+    State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(kind): Path<String>,
 ) -> ApiResult<Json<ResourceGuide>> {
-    require_author(actor.primary_role)?;
     let kind = parse_kind(&kind)?;
+    authorize_authoring_target(&state, &route, &actor, kind).await?;
     let (title, summary, required_entries) = match kind {
         ResourceKind::Agent => (
             "EvoFlux Agent",
@@ -95,11 +102,13 @@ pub async fn guide(
 }
 
 pub async fn template(
+    State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(kind): Path<String>,
 ) -> ApiResult<Json<DraftFileTree>> {
-    require_author(actor.primary_role)?;
     let kind = parse_kind(&kind)?;
+    authorize_authoring_target(&state, &route, &actor, kind).await?;
     Ok(Json(DraftFileTree {
         resource_id: Uuid::nil(),
         revision: 0,
@@ -109,21 +118,23 @@ pub async fn template(
 
 pub async fn draft_tree(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<DraftFileTree>> {
-    authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    authorize_resource(&state, &route, &actor, resource_id).await?;
     let tree = current_draft(&state, resource_id).await?;
     Ok(Json(tree))
 }
 
 pub async fn save_draft_file(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path((resource_id, path)): Path<(Uuid, String)>,
     Json(request): Json<SaveDraftFileRequest>,
 ) -> ApiResult<Json<DraftFileTree>> {
-    authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    authorize_resource(&state, &route, &actor, resource_id).await?;
     if !safe_relative_path(&path) {
         return Err(ConductorError::msg("unsafe draft path").into());
     }
@@ -132,7 +143,10 @@ pub async fn save_draft_file(
     }
     let mut tree = current_draft(&state, resource_id).await?;
     if tree.revision != request.draft_revision {
-        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+        return Err(ApiError::conflict(
+            "draft_revision_conflict",
+            "draft revision conflict",
+        ));
     }
     if let Some(file) = tree.files.iter_mut().find(|file| file.path == path) {
         file.content = request.content;
@@ -147,11 +161,12 @@ pub async fn save_draft_file(
 
 pub async fn create_draft_file(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Json(mut request): Json<CreateDraftFileRequest>,
 ) -> ApiResult<Json<DraftFileTree>> {
-    authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    authorize_resource(&state, &route, &actor, resource_id).await?;
     request.path = request.path.trim().trim_matches('/').to_string();
     validate_editable_path(&request.path)?;
     if request.content.len() > MAX_EDITABLE_FILE_BYTES {
@@ -159,7 +174,10 @@ pub async fn create_draft_file(
     }
     let tree = current_draft(&state, resource_id).await?;
     if tree.revision != request.draft_revision {
-        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+        return Err(ApiError::conflict(
+            "draft_revision_conflict",
+            "draft revision conflict",
+        ));
     }
     if tree.files.len() >= crate::core::resource_authoring::MAX_DRAFT_FILES {
         return Err(ConductorError::msg("draft file limit reached").into());
@@ -169,7 +187,10 @@ pub async fn create_draft_file(
         .iter()
         .any(|file| paths_overlap(&file.path, &request.path))
     {
-        return Err(ConductorError::Conflict("draft_path_already_exists".into()).into());
+        return Err(ApiError::conflict(
+            "draft_path_already_exists",
+            "draft path already exists",
+        ));
     }
     replace_draft_files(
         &state,
@@ -188,11 +209,12 @@ pub async fn create_draft_file(
 
 pub async fn move_draft_entry(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Json(mut request): Json<MoveDraftEntryRequest>,
 ) -> ApiResult<Json<DraftFileTree>> {
-    let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    let resource = authorize_resource(&state, &route, &actor, resource_id).await?;
     request.path = request.path.trim().trim_matches('/').to_string();
     request.destination_path = request
         .destination_path
@@ -213,7 +235,10 @@ pub async fn move_draft_entry(
     protect_required_entry(&resource, &request.path)?;
     let tree = current_draft(&state, resource_id).await?;
     if tree.revision != request.draft_revision {
-        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+        return Err(ApiError::conflict(
+            "draft_revision_conflict",
+            "draft revision conflict",
+        ));
     }
     let source_prefix = format!("{}/", request.path);
     let destination_prefix = format!("{}/", request.destination_path);
@@ -242,17 +267,21 @@ pub async fn move_draft_entry(
 
 pub async fn delete_draft_entry(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Json(mut request): Json<DeleteDraftEntryRequest>,
 ) -> ApiResult<Json<DraftFileTree>> {
-    let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    let resource = authorize_resource(&state, &route, &actor, resource_id).await?;
     request.path = request.path.trim().trim_matches('/').to_string();
     validate_editable_path(&request.path)?;
     protect_required_entry(&resource, &request.path)?;
     let tree = current_draft(&state, resource_id).await?;
     if tree.revision != request.draft_revision {
-        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+        return Err(ApiError::conflict(
+            "draft_revision_conflict",
+            "draft revision conflict",
+        ));
     }
     let source_prefix = format!("{}/", request.path);
     let previous_count = tree.files.len();
@@ -287,7 +316,7 @@ async fn replace_draft_files(
     let resource = state
         .db
         .resources()
-        .find_by_id(resource_id)
+        .find_by_id_for_authorization(resource_id)
         .await?
         .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
     let artifact =
@@ -298,10 +327,12 @@ async fn replace_draft_files(
         resource.kind,
         &resource.slug,
         &resource.version,
-        &artifact.key,
-        &artifact.sha256,
-        artifact.size,
-        resource_archive_media_type(resource.kind),
+        crate::core::resource_authoring::ResourceStorageArtifact {
+            key: &artifact.key,
+            sha256: &artifact.sha256,
+            size: artifact.size,
+            media_type: resource_archive_media_type(resource.kind),
+        },
         &files,
     );
     let draft = DraftContent {
@@ -322,9 +353,10 @@ async fn replace_draft_files(
             files,
         })),
         Err(DraftWriteError::NotFound) => Err(ConductorError::NotFound("resource".into()).into()),
-        Err(DraftWriteError::Conflict) => {
-            Err(ConductorError::Conflict("draft_revision_conflict".into()).into())
-        }
+        Err(DraftWriteError::Conflict) => Err(ApiError::conflict(
+            "draft_revision_conflict",
+            "draft revision conflict",
+        )),
         Err(DraftWriteError::Database(error)) => Err(ApiError::from(error)),
     }
 }
@@ -388,7 +420,10 @@ fn ensure_unique_draft_paths(files: &[DraftFile]) -> ApiResult<()> {
                 .any(|other| paths_overlap(path, other))
         })
     {
-        return Err(ConductorError::Conflict("draft_path_already_exists".into()).into());
+        return Err(ApiError::conflict(
+            "draft_path_already_exists",
+            "draft path already exists",
+        ));
     }
     Ok(())
 }
@@ -474,12 +509,14 @@ pub struct ResourceArchiveCreateResponse {
 }
 
 pub async fn inspect_resource_archive(
+    State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(kind): Path<String>,
     body: Bytes,
 ) -> ApiResult<Json<ResourceArchiveInspection>> {
-    require_author(actor.primary_role)?;
     let kind = parse_import_kind(&kind)?;
+    authorize_authoring_target(&state, &route, &actor, kind).await?;
     let files = extract_resource_archive(body).await?;
     Ok(Json(inspect_resource_files(kind, &files, None)))
 }
@@ -511,13 +548,14 @@ fn parse_archive_modes(value: Option<&str>) -> ApiResult<Vec<ResourceTargetMode>
 
 pub async fn create_resource_archive(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(kind): Path<String>,
     Query(query): Query<CreateResourceArchiveQuery>,
     body: Bytes,
 ) -> ApiResult<Json<ResourceArchiveCreateResponse>> {
-    require_author(actor.primary_role)?;
     let kind = parse_import_kind(&kind)?;
+    authorize_authoring_target(&state, &route, &actor, kind).await?;
     let mut files = extract_resource_archive(body).await?;
     set_target_modes(&mut files, &parse_archive_modes(query.modes.as_deref())?);
     let inspection = inspect_resource_files(kind, &files, Some(query.slug.trim()));
@@ -550,21 +588,24 @@ pub async fn create_resource_archive(
 }
 
 pub async fn inspect_plugin_archive(
+    State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     body: Bytes,
 ) -> ApiResult<Json<PluginArchiveInspection>> {
-    require_author(actor.primary_role)?;
+    authorize_authoring_target(&state, &route, &actor, ResourceKind::Plugin).await?;
     let files = extract_plugin_archive(body).await?;
     Ok(Json(inspect_plugin_files(&files)))
 }
 
 pub async fn create_plugin_archive(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Query(query): Query<CreatePluginArchiveQuery>,
     body: Bytes,
 ) -> ApiResult<Json<PluginArchiveCreateResponse>> {
-    require_author(actor.primary_role)?;
+    authorize_authoring_target(&state, &route, &actor, ResourceKind::Plugin).await?;
     let files = extract_plugin_archive(body).await?;
     let inspection = inspect_plugin_files(&files);
     if !inspection.validation.valid {
@@ -694,12 +735,13 @@ fn manifest_string(
 
 pub async fn import_archive(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Query(query): Query<ImportQuery>,
     body: Bytes,
 ) -> ApiResult<Json<DraftImportResponse>> {
-    let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    let resource = authorize_resource(&state, &route, &actor, resource_id).await?;
     let files = tokio::task::spawn_blocking(move || import_zip(body.to_vec()))
         .await
         .map_err(|_| ConductorError::Internal)?
@@ -713,10 +755,11 @@ pub async fn import_archive(
 
 pub async fn validate(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<ResourceValidation>> {
-    let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    let resource = authorize_resource(&state, &route, &actor, resource_id).await?;
     let tree = current_draft(&state, resource_id).await?;
     Ok(Json(validate_draft(
         resource.kind,
@@ -728,11 +771,12 @@ pub async fn validate(
 
 pub async fn release(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Json(mut request): Json<ReleaseResourceRequest>,
 ) -> ApiResult<Json<ReleaseResourceResult>> {
-    let resource = authorize_resource(&state, actor.id, actor.primary_role, resource_id).await?;
+    let resource = authorize_resource(&state, &route, &actor, resource_id).await?;
     request.beta_member_ids.sort();
     request.beta_member_ids.dedup();
     if (request.channel == conductor_domain::ReleaseChannel::Beta
@@ -757,7 +801,10 @@ pub async fn release(
     }
     let tree = current_draft(&state, resource_id).await?;
     if tree.revision != request.draft_revision {
-        return Err(ConductorError::Conflict("draft_revision_conflict".into()).into());
+        return Err(ApiError::conflict(
+            "draft_revision_conflict",
+            "draft revision conflict",
+        ));
     }
     let candidate = release_candidate(resource.highest_version.as_deref(), &request)?;
     let release_files = if resource.kind == ResourceKind::Plugin {
@@ -802,10 +849,12 @@ pub async fn release(
         resource.kind,
         &resource.slug,
         &candidate,
-        &artifact.key,
-        &artifact.sha256,
-        artifact.size,
-        artifact_media_type,
+        crate::core::resource_authoring::ResourceStorageArtifact {
+            key: &artifact.key,
+            sha256: &artifact.sha256,
+            size: artifact.size,
+            media_type: artifact_media_type,
+        },
         &release_files,
     );
     let content = ReleaseContent {
@@ -826,9 +875,10 @@ pub async fn release(
         Err(ReleaseResourceError::NotFound) => {
             Err(ConductorError::NotFound("resource".into()).into())
         }
-        Err(ReleaseResourceError::Conflict) => {
-            Err(ConductorError::Conflict("version_conflict".into()).into())
-        }
+        Err(ReleaseResourceError::Conflict) => Err(ApiError::conflict(
+            "version_conflict",
+            "resource version conflict",
+        )),
         Err(ReleaseResourceError::InvalidVersion) => Err(ConductorError::msg(
             "manual version must be valid and greater than the current head",
         )
@@ -845,17 +895,26 @@ pub struct ChangeQuery {
 
 pub async fn changes(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     Query(query): Query<ChangeQuery>,
 ) -> ApiResult<Json<ResourceChangePage>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
-    let project_id = state
-        .db
-        .instance()
-        .project_id()
-        .await?
-        .ok_or_else(|| ConductorError::NotFound("project".into()))?;
+    let project_id = project_id(&state).await?;
+    authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(project_id),
+            target_type: TargetType::Resource,
+            target_id: None,
+            owner_id: None,
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: Some(true),
+        },
+    )
+    .await?;
     let after = decode_cursor(
         &state,
         query.cursor.as_deref(),
@@ -880,7 +939,7 @@ pub async fn changes(
     let has_more = rows.len() > limit as usize;
     let page_rows = rows.into_iter().take(limit as usize).collect::<Vec<_>>();
     let mut changes = Vec::with_capacity(page_rows.len());
-    for (_, resource_id) in &page_rows {
+    for (_, resource_id, effective_user_id) in &page_rows {
         if let Some(version) = state
             .db
             .resources()
@@ -888,34 +947,42 @@ pub async fn changes(
             .await?
         {
             changes.push(to_change(version));
-        } else if let Some(resource) = state.db.resources().find_by_id(*resource_id).await? {
-            changes.push(ResourceChange {
-                project_id,
-                resource_id: resource.id,
-                version_id: None,
-                kind: resource.kind,
-                slug: resource.slug,
-                version: None,
-                description: resource.description,
-                changelog: None,
-                version_history: Vec::new(),
-                release_channel: None,
-                sha256: None,
-                size: 0,
-                bundle_schema_version: None,
-                artifact_sha256: None,
-                tree_sha256: None,
-                artifact_media_type: None,
-                file_count: None,
-                minimum_evoflux_version: None,
-                trust_required: false,
-                tombstone: true,
-            });
+        } else if *effective_user_id == Some(principal.user.id) {
+            if let Some(resource) = state
+                .db
+                .resources()
+                .find_by_id_for_authorization(*resource_id)
+                .await?
+                .filter(|resource| resource.project_id == project_id)
+            {
+                changes.push(ResourceChange {
+                    project_id,
+                    resource_id: resource.id,
+                    version_id: None,
+                    kind: resource.kind,
+                    slug: resource.slug,
+                    version: None,
+                    description: resource.description,
+                    changelog: None,
+                    version_history: Vec::new(),
+                    release_channel: None,
+                    sha256: None,
+                    size: 0,
+                    bundle_schema_version: None,
+                    artifact_sha256: None,
+                    tree_sha256: None,
+                    artifact_media_type: None,
+                    file_count: None,
+                    minimum_evoflux_version: None,
+                    trust_required: false,
+                    tombstone: true,
+                });
+            }
         }
     }
     let next_sequence = page_rows
         .last()
-        .map(|(sequence, _)| *sequence)
+        .map(|(sequence, _, _)| *sequence)
         .unwrap_or(after);
     Ok(Json(ResourceChangePage {
         schema_version: CHANGE_SCHEMA_VERSION,
@@ -928,22 +995,28 @@ pub async fn changes(
 
 pub async fn version_payload(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     Path((resource_id, version_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<EffectiveResourceVersion>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
     let mut version = state
         .db
         .resources()
         .effective_version(resource_id, principal.user.id)
         .await?
         .filter(|version| version.version_id == version_id)
-        .ok_or(ConductorError::Forbidden)?;
+        .ok_or_else(|| ConductorError::NotFound("resource version".into()))?;
+    let resource = state
+        .db
+        .resources()
+        .find_by_id_for_authorization(resource_id)
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
+    authorize_effective_version_target(&state, &route, &principal, &resource).await?;
     let key = version
         .artifact_key
         .as_deref()
-        .ok_or(ConductorError::Forbidden)?;
+        .ok_or_else(|| ConductorError::NotFound("resource artifact".into()))?;
     let bytes = state
         .artifacts
         .read(key)
@@ -965,25 +1038,34 @@ pub async fn version_payload(
 /// artifact objects the client does not already have.
 pub async fn fetch(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     Json(request): Json<ResourceFetchRequest>,
 ) -> ApiResult<Json<ResourceFetchResponse>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
-    let project_id = state
-        .db
-        .instance()
-        .project_id()
-        .await?
-        .ok_or_else(|| ConductorError::NotFound("project".into()))?;
-    if !state
+    let project_id = project_id(&state).await?;
+    let installation = state
         .db
         .client_installations()
-        .belongs_to(request.installation_id, project_id, principal.user.id)
+        .find_by_id(request.installation_id)
         .await?
-    {
-        return Err(ConductorError::Forbidden.into());
-    }
+        .ok_or_else(|| ConductorError::NotFound("client installation".into()))?;
+    authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(installation.instance_id),
+            target_type: TargetType::Resource,
+            target_id: Some(installation.id),
+            owner_id: Some(installation.user_id),
+            resource_kind: None,
+            lifecycle: None,
+            // `list_effective_versions` below is the authoritative filtered
+            // audience resolver for the smart-fetch collection.
+            effective_audience: Some(true),
+        },
+    )
+    .await?;
     if request.have.len() > MAX_FETCH_HAVE {
         return Err(ConductorError::msg("resource fetch is limited to 5000 have entries").into());
     }
@@ -1032,10 +1114,10 @@ pub async fn fetch(
         }
     }
     let Some((versions, sequence)) = stable else {
-        return Err(ConductorError::Conflict(
-            "resource head changed while planning fetch; retry".into(),
-        )
-        .into());
+        return Err(ApiError::conflict(
+            "resource_head_changed",
+            "resource head changed while planning fetch; retry",
+        ));
     };
 
     let mut current = Vec::new();
@@ -1044,19 +1126,24 @@ pub async fn fetch(
             continue;
         };
         let bundle = version.bundle.ok_or_else(|| {
-            ConductorError::Conflict(format!(
-                "resource {}/{} has no portable bundle artifact",
-                kind.as_str(),
-                version.slug
-            ))
+            ApiError::conflict(
+                "bundle_artifact_missing",
+                format!(
+                    "resource {}/{} has no portable bundle artifact",
+                    kind.as_str(),
+                    version.slug
+                ),
+            )
         })?;
         if bundle.artifact_sha256 != version.sha256 || bundle.artifact_size != version.size {
-            return Err(ConductorError::Conflict(format!(
-                "resource {}/{} bundle metadata does not match its immutable version",
-                kind.as_str(),
-                version.slug
-            ))
-            .into());
+            return Err(ApiError::conflict(
+                "bundle_metadata_mismatch",
+                format!(
+                    "resource {}/{} bundle metadata does not match its immutable version",
+                    kind.as_str(),
+                    version.slug
+                ),
+            ));
         }
         current.push(ResourceFetchEntry {
             resource_id: version.resource_id,
@@ -1141,18 +1228,25 @@ pub async fn fetch(
 
 pub async fn artifact(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     headers: HeaderMap,
     Path((resource_id, version_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Response> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
     let version = state
         .db
         .resources()
         .effective_version(resource_id, principal.user.id)
         .await?
         .filter(|version| version.version_id == version_id)
-        .ok_or(ConductorError::Forbidden)?;
+        .ok_or_else(|| ConductorError::NotFound("resource version".into()))?;
+    let resource = state
+        .db
+        .resources()
+        .find_by_id_for_authorization(resource_id)
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
+    authorize_effective_version_target(&state, &route, &principal, &resource).await?;
     let etag = format!("\"sha256:{}\"", version.sha256);
     if headers
         .get(header::IF_NONE_MATCH)
@@ -1171,7 +1265,9 @@ pub async fn artifact(
         );
         return Ok(response);
     }
-    let key = version.artifact_key.ok_or(ConductorError::Forbidden)?;
+    let key = version
+        .artifact_key
+        .ok_or_else(|| ConductorError::NotFound("resource artifact".into()))?;
     let bytes = state
         .artifacts
         .read(&key)
@@ -1243,28 +1339,20 @@ fn fetch_commit_id(tree_sha256: &str) -> String {
 
 pub async fn inventory(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     Json(request): Json<ResourceInventoryRequest>,
 ) -> ApiResult<Json<ResourceInventoryResponse>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SyncInventory).await?;
     if request.items.len() > 500 {
         return Err(ConductorError::msg("inventory batch is limited to 500 items").into());
     }
-    let project_id = state
-        .db
-        .instance()
-        .project_id()
-        .await?
-        .ok_or_else(|| ConductorError::NotFound("project".into()))?;
-    if !state
+    let project_id = project_id(&state).await?;
+    let installation = state
         .db
         .client_installations()
-        .belongs_to(request.installation_id, project_id, principal.user.id)
+        .find_by_id(request.installation_id)
         .await?
-    {
-        return Err(ConductorError::Forbidden.into());
-    }
+        .ok_or_else(|| ConductorError::NotFound("client installation".into()))?;
     let known = state
         .db
         .resources()
@@ -1275,42 +1363,133 @@ pub async fn inventory(
         .iter()
         .map(|item| item.resource_id)
         .collect::<HashSet<_>>();
-    if !requested.is_subset(&known) {
-        return Err(ConductorError::Forbidden.into());
-    }
+    let all_items_visible = requested.is_subset(&known);
+    authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(installation.instance_id),
+            target_type: TargetType::ClientInstallation,
+            target_id: Some(installation.id),
+            owner_id: Some(installation.user_id),
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: Some(all_items_visible),
+        },
+    )
+    .await?;
     let accepted = state
         .db
         .resources()
         .upsert_inventory(project_id, &request)
-        .await?;
+        .await
+        .map_err(|error| match error {
+            InventoryWriteError::Invalid(message) => ConductorError::msg(message).into(),
+            InventoryWriteError::Database(error) => ApiError::from(error),
+        })?;
     Ok(Json(ResourceInventoryResponse { accepted }))
 }
 
 async fn authorize_resource(
     state: &AppState,
-    actor_id: Uuid,
-    role: PrimaryRole,
+    route: &RouteAuthorization,
+    actor: &conductor_domain::User,
     resource_id: Uuid,
 ) -> ApiResult<conductor_domain::ManagedResource> {
-    require_author(role)?;
     let resource = state
         .db
         .resources()
-        .find_by_id(resource_id)
+        .find_by_id_for_authorization(resource_id)
         .await?
         .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
-    if role != PrimaryRole::Admin && resource.owner_user_id != Some(actor_id) {
-        return Err(ConductorError::Forbidden.into());
+    let decision =
+        authorize_current_browser_target(state, route, actor, resource_target(&resource)).await;
+    if let Err(error) = decision {
+        if actor.primary_role == conductor_domain::PrimaryRole::Contribute
+            && resource.owner_user_id != Some(actor.id)
+        {
+            return Err(ConductorError::NotFound("resource".into()).into());
+        }
+        return Err(error);
     }
     Ok(resource)
 }
 
-fn require_author(role: PrimaryRole) -> ApiResult<()> {
-    if matches!(role, PrimaryRole::Admin | PrimaryRole::Contribute) {
-        Ok(())
-    } else {
-        Err(ConductorError::Forbidden.into())
+async fn authorize_authoring_target(
+    state: &AppState,
+    route: &RouteAuthorization,
+    actor: &conductor_domain::User,
+    kind: ResourceKind,
+) -> ApiResult<()> {
+    authorize_current_browser_target(
+        state,
+        route,
+        actor,
+        AuthorizationTarget {
+            project_id: Some(project_id(state).await?),
+            target_type: TargetType::Resource,
+            target_id: None,
+            owner_id: Some(actor.id),
+            resource_kind: Some(kind),
+            lifecycle: Some(LifecycleState::Draft),
+            effective_audience: None,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+async fn authorize_effective_version_target(
+    state: &AppState,
+    route: &RouteAuthorization,
+    principal: &ConnectionPrincipal,
+    resource: &ManagedResource,
+) -> ApiResult<()> {
+    authorize_current_connection_target(
+        state,
+        route,
+        principal,
+        AuthorizationTarget {
+            project_id: Some(resource.project_id),
+            target_type: TargetType::Resource,
+            target_id: Some(resource.id),
+            owner_id: resource.owner_user_id,
+            resource_kind: Some(resource.kind),
+            lifecycle: Some(LifecycleState::Published),
+            // `effective_version` returned this exact current version for the
+            // authenticated owner, which is the authoritative audience fact.
+            effective_audience: Some(true),
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+fn resource_target(resource: &ManagedResource) -> AuthorizationTarget {
+    AuthorizationTarget {
+        project_id: Some(resource.project_id),
+        target_type: TargetType::Resource,
+        target_id: Some(resource.id),
+        owner_id: resource.owner_user_id,
+        resource_kind: Some(resource.kind),
+        lifecycle: Some(match resource.status {
+            ResourceStatus::Draft => LifecycleState::Draft,
+            ResourceStatus::Beta => LifecycleState::Beta,
+            ResourceStatus::Published => LifecycleState::Published,
+            ResourceStatus::Archived => LifecycleState::Archived,
+        }),
+        effective_audience: None,
     }
+}
+
+async fn project_id(state: &AppState) -> ApiResult<Uuid> {
+    state
+        .db
+        .instance()
+        .authorization_project_id()
+        .await?
+        .ok_or_else(|| ConductorError::SetupRequired.into())
 }
 
 fn parse_kind(value: &str) -> ApiResult<ResourceKind> {

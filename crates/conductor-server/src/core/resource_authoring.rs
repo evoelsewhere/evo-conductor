@@ -256,32 +256,36 @@ pub fn resource_archive_media_type(kind: ResourceKind) -> &'static str {
 
 /// Metadata persisted in SQL for a file bundle. It contains no authored file
 /// bytes; the complete source lives at `artifact_key` in object storage.
+pub struct ResourceStorageArtifact<'a> {
+    pub key: &'a str,
+    pub sha256: &'a str,
+    pub size: u64,
+    pub media_type: &'a str,
+}
+
 pub fn resource_storage_payload(
     kind: ResourceKind,
     slug: &str,
     version: &str,
-    artifact_key: &str,
-    artifact_sha256: &str,
-    artifact_size: u64,
-    artifact_media_type: &str,
+    artifact: ResourceStorageArtifact<'_>,
     files: &[DraftFile],
 ) -> serde_json::Value {
     let bundle = resource_bundle(
         kind,
         slug,
         version,
-        artifact_sha256,
-        artifact_size,
-        artifact_media_type,
+        artifact.sha256,
+        artifact.size,
+        artifact.media_type,
         files,
     );
     serde_json::json!({
         "storage_schema_version": 1,
         "artifact": {
-            "key": artifact_key,
-            "sha256": artifact_sha256,
-            "size": artifact_size,
-            "media_type": artifact_media_type,
+            "key": artifact.key,
+            "sha256": artifact.sha256,
+            "size": artifact.size,
+            "media_type": artifact.media_type,
         },
         "files": file_manifest(files),
         "bundle": bundle,

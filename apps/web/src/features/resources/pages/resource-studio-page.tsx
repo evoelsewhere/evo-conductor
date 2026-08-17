@@ -37,6 +37,12 @@ import {
 } from "@/shared/constants/resource-studio"
 import { RESOURCE_KIND_USAGE_PATHS } from "@/shared/constants/resource-monitoring"
 import { PageFrame } from "@/shared/components/page-frame"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
+import { useAuthStore } from "@/shared/stores/auth"
 import { ResourceStudioWorkbench } from "@/features/resources/components/resource-studio-workbench"
 import { ResourceDetailMonitoring } from "@/features/resources/components/resource-detail-monitoring"
 import { ResourceModeSelector } from "@/features/resources/components/resource-mode-selector"
@@ -57,6 +63,7 @@ export function ResourceStudioPage() {
   }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const can = useAuthStore((state) => state.can)
   const [tab, setTab] = useState<ResourceStudioTab>(RESOURCE_STUDIO_TAB.SOURCE)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState("")
@@ -71,15 +78,52 @@ export function ResourceStudioPage() {
     queryFn: () => api.resources(),
   })
   const resource = resources.data?.find((item) => item.id === resourceId)
+  const permissionTarget = resource
+    ? {
+        ownerId: resource.owner_user_id,
+        resourceKind: resource.kind,
+        lifecycle: resource.status,
+      }
+    : undefined
+  const canAuthor = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_AUTHOR, permissionTarget)),
+  )
+  const canRelease = Boolean(
+    resource &&
+      mayRequest(
+        bestAuthorizationDecision([
+          can(PERMISSION.RESOURCE_RELEASE_NON_EXECUTABLE, permissionTarget),
+          can(PERMISSION.RESOURCE_RELEASE_RESTRICTED, permissionTarget),
+        ]),
+      ),
+  )
+  const canManageLifecycle = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_LIFECYCLE_MANAGE, permissionTarget)),
+  )
+  const canMonitor = Boolean(
+    resource &&
+      mayRequest(
+        bestAuthorizationDecision([
+          can(PERMISSION.RESOURCE_MONITORING_AGGREGATE_READ, permissionTarget),
+          can(PERMISSION.RESOURCE_MONITORING_MEMBER_DETAIL_READ, permissionTarget),
+        ]),
+      ),
+  )
+  const canReadMemberMonitoring = Boolean(
+    resource &&
+      mayRequest(
+        can(PERMISSION.RESOURCE_MONITORING_MEMBER_DETAIL_READ, permissionTarget),
+      ),
+  )
   const draft = useQuery({
     queryKey: [RESOURCE_QUERY_KEY, resourceId, "draft"],
     queryFn: () => api.resourceDraft(resourceId),
-    enabled: Boolean(resource),
+    enabled: Boolean(resource && canAuthor),
   })
   const versions = useQuery({
     queryKey: [RESOURCE_QUERY_KEY, resourceId, "versions"],
     queryFn: () => api.resourceVersions(resourceId),
-    enabled: Boolean(resource),
+    enabled: Boolean(resource && canAuthor),
   })
   const targetModes = resource && ["agent", "skill"].includes(resource.kind)
     ? modesFromDraft(draft.data?.files)
@@ -248,6 +292,13 @@ export function ResourceStudioPage() {
       </PageFrame>
     )
   }
+  if (!canAuthor) {
+    return (
+      <PageFrame title="Resource Studio" subtitle="Governed source editor">
+        <ErrorState message="Forbidden. Only a project admin or the owning Contributor can edit this resource." />
+      </PageFrame>
+    )
+  }
 
   return (
     <PageFrame
@@ -302,14 +353,16 @@ export function ResourceStudioPage() {
             <Upload className="size-3.5" />
             {importArchive.isPending ? "Importing…" : "Import ZIP"}
           </Button>
-          <Button
-            variant="gradient"
-            disabled={dirty || draft.isLoading || resource.status === "archived"}
-            onClick={() => setShowRelease(true)}
-          >
-            <Rocket className="size-3.5" />
-            Release
-          </Button>
+          {canRelease && (
+            <Button
+              variant="gradient"
+              disabled={dirty || draft.isLoading || resource.status === "archived"}
+              onClick={() => setShowRelease(true)}
+            >
+              <Rocket className="size-3.5" />
+              Release
+            </Button>
+          )}
         </div>
       }
     >
@@ -318,7 +371,9 @@ export function ResourceStudioPage() {
           [RESOURCE_STUDIO_TAB.SOURCE, "Source & validation"],
           [RESOURCE_STUDIO_TAB.VERSIONS, `Versions (${versions.data?.length ?? 0})`],
           [RESOURCE_STUDIO_TAB.MONITORING, "Monitoring"],
-        ] as const).map(([value, label]) => (
+        ] as const)
+          .filter(([value]) => value !== RESOURCE_STUDIO_TAB.MONITORING || canMonitor)
+          .map(([value, label]) => (
           <button
             key={value}
             type="button"
@@ -429,6 +484,7 @@ export function ResourceStudioPage() {
           draftRevision={draft.data?.revision ?? resource.draft_revision}
           loading={versions.isLoading}
           versions={versions.data}
+          canManageLifecycle={canManageLifecycle}
           onVersionDeprecated={(version) => {
             setReleaseResult(`Deprecated v${version.version}. Its immutable history remains available.`)
             void queryClient.invalidateQueries({
@@ -450,11 +506,18 @@ export function ResourceStudioPage() {
           }}
         />
       ) : (
-        <ResourceDetailMonitoring resource={resource} />
+        canMonitor ? (
+          <ResourceDetailMonitoring
+            resource={resource}
+            showMemberDetail={canReadMemberMonitoring}
+          />
+        ) : (
+          <ErrorState message="Resource monitoring is not available for your current permissions." />
+        )
       )}
 
       <ReleaseDialog
-        open={showRelease}
+        open={showRelease && canRelease}
         resource={resource}
         draftRevision={draft.data?.revision ?? resource.draft_revision}
         onClose={() => setShowRelease(false)}
@@ -504,6 +567,11 @@ function ReleaseDialog({
   onClose: () => void
   onReleased: (message: string) => void
 }) {
+  const authorization = useAuthStore((state) => state.authorization)
+  const can = useAuthStore((state) => state.can)
+  const canReadMemberPrivate = mayRequest(
+    can(PERMISSION.MEMBER_PRIVATE_READ_ANY),
+  )
   const [channel, setChannel] = useState<ReleaseChannel>(RELEASE_CHANNEL.PUBLISHED)
   const [mode, setMode] = useState<VersionMode>(VERSION_MODE.AUTO)
   const [manualVersion, setManualVersion] = useState("")
@@ -511,7 +579,12 @@ function ReleaseDialog({
   const [minimumVersion, setMinimumVersion] = useState("")
   const [betaMembers, setBetaMembers] = useState<string[]>([])
   const members = useQuery({
-    queryKey: ["members", "release-audience"],
+    queryKey: [
+      "members",
+      "release-audience",
+      authorization?.current_role,
+      authorization?.policy_revision,
+    ],
     queryFn: () => api.members({ status: "active", limit: 100 }),
     enabled: open && channel === RELEASE_CHANNEL.BETA,
   })
@@ -639,7 +712,9 @@ function ReleaseDialog({
               onChange={setBetaMembers}
               options={(members.data?.items ?? []).map((member) => ({
                 value: member.id,
-                label: `${member.display_name} · ${member.email}`,
+                label: canReadMemberPrivate && "email" in member
+                  ? `${member.display_name} · ${member.email}`
+                  : member.display_name,
               }))}
             />
             <p className="mt-1.5 flex items-center gap-1 text-[0.68rem] text-(--color-text-subtle)">

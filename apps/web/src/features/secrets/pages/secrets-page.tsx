@@ -8,6 +8,8 @@ import {
   type SecretScope,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
+import { useAuthStore } from "@/shared/stores/auth"
 import {
   SECRET_SCOPE,
   SECRET_SCOPE_OPTIONS,
@@ -40,6 +42,14 @@ const expirationOptions = [
 
 export function SecretsPage() {
   const qc = useQueryClient()
+  const userId = useAuthStore((state) => state.user?.id)
+  const can = useAuthStore((state) => state.can)
+  const canIssue = mayRequest(
+    can(PERMISSION.CONNECTION_TOKEN_ISSUE_SELF, { ownerId: userId }),
+  )
+  const canRevoke = mayRequest(
+    can(PERMISSION.CONNECTION_TOKEN_REVOKE_SELF, { ownerId: userId }),
+  )
   const { data = [], isLoading, error } = useQuery({
     queryKey: ["secrets"],
     queryFn: () => api.secrets(),
@@ -61,10 +71,10 @@ export function SecretsPage() {
       title="Connection secrets"
       subtitle="Issue least-privilege, expiring tokens for EvoFlux clients."
       action={
-        <Button variant="gradient" onClick={() => setShowCreate(true)}>
+        canIssue ? <Button variant="gradient" onClick={() => setShowCreate(true)}>
           <Plus className="size-3.5" />
-          New secret
-        </Button>
+          New token
+        </Button> : undefined
       }
     >
       {createdToken && (
@@ -121,11 +131,11 @@ export function SecretsPage() {
           icon={KeyRound}
           title="No secrets yet"
           description="Create a scoped connection token and paste it into EvoFlux."
-          action={
+          action={canIssue ? (
             <Button variant="outline" onClick={() => setShowCreate(true)}>
-              Create first secret
+              Create first token
             </Button>
-          }
+          ) : undefined}
         />
       ) : (
         <TableWrap>
@@ -173,7 +183,7 @@ export function SecretsPage() {
                       )}
                     </TableTd>
                     <TableTd className="text-right">
-                      {!secret.revoked_at && !expired && (
+                      {canRevoke && !secret.revoked_at && !expired && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -193,7 +203,7 @@ export function SecretsPage() {
       )}
 
       <CreateSecretDialog
-        open={showCreate}
+        open={showCreate && canIssue}
         onClose={() => setShowCreate(false)}
         onCreated={(token) => {
           setShowCreate(false)

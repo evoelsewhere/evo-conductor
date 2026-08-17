@@ -47,7 +47,13 @@ import type {
 import { api } from "@/shared/api/client"
 import type { ResourceKind } from "@/shared/constants/resource"
 import { TELEMETRY_CHART_SERIES } from "@/shared/constants/telemetry"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
 import { cn } from "@/shared/lib/utils"
+import { useAuthStore } from "@/shared/stores/auth"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import {
@@ -228,6 +234,7 @@ export function ResourceAnalyticsStudio({
   scope,
   query,
   onApplyQuery,
+  allowMemberDetail = true,
 }: {
   data?: ResourceUsageAnalytics
   loading: boolean
@@ -236,36 +243,73 @@ export function ResourceAnalyticsStudio({
   scope?: { resourceKind?: ResourceKind; resourceId?: string }
   query?: AnalyticsViewDefinition["query"]
   onApplyQuery?: (query: AnalyticsViewDefinition["query"]) => void
+  allowMemberDetail?: boolean
 }) {
   const queryClient = useQueryClient()
+  const actorId = useAuthStore((state) => state.user?.id)
+  const authorization = useAuthStore((state) => state.authorization)
+  const can = useAuthStore((state) => state.can)
   const [customizing, setCustomizing] = useState(false)
   const [savedViewId, setSavedViewId] = useState<string | null>(null)
   const [showSaveView, setShowSaveView] = useState(false)
   const [viewName, setViewName] = useState("")
   const [viewVisibility, setViewVisibility] = useState<AnalyticsViewVisibility>("private")
   const [dashboard, setDashboard] = useState<DashboardState>(() =>
-    readDashboard(storageKey) ?? defaultDashboard("executive"),
+    dashboardForAccess(
+      readDashboard(storageKey) ?? defaultDashboard("executive"),
+      allowMemberDetail,
+    ),
   )
+  const canCreateView = mayRequest(
+    can(PERMISSION.ANALYTICS_VIEW_MANAGE_SELF, { ownerId: actorId }),
+  )
+  const canReadViews = mayRequest(can(PERMISSION.ANALYTICS_VIEW_READ))
+  const savedViewsQueryKey = [
+    "analytics-views",
+    actorId,
+    authorization?.current_role,
+    authorization?.policy_revision,
+  ] as const
   const savedViews = useQuery({
-    queryKey: ["analytics-views"],
+    queryKey: savedViewsQueryKey,
     queryFn: api.analyticsViews,
+    enabled: canReadViews,
   })
-  const visibleSavedViews = (savedViews.data ?? []).filter((view) =>
-    savedViewMatchesScope(view, scope),
+  const visibleSavedViews = (savedViews.data ?? []).filter(
+    (view) =>
+      savedViewMatchesScope(view, scope) &&
+      (allowMemberDetail ||
+        (!view.definition.query.member_id && !view.definition.query.installation_id)),
   )
   const selectedSavedView = visibleSavedViews.find((view) => view.id === savedViewId)
+  const canManageSelectedView = selectedSavedView
+    ? mayRequest(
+        bestAuthorizationDecision([
+          can(PERMISSION.ANALYTICS_VIEW_MANAGE_SELF, {
+            ownerId: selectedSavedView.owner_user_id,
+          }),
+          can(PERMISSION.ANALYTICS_VIEW_MANAGE_ANY, {
+            ownerId: selectedSavedView.owner_user_id,
+          }),
+        ]),
+      )
+    : canCreateView
   const createView = useMutation({
     mutationFn: () =>
       api.createAnalyticsView({
         name: viewName.trim(),
         description: `${scopeLabel} dashboard created in Analytics Studio`,
         visibility: viewVisibility,
-        definition: dashboardDefinition(dashboard, query, scope),
+        definition: dashboardDefinition(
+          dashboardForAccess(dashboard, allowMemberDetail),
+          sanitizeAnalyticsQuery(query, allowMemberDetail),
+          scope,
+        ),
       }),
     onSuccess: (view) => {
       setSavedViewId(view.id)
       setShowSaveView(false)
-      void queryClient.invalidateQueries({ queryKey: ["analytics-views"] })
+      void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey })
     },
   })
   const updateView = useMutation({
@@ -275,12 +319,16 @@ export function ResourceAnalyticsStudio({
         name: selectedSavedView.name,
         description: selectedSavedView.description,
         visibility: selectedSavedView.visibility,
-        definition: dashboardDefinition(dashboard, query, scope),
+        definition: dashboardDefinition(
+          dashboardForAccess(dashboard, allowMemberDetail),
+          sanitizeAnalyticsQuery(query, allowMemberDetail),
+          scope,
+        ),
         revision: selectedSavedView.revision,
       })
     },
     onSuccess: (view) => {
-      queryClient.setQueryData<AnalyticsView[]>(["analytics-views"], (current = []) =>
+      queryClient.setQueryData<AnalyticsView[]>(savedViewsQueryKey, (current = []) =>
         current.map((item) => (item.id === view.id ? view : item)),
       )
     },
@@ -292,16 +340,23 @@ export function ResourceAnalyticsStudio({
     },
     onSuccess: () => {
       setSavedViewId(null)
-      setDashboard(defaultDashboard("executive"))
-      void queryClient.invalidateQueries({ queryKey: ["analytics-views"] })
+      setDashboard(
+        dashboardForAccess(defaultDashboard("executive"), allowMemberDetail),
+      )
+      void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey })
     },
   })
+  const visibleData = analyticsDataForAccess(data, allowMemberDetail)
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(dashboard))
-  }, [dashboard, storageKey])
+    const safeDashboard = dashboardForAccess(dashboard, allowMemberDetail)
+    window.localStorage.setItem(storageKey, JSON.stringify(safeDashboard))
+    if (safeDashboard.widgets.length !== dashboard.widgets.length) {
+      setDashboard(safeDashboard)
+    }
+  }, [allowMemberDetail, dashboard, storageKey])
 
-  const totals = data?.totals
+  const totals = visibleData?.totals
   const completed = (totals?.successes ?? 0) + (totals?.errors ?? 0)
   const successRate = completed
     ? Math.round(((totals?.successes ?? 0) / completed) * 100)
@@ -314,9 +369,14 @@ export function ResourceAnalyticsStudio({
         ),
       )
     : 0
-  const empty = !loading && !hasAnalyticsData(data)
+  const empty = !loading && !hasAnalyticsData(visibleData)
+  const visibleWidgets = dashboard.widgets.filter(
+    (widget) => allowMemberDetail || widget.id !== "members",
+  )
   const hiddenWidgets = (Object.keys(WIDGET_META) as WidgetId[]).filter(
-    (id) => !dashboard.widgets.some((widget) => widget.id === id),
+    (id) =>
+      (allowMemberDetail || id !== "members") &&
+      !visibleWidgets.some((widget) => widget.id === id),
   )
 
   function updateWidgets(update: (widgets: WidgetState[]) => WidgetState[]) {
@@ -333,7 +393,14 @@ export function ResourceAnalyticsStudio({
     setDashboard((current) => ({
       preset,
       density: current.density,
-      widgets: PRESET_WIDGETS[preset].map((widget) => ({ ...widget })),
+      widgets: dashboardForAccess(
+        {
+          preset,
+          density: current.density,
+          widgets: PRESET_WIDGETS[preset].map((widget) => ({ ...widget })),
+        },
+        allowMemberDetail,
+      ).widgets,
     }))
   }
 
@@ -345,8 +412,10 @@ export function ResourceAnalyticsStudio({
     const view = visibleSavedViews.find((item) => item.id === value.slice(6))
     if (!view) return
     setSavedViewId(view.id)
-    setDashboard(dashboardFromDefinition(view.definition))
-    onApplyQuery?.(view.definition.query)
+    setDashboard(
+      dashboardForAccess(dashboardFromDefinition(view.definition), allowMemberDetail),
+    )
+    onApplyQuery?.(sanitizeAnalyticsQuery(view.definition.query, allowMemberDetail)!)
   }
 
   return (
@@ -393,35 +462,37 @@ export function ResourceAnalyticsStudio({
               <Settings2 className="size-3.5" />
               Customize
             </Button>
-            <Button
-              variant={savedViewId ? "outline" : "default"}
-              disabled={createView.isPending || updateView.isPending}
-              onClick={() => {
-                if (savedViewId) updateView.mutate()
-                else {
-                  setViewName(`${scopeLabel} dashboard`)
-                  setShowSaveView(true)
-                }
-              }}
-            >
-              <Save className="size-3.5" />
-              {updateView.isPending ? "Saving…" : savedViewId ? "Save changes" : "Save view"}
-            </Button>
+            {canManageSelectedView && (
+              <Button
+                variant={savedViewId ? "outline" : "default"}
+                disabled={createView.isPending || updateView.isPending}
+                onClick={() => {
+                  if (savedViewId) updateView.mutate()
+                  else {
+                    setViewName(`${scopeLabel} dashboard`)
+                    setShowSaveView(true)
+                  }
+                }}
+              >
+                <Save className="size-3.5" />
+                {updateView.isPending ? "Saving…" : savedViewId ? "Save changes" : "Save view"}
+              </Button>
+            )}
             <Menu
               side="bottom"
               align="end"
               trigger={
-                <Button variant="outline" disabled={!data}>
+                <Button variant="outline" disabled={!visibleData}>
                   <Download className="size-3.5" /> Export
                 </Button>
               }
             >
               <MenuGroup>
                 <MenuGroupLabel>Portable report data</MenuGroupLabel>
-                <MenuItem onClick={() => data && exportResourceAnalytics(data, "csv", scopeLabel)}>
+                <MenuItem onClick={() => visibleData && exportResourceAnalytics(visibleData, "csv", scopeLabel)}>
                   <FileSpreadsheet className="size-4" /> Export CSV
                 </MenuItem>
-                <MenuItem onClick={() => data && exportResourceAnalytics(data, "json", scopeLabel)}>
+                <MenuItem onClick={() => visibleData && exportResourceAnalytics(visibleData, "json", scopeLabel)}>
                   <FileJson className="size-4" /> Export JSON
                 </MenuItem>
                 <MenuSeparator />
@@ -493,11 +564,15 @@ export function ResourceAnalyticsStudio({
               </Menu>
               <Button
                 variant="ghost"
-                onClick={() => setDashboard(defaultDashboard("executive"))}
+                onClick={() =>
+                  setDashboard(
+                    dashboardForAccess(defaultDashboard("executive"), allowMemberDetail),
+                  )
+                }
               >
                 <RotateCcw className="size-3.5" /> Reset
               </Button>
-              {selectedSavedView && (
+              {selectedSavedView && canManageSelectedView && (
                 <Button
                   variant="destructive"
                   disabled={deleteView.isPending}
@@ -552,10 +627,10 @@ export function ResourceAnalyticsStudio({
           ))}
         </div>
       ) : empty ? (
-        <TelemetryReadiness data={data} />
+        <TelemetryReadiness data={visibleData} />
       ) : (
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-12">
-          {dashboard.widgets.map((widget, index) => (
+          {visibleWidgets.map((widget, index) => (
             <div
               key={widget.id}
               className={widget.width === "full" ? "lg:col-span-12" : "lg:col-span-6"}
@@ -563,8 +638,8 @@ export function ResourceAnalyticsStudio({
               <AnalyticsWidget
                 widget={widget}
                 index={index}
-                count={dashboard.widgets.length}
-                data={data!}
+                count={visibleWidgets.length}
+                data={visibleData!}
                 density={dashboard.density}
                 customizing={customizing}
                 onChange={(next) =>
@@ -585,7 +660,7 @@ export function ResourceAnalyticsStudio({
       )}
 
       <Dialog
-        open={showSaveView}
+        open={showSaveView && canCreateView}
         title="Save analytics view"
         description="Persist this dashboard on Conductor so it follows you across browsers and can be shared with the project."
         onClose={() => {
@@ -1158,6 +1233,42 @@ function defaultDashboard(preset: Exclude<DashboardPreset, "custom">): Dashboard
     preset,
     density: "comfortable",
     widgets: PRESET_WIDGETS[preset].map((widget) => ({ ...widget })),
+  }
+}
+
+function dashboardForAccess(
+  dashboard: DashboardState,
+  allowMemberDetail: boolean,
+): DashboardState {
+  if (allowMemberDetail) return dashboard
+  return {
+    ...dashboard,
+    widgets: dashboard.widgets.filter((widget) => widget.id !== "members"),
+  }
+}
+
+function sanitizeAnalyticsQuery(
+  query: AnalyticsViewDefinition["query"] | undefined,
+  allowMemberDetail: boolean,
+): AnalyticsViewDefinition["query"] | undefined {
+  if (!query || allowMemberDetail) return query
+  return {
+    ...query,
+    member_id: null,
+    installation_id: null,
+  }
+}
+
+function analyticsDataForAccess(
+  data: ResourceUsageAnalytics | undefined,
+  allowMemberDetail: boolean,
+): ResourceUsageAnalytics | undefined {
+  if (!data || allowMemberDetail) return data
+  return {
+    ...data,
+    members: [],
+    activity: [],
+    activity_total: 0,
   }
 }
 

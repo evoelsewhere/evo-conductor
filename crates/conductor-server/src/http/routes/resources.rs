@@ -2,17 +2,17 @@ use std::collections::HashSet;
 
 use axum::{
     extract::{Path, Query, State},
-    http::HeaderMap,
-    Json,
+    Extension, Json,
 };
 use chrono::{Duration, Utc};
 use conductor_domain::{
-    ConductorError, CreateResourceRequest, DeprecateResourceVersionRequest, DraftFile,
-    DraftFileTree, ManagedResource, PrimaryRole, ResourceAccessPolicy, ResourceFeedback,
-    ResourceInventoryMonitoring, ResourceMonitoring, ResourceStatus, ResourceTargetMode,
-    ResourceUsageBatchRequest, ResourceUsageBatchResponse, ResourceUsageRejection, ResourceVersion,
-    ResourceVisibility, RestoreResourceVersionRequest, SecretScope, SemanticVersion,
-    UpdateResourceRequest, UpsertResourceFeedbackRequest,
+    AuthorizationTarget, ConductorError, CreateResourceRequest, DeprecateResourceVersionRequest,
+    DraftFile, DraftFileTree, LifecycleState, ManagedResource, PolicyDecision, PrimaryRole,
+    ResourceAccessPolicy, ResourceFeedback, ResourceInventoryMonitoring, ResourceMonitoring,
+    ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest, ResourceUsageBatchResponse,
+    ResourceUsageRejection, ResourceVersion, ResourceVisibility, ResponseProjection,
+    RestoreResourceVersionRequest, SemanticVersion, TargetType, UpdateResourceRequest,
+    UpsertResourceFeedbackRequest,
 };
 use conductor_storage::repos::{DraftContent, ResourceVersionLifecycleError};
 use serde::Deserialize;
@@ -28,13 +28,34 @@ use crate::core::constants::resource::{
 use crate::core::error::{ApiError, ApiResult};
 use crate::core::resource_authoring::{resource_archive_media_type, resource_storage_payload};
 use crate::core::state::AppState;
-use crate::http::extractors::{authenticate_connection_secret, AuthUser};
+use crate::http::authorization::{
+    authorize_current_browser_target, authorize_current_connection_target, RouteAuthorization,
+};
+use crate::http::extractors::{AuthUser, ConnectionPrincipal};
 use crate::http::realtime::{RealtimeAudience, RealtimeSignal};
 
 pub async fn list(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(user): AuthUser,
 ) -> ApiResult<Json<Vec<ManagedResource>>> {
+    authorize_current_browser_target(
+        &state,
+        &route,
+        &user,
+        AuthorizationTarget {
+            project_id: Some(project_id(&state).await?),
+            target_type: TargetType::Resource,
+            target_id: None,
+            owner_id: None,
+            resource_kind: None,
+            lifecycle: None,
+            // The repository query below is the authoritative audience
+            // resolver for this filtered collection.
+            effective_audience: Some(true),
+        },
+    )
+    .await?;
     Ok(Json(
         state
             .db
@@ -46,10 +67,25 @@ pub async fn list(
 
 pub async fn create(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Json(mut request): Json<CreateResourceRequest>,
 ) -> ApiResult<Json<ManagedResource>> {
-    require_catalog_manager(actor.primary_role)?;
+    authorize_current_browser_target(
+        &state,
+        &route,
+        &actor,
+        AuthorizationTarget {
+            project_id: Some(project_id(&state).await?),
+            target_type: TargetType::Resource,
+            target_id: None,
+            owner_id: Some(actor.id),
+            resource_kind: Some(request.kind),
+            lifecycle: Some(LifecycleState::Draft),
+            effective_audience: None,
+        },
+    )
+    .await?;
     normalize_create_request(&mut request);
     initialize_authoring_payload(&mut request)?;
     validate_resource_request(
@@ -69,7 +105,6 @@ pub(super) async fn create_imported_resource(
     actor: &conductor_domain::User,
     mut request: CreateResourceRequest,
 ) -> ApiResult<ManagedResource> {
-    require_catalog_manager(actor.primary_role)?;
     normalize_create_request(&mut request);
     validate_resource_metadata(
         &request.slug,
@@ -95,10 +130,12 @@ async fn persist_resource(
         request.kind,
         &request.slug,
         &request.version,
-        &artifact.key,
-        &artifact.sha256,
-        artifact.size,
-        resource_archive_media_type(request.kind),
+        crate::core::resource_authoring::ResourceStorageArtifact {
+            key: &artifact.key,
+            sha256: &artifact.sha256,
+            size: artifact.size,
+            media_type: resource_archive_media_type(request.kind),
+        },
         &files,
     );
     let draft = DraftContent {
@@ -112,9 +149,9 @@ async fn persist_resource(
     let project_id = state
         .db
         .instance()
-        .project_id()
+        .authorization_project_id()
         .await?
-        .ok_or(ConductorError::NotFound("project".into()))?;
+        .ok_or(ConductorError::SetupRequired)?;
     match state
         .db
         .resources()
@@ -122,8 +159,13 @@ async fn persist_resource(
         .await
     {
         Ok(resource) => Ok(resource),
-        Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
-            Err(ConductorError::Conflict("kind and slug already exist".into()).into())
+        Err(conductor_storage::StorageError::Database(sqlx::Error::Database(error)))
+            if error.is_unique_violation() =>
+        {
+            Err(ApiError::conflict(
+                "resource_slug_conflict",
+                "kind and slug already exist",
+            ))
         }
         Err(error) => Err(ApiError::from(error)),
     }
@@ -141,11 +183,12 @@ fn source_files(payload: &serde_json::Value) -> ApiResult<Vec<DraftFile>> {
 
 pub async fn update(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Json(mut request): Json<UpdateResourceRequest>,
 ) -> ApiResult<Json<ManagedResource>> {
-    let existing = managed_resource(&state, &actor, resource_id).await?;
+    let existing = managed_resource(&state, &route, &actor, resource_id).await?;
     if let Some(name) = request.name.as_mut() {
         *name = name.trim().to_string();
         if name.is_empty() || name.len() > 120 {
@@ -160,31 +203,53 @@ pub async fn update(
         return Err(ConductorError::msg("description must be at most 1000 characters").into());
     }
 
+    let previous_policy = if existing.status == ResourceStatus::Published {
+        Some(
+            state
+                .db
+                .resources()
+                .access_policy(existing.id, existing.project_id)
+                .await?,
+        )
+    } else {
+        None
+    };
     let resource = state
         .db
         .resources()
         .update(resource_id, &request)
         .await?
         .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
-    if existing.status == ResourceStatus::Published {
-        publish_catalog_state(&state, &resource).await?;
+    if let Some(policy) = previous_policy {
+        publish_catalog_removal(&state, resource.id, realtime_audience(&existing, &policy));
+        publish_catalog_upsert(&state, &resource, realtime_audience(&resource, &policy));
     }
     Ok(Json(resource))
 }
 
 pub async fn archive(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<ManagedResource>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
+    let resource = managed_resource(&state, &route, &actor, resource_id).await?;
+    let previous_policy = state
+        .db
+        .resources()
+        .access_policy(resource.id, resource.project_id)
+        .await?;
     if !state.db.resources().archive(resource_id).await? {
-        return Err(ConductorError::Conflict("resource is already archived".into()).into());
+        return Err(ApiError::conflict(
+            "resource_already_archived",
+            "resource is already archived",
+        ));
     }
-    state.realtime.publish(RealtimeSignal::ResourceDelete {
-        audience: RealtimeAudience::All,
+    publish_catalog_removal(
+        &state,
         resource_id,
-    });
+        realtime_audience(&resource, &previous_policy),
+    );
     Ok(Json(
         state
             .db
@@ -197,20 +262,22 @@ pub async fn archive(
 
 pub async fn versions(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<ResourceVersion>>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
+    let _resource = managed_resource(&state, &route, &actor, resource_id).await?;
     Ok(Json(state.db.resources().versions(resource_id).await?))
 }
 
 pub async fn deprecate_version(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path((resource_id, version_id)): Path<(Uuid, Uuid)>,
     Json(mut request): Json<DeprecateResourceVersionRequest>,
 ) -> ApiResult<Json<ResourceVersion>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
+    let _resource = managed_resource(&state, &route, &actor, resource_id).await?;
     request.reason = request.reason.trim().to_string();
     if request.reason.is_empty() || request.reason.len() > MAX_DEPRECATION_REASON_LENGTH {
         return Err(ConductorError::msg(format!(
@@ -231,11 +298,12 @@ pub async fn deprecate_version(
 
 pub async fn restore_version_to_draft(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path((resource_id, version_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<RestoreResourceVersionRequest>,
 ) -> ApiResult<Json<DraftFileTree>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
+    let _resource = managed_resource(&state, &route, &actor, resource_id).await?;
     match state
         .db
         .resources()
@@ -257,29 +325,53 @@ pub async fn restore_version_to_draft(
 
 pub async fn get_access(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<ResourceAccessPolicy>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
-    Ok(Json(state.db.resources().access_policy(resource_id).await?))
+    let resource = managed_resource(&state, &route, &actor, resource_id).await?;
+    Ok(Json(
+        state
+            .db
+            .resources()
+            .access_policy(resource.id, resource.project_id)
+            .await?,
+    ))
 }
 
 pub async fn set_access(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Json(mut policy): Json<ResourceAccessPolicy>,
 ) -> ApiResult<Json<ResourceAccessPolicy>> {
-    let resource = managed_resource(&state, &actor, resource_id).await?;
+    let resource = managed_resource(&state, &route, &actor, resource_id).await?;
     normalize_policy(&mut policy);
     validate_policy(&state, &policy).await?;
+    let previous_policy = if resource.status == ResourceStatus::Published {
+        Some(
+            state
+                .db
+                .resources()
+                .access_policy(resource.id, resource.project_id)
+                .await?,
+        )
+    } else {
+        None
+    };
     state
         .db
         .resources()
         .set_access_policy(resource_id, &policy)
         .await?;
-    if resource.status == ResourceStatus::Published {
-        publish_catalog_state(&state, &resource).await?;
+    if let Some(previous_policy) = previous_policy {
+        publish_catalog_removal(
+            &state,
+            resource.id,
+            realtime_audience(&resource, &previous_policy),
+        );
+        publish_catalog_upsert(&state, &resource, realtime_audience(&resource, &policy));
     }
     Ok(Json(policy))
 }
@@ -291,46 +383,51 @@ pub struct MonitoringQuery {
 
 pub async fn monitoring(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Query(query): Query<MonitoringQuery>,
 ) -> ApiResult<Json<ResourceMonitoring>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
+    let (_, decision) = authorized_resource(&state, &route, &actor, resource_id).await?;
     let days = query.days.unwrap_or(30).clamp(7, 90);
-    Ok(Json(
-        state.db.resources().monitoring(resource_id, days).await?,
-    ))
+    let mut monitoring = state.db.resources().monitoring(resource_id, days).await?;
+    if decision.response_projection == Some(ResponseProjection::AggregateOnly) {
+        monitoring.members.clear();
+    }
+    Ok(Json(monitoring))
 }
 
 pub async fn inventory_monitoring(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<ResourceInventoryMonitoring>> {
-    if !actor.primary_role.can_view_telemetry() {
-        return Err(ConductorError::Forbidden.into());
+    let (_, decision) = authorized_resource(&state, &route, &actor, resource_id).await?;
+    let mut monitoring = state
+        .db
+        .resources()
+        .inventory_monitoring(resource_id)
+        .await?;
+    if decision.response_projection == Some(ResponseProjection::AggregateOnly) {
+        monitoring.installations.clear();
     }
-    let _ = managed_resource(&state, &actor, resource_id).await?;
-    Ok(Json(
-        state
-            .db
-            .resources()
-            .inventory_monitoring(resource_id)
-            .await?,
-    ))
+    Ok(Json(monitoring))
 }
 
 pub async fn feedback(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<ResourceFeedback>>> {
-    let _ = managed_resource(&state, &actor, resource_id).await?;
+    let _ = managed_resource(&state, &route, &actor, resource_id).await?;
     Ok(Json(state.db.resources().feedback(resource_id).await?))
 }
 
 pub async fn upsert_feedback(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(resource_id): Path<Uuid>,
     Json(mut request): Json<UpsertResourceFeedbackRequest>,
@@ -347,15 +444,27 @@ pub async fn upsert_feedback(
         return Err(ConductorError::msg("comment must be at most 1000 characters").into());
     }
     let visible_ids = state.db.resources().visible_resource_ids(actor.id).await?;
-    if !visible_ids.contains(&resource_id) {
-        return Err(ConductorError::NotFound("resource".into()).into());
-    }
     let resource = state
         .db
         .resources()
-        .find_by_id(resource_id)
+        .find_by_id_for_authorization(resource_id)
         .await?
         .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
+    authorize_current_browser_target(
+        &state,
+        &route,
+        &actor,
+        AuthorizationTarget {
+            project_id: Some(resource.project_id),
+            target_type: TargetType::Resource,
+            target_id: Some(resource.id),
+            owner_id: resource.owner_user_id,
+            resource_kind: Some(resource.kind),
+            lifecycle: Some(resource_lifecycle(resource.status)),
+            effective_audience: Some(visible_ids.contains(&resource.id)),
+        },
+    )
+    .await?;
     Ok(Json(
         state
             .db
@@ -368,10 +477,24 @@ pub async fn upsert_feedback(
 /// EvoFlux resource snapshot fallback — `Authorization: Bearer evc_...`.
 pub async fn subscribe(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
 ) -> ApiResult<Json<Vec<ManagedResource>>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
+    authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(project_id(&state).await?),
+            target_type: TargetType::Resource,
+            target_id: None,
+            owner_id: None,
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: Some(true),
+        },
+    )
+    .await?;
     Ok(Json(
         state
             .db
@@ -384,11 +507,25 @@ pub async fn subscribe(
 /// Idempotent EvoFlux usage batch. Member identity always comes from the secret owner.
 pub async fn ingest_usage(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     Json(request): Json<ResourceUsageBatchRequest>,
 ) -> ApiResult<Json<ResourceUsageBatchResponse>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::ReportTelemetry).await?;
+    authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(project_id(&state).await?),
+            target_type: TargetType::Resource,
+            target_id: None,
+            owner_id: Some(principal.user.id),
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: None,
+        },
+    )
+    .await?;
     if request.events.is_empty() || request.events.len() > 100 {
         return Err(ConductorError::msg("events batch must contain 1–100 items").into());
     }
@@ -465,27 +602,79 @@ pub async fn ingest_usage(
 
 async fn managed_resource(
     state: &AppState,
+    route: &RouteAuthorization,
     actor: &conductor_domain::User,
     resource_id: Uuid,
 ) -> ApiResult<ManagedResource> {
-    require_catalog_manager(actor.primary_role)?;
+    authorized_resource(state, route, actor, resource_id)
+        .await
+        .map(|(resource, _)| resource)
+}
+
+async fn authorized_resource(
+    state: &AppState,
+    route: &RouteAuthorization,
+    actor: &conductor_domain::User,
+    resource_id: Uuid,
+) -> ApiResult<(ManagedResource, PolicyDecision)> {
     let resource = state
         .db
         .resources()
-        .find_by_id(resource_id)
+        .find_by_id_for_authorization(resource_id)
         .await?
         .ok_or_else(|| ConductorError::NotFound("resource".into()))?;
-    if actor.primary_role != PrimaryRole::Admin && resource.owner_user_id != Some(actor.id) {
-        return Err(ConductorError::Forbidden.into());
-    }
-    Ok(resource)
+    let decision = match authorize_current_browser_target(
+        state,
+        route,
+        actor,
+        resource_authorization_target(&resource),
+    )
+    .await
+    {
+        Ok(decision) => decision,
+        Err(error) => {
+            // Resource management deliberately does not disclose another
+            // Contributor's resource. Kind/lifecycle denials on an owned
+            // target remain 403 so the restriction is visible to its owner.
+            if actor.primary_role == PrimaryRole::Contribute
+                && resource.owner_user_id != Some(actor.id)
+            {
+                return Err(ConductorError::NotFound("resource".into()).into());
+            }
+            return Err(error);
+        }
+    };
+    Ok((resource, decision))
 }
 
-fn require_catalog_manager(role: PrimaryRole) -> ApiResult<()> {
-    if !role.can_manage_resources() {
-        return Err(ConductorError::Forbidden.into());
+fn resource_authorization_target(resource: &ManagedResource) -> AuthorizationTarget {
+    AuthorizationTarget {
+        project_id: Some(resource.project_id),
+        target_type: TargetType::Resource,
+        target_id: Some(resource.id),
+        owner_id: resource.owner_user_id,
+        resource_kind: Some(resource.kind),
+        lifecycle: Some(resource_lifecycle(resource.status)),
+        effective_audience: None,
     }
-    Ok(())
+}
+
+fn resource_lifecycle(status: ResourceStatus) -> LifecycleState {
+    match status {
+        ResourceStatus::Draft => LifecycleState::Draft,
+        ResourceStatus::Beta => LifecycleState::Beta,
+        ResourceStatus::Published => LifecycleState::Published,
+        ResourceStatus::Archived => LifecycleState::Archived,
+    }
+}
+
+async fn project_id(state: &AppState) -> ApiResult<Uuid> {
+    state
+        .db
+        .instance()
+        .authorization_project_id()
+        .await?
+        .ok_or_else(|| ConductorError::SetupRequired.into())
 }
 
 fn map_version_lifecycle_error(error: ResourceVersionLifecycleError) -> ApiError {
@@ -494,22 +683,25 @@ fn map_version_lifecycle_error(error: ResourceVersionLifecycleError) -> ApiError
             ConductorError::NotFound("resource version".into()).into()
         }
         ResourceVersionLifecycleError::ResourceArchived => {
-            ConductorError::Conflict(ERROR_RESOURCE_ARCHIVED.into()).into()
+            ApiError::conflict(ERROR_RESOURCE_ARCHIVED, ERROR_RESOURCE_ARCHIVED)
         }
-        ResourceVersionLifecycleError::ActiveRelease => {
-            ConductorError::Conflict(ERROR_ACTIVE_RELEASE_DEPRECATION.into()).into()
-        }
-        ResourceVersionLifecycleError::AlreadyDeprecated => {
-            ConductorError::Conflict(ERROR_VERSION_ALREADY_DEPRECATED.into()).into()
-        }
+        ResourceVersionLifecycleError::ActiveRelease => ApiError::conflict(
+            ERROR_ACTIVE_RELEASE_DEPRECATION,
+            ERROR_ACTIVE_RELEASE_DEPRECATION,
+        ),
+        ResourceVersionLifecycleError::AlreadyDeprecated => ApiError::conflict(
+            ERROR_VERSION_ALREADY_DEPRECATED,
+            ERROR_VERSION_ALREADY_DEPRECATED,
+        ),
         ResourceVersionLifecycleError::NotReleased => {
-            ConductorError::Conflict(ERROR_ONLY_RELEASED_LIFECYCLE.into()).into()
+            ApiError::conflict(ERROR_ONLY_RELEASED_LIFECYCLE, ERROR_ONLY_RELEASED_LIFECYCLE)
         }
-        ResourceVersionLifecycleError::DeprecatedConfirmationRequired => {
-            ConductorError::Conflict(ERROR_DEPRECATED_CONFIRMATION_REQUIRED.into()).into()
-        }
+        ResourceVersionLifecycleError::DeprecatedConfirmationRequired => ApiError::conflict(
+            ERROR_DEPRECATED_CONFIRMATION_REQUIRED,
+            ERROR_DEPRECATED_CONFIRMATION_REQUIRED,
+        ),
         ResourceVersionLifecycleError::DraftConflict => {
-            ConductorError::Conflict(ERROR_DRAFT_REVISION_CONFLICT.into()).into()
+            ApiError::conflict(ERROR_DRAFT_REVISION_CONFLICT, ERROR_DRAFT_REVISION_CONFLICT)
         }
         ResourceVersionLifecycleError::InvalidSource => {
             ConductorError::msg(ERROR_VERSION_SOURCE_NOT_RESTORABLE).into()
@@ -518,23 +710,34 @@ fn map_version_lifecycle_error(error: ResourceVersionLifecycleError) -> ApiError
     }
 }
 
-async fn publish_catalog_state(state: &AppState, resource: &ManagedResource) -> ApiResult<()> {
+fn publish_catalog_removal(state: &AppState, resource_id: Uuid, audience: RealtimeAudience) {
     state.realtime.publish(RealtimeSignal::ResourceDelete {
-        audience: RealtimeAudience::All,
-        resource_id: resource.id,
+        audience,
+        resource_id,
     });
-    if resource.status != ResourceStatus::Published {
-        return Ok(());
-    }
+}
 
-    let policy = state.db.resources().access_policy(resource.id).await?;
+fn publish_catalog_upsert(
+    state: &AppState,
+    resource: &ManagedResource,
+    audience: RealtimeAudience,
+) {
+    state.realtime.publish(RealtimeSignal::ResourceUpsert {
+        audience,
+        resource: Box::new(resource.clone()),
+    });
+}
+
+fn realtime_audience(
+    resource: &ManagedResource,
+    policy: &ResourceAccessPolicy,
+) -> RealtimeAudience {
     let no_explicit_rules = !policy.all_members
         && policy.primary_roles.is_empty()
         && policy.sub_role_ids.is_empty()
         && policy.tag_ids.is_empty()
         && policy.member_ids.is_empty();
-    let audience = if resource.visibility == ResourceVisibility::Shared && no_explicit_rules
-        || policy.all_members
+    if resource.visibility == ResourceVisibility::Shared && no_explicit_rules || policy.all_members
     {
         RealtimeAudience::All
     } else if no_explicit_rules {
@@ -542,14 +745,9 @@ async fn publish_catalog_state(state: &AppState, resource: &ManagedResource) -> 
     } else {
         RealtimeAudience::Policy {
             owner_user_id: resource.owner_user_id.unwrap_or_else(Uuid::nil),
-            policy,
+            policy: policy.clone(),
         }
-    };
-    state.realtime.publish(RealtimeSignal::ResourceUpsert {
-        audience,
-        resource: Box::new(resource.clone()),
-    });
-    Ok(())
+    }
 }
 
 async fn validate_policy(state: &AppState, policy: &ResourceAccessPolicy) -> ApiResult<()> {

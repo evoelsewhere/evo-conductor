@@ -1,18 +1,24 @@
+use std::fmt;
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 /// Primary org roles. Every member has exactly one primary role.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrimaryRole {
     /// Full control: setup, SSO, roles, members, secrets policy, resources.
     Admin,
-    /// Can publish/manage shared Agents, Skills and Plugins and view team telemetry.
+    /// Can manage owned Agents/Skills and view privacy-safe project aggregates.
+    /// Restricted executable resources and member-identifying telemetry remain Admin-only.
     Contribute,
     /// Standard member — consumes shared resources; may create personal secrets.
     User,
 }
 
 impl PrimaryRole {
+    pub const ALL: [Self; 3] = [Self::Admin, Self::Contribute, Self::User];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Admin => "admin",
@@ -42,9 +48,10 @@ impl PrimaryRole {
         matches!(self, Self::Admin | Self::Contribute)
     }
 
-    /// Tags are shared taxonomy for members, resources, and future entities.
+    /// Legacy coarse predicate. Shared taxonomy definitions are Admin-only;
+    /// resource-target assignment is evaluated separately with ownership facts.
     pub fn can_manage_tags(self) -> bool {
-        matches!(self, Self::Admin | Self::Contribute)
+        matches!(self, Self::Admin)
     }
 
     pub fn can_view_telemetry(self) -> bool {
@@ -53,6 +60,25 @@ impl PrimaryRole {
 
     pub fn can_manage_settings(self) -> bool {
         matches!(self, Self::Admin)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParsePrimaryRoleError;
+
+impl fmt::Display for ParsePrimaryRoleError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown primary role")
+    }
+}
+
+impl std::error::Error for ParsePrimaryRoleError {}
+
+impl FromStr for PrimaryRole {
+    type Err = ParsePrimaryRoleError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or(ParsePrimaryRoleError)
     }
 }
 
@@ -155,7 +181,7 @@ mod tests {
             (
                 "manage_tags",
                 PrimaryRole::can_manage_tags,
-                [true, true, false],
+                [true, false, false],
             ),
             (
                 "view_telemetry",

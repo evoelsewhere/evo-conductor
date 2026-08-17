@@ -1,5 +1,6 @@
 //! Transport layer: the router, its handlers, and its extractors.
 
+pub mod authorization;
 mod extractors;
 pub mod realtime;
 mod routes;
@@ -16,7 +17,7 @@ use crate::core::constants::http::{API_PREFIX, SPA_INDEX_FILE};
 use crate::core::{AppState, Config};
 
 pub fn build_router(state: AppState, config: &Config) -> Router {
-    let api = Router::new().merge(routes::router()).with_state(state);
+    let api = routes::router(state);
 
     Router::new()
         .nest(API_PREFIX, api)

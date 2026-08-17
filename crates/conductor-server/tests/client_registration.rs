@@ -2,7 +2,8 @@ mod support;
 
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use conductor_auth::hash_token;
-use conductor_domain::{PrimaryRole, SecretScope, User, UserStatus};
+use conductor_domain::{PrimaryRole, SecretScope, User};
+use conductor_storage::ChangeMemberStatus;
 use serde_json::{json, Value};
 use support::{test_app, TestApp};
 use uuid::Uuid;
@@ -365,6 +366,16 @@ async fn member_installation_list_is_privacy_safe_and_authorized() {
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
+    let contributor = app.seed_user(PrimaryRole::Contribute).await;
+    let contributor_token = app.token_for(&contributor).await;
+    let (status, _) = app
+        .get(
+            &format!("/api/members/{}/installations", member.id),
+            Some(&contributor_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
     let admin = app.seed_user(PrimaryRole::Admin).await;
     let admin_token = app.token_for(&admin).await;
     let (status, rows) = app
@@ -378,8 +389,8 @@ async fn member_installation_list_is_privacy_safe_and_authorized() {
 
     app.state
         .db
-        .users()
-        .set_status(member.id, UserStatus::Disabled)
+        .member_access()
+        .set_member_status(ChangeMemberStatus::disable(admin.id, member.id))
         .await
         .expect("disable member");
     let (status, _) = app

@@ -7,6 +7,7 @@ use conductor_domain::{
     ResourceVisibility, SetupRequest, VersionMode,
 };
 use conductor_storage::repos::{DraftContent, ReleaseContent, ResourceVersionLifecycleError};
+use conductor_storage::StorageError;
 use sqlx::Row;
 use support::{connect_test_db, seed_active_user, PLACEHOLDER_PASSWORD_HASH};
 
@@ -112,6 +113,40 @@ async fn beta_release_changes_are_scoped_to_current_and_removed_beta_members() {
     }
     assert_eq!(counts.get(&first_member.id.to_string()), Some(&2));
     assert_eq!(counts.get(&second_member.id.to_string()), Some(&1));
+
+    let hidden = db
+        .resources()
+        .list_visible_to(first_member.id)
+        .await
+        .expect("removed beta member catalog");
+    assert!(hidden.iter().all(|item| item.id != resource.id));
+    assert!(!db
+        .resources()
+        .visible_resource_ids(first_member.id)
+        .await
+        .expect("removed beta member ids")
+        .contains(&resource.id));
+    assert!(db
+        .resources()
+        .list_effective_versions(first_member.id)
+        .await
+        .expect("removed beta member checkout")
+        .iter()
+        .all(|item| item.resource_id != resource.id));
+
+    assert!(db
+        .resources()
+        .visible_resource_ids(second_member.id)
+        .await
+        .expect("current beta member ids")
+        .contains(&resource.id));
+    assert!(db
+        .resources()
+        .list_effective_versions(second_member.id)
+        .await
+        .expect("current beta member checkout")
+        .iter()
+        .any(|item| item.resource_id == resource.id));
 }
 
 #[tokio::test]
@@ -312,6 +347,194 @@ async fn deprecated_versions_remain_auditable_and_require_confirmation_to_restor
             .await
             .expect("count lifecycle audit events");
     assert_eq!(events, 2);
+}
+
+#[tokio::test]
+async fn effective_delivery_rejects_a_release_pointer_to_another_resource_version() {
+    let db = connect_test_db().await;
+    let (project, admin) = db
+        .instance()
+        .complete_setup(
+            &SetupRequest {
+                project_name: "release-pointer-integrity".into(),
+                display_name: None,
+                bind_host: "127.0.0.1".into(),
+                bind_port: 4700,
+                public_url: None,
+                admin_email: "release-pointer-admin@example.test".into(),
+                admin_display_name: "Release Pointer Admin".into(),
+                admin_password: "unused".into(),
+                sso: None,
+            },
+            PLACEHOLDER_PASSWORD_HASH,
+            "release-pointer-jwt-secret",
+            None,
+        )
+        .await
+        .expect("complete setup");
+    let member = seed_active_user(&db, PrimaryRole::User).await;
+
+    let mut resources = Vec::new();
+    for (slug, marker) in [('a', 'a'), ('b', 'b')] {
+        let resource = db
+            .resources()
+            .create(
+                project.id,
+                &CreateResourceRequest {
+                    kind: ResourceKind::Skill,
+                    slug: format!("release-pointer-{slug}"),
+                    name: format!("Release pointer {slug}"),
+                    description: None,
+                    version: "0.1.0".into(),
+                    visibility: ResourceVisibility::Shared,
+                    payload: metadata_payload(marker),
+                    changelog: None,
+                },
+                admin.id,
+                &draft_content(marker),
+            )
+            .await
+            .expect("create resource");
+        let released = db
+            .resources()
+            .release(
+                resource.id,
+                &ReleaseResourceRequest {
+                    channel: ReleaseChannel::Published,
+                    version_mode: VersionMode::Auto,
+                    manual_version: None,
+                    draft_revision: 0,
+                    changelog: None,
+                    beta_member_ids: vec![],
+                    minimum_evoflux_version: None,
+                },
+                &ReleaseContent {
+                    sha256: marker.to_string().repeat(64),
+                    size: 13,
+                    artifact_key: Some(content_key(marker)),
+                    updated_payload: Some(metadata_payload(marker).to_string()),
+                },
+                admin.id,
+            )
+            .await
+            .expect("release resource");
+        resources.push((resource, released));
+    }
+
+    sqlx::query(
+        "UPDATE resource_release_channels SET version_id = ? \
+         WHERE project_id = ? AND resource_id = ? AND channel = 'published'",
+    )
+    .bind(resources[1].1.version_id.to_string())
+    .bind(project.id.to_string())
+    .bind(resources[0].0.id.to_string())
+    .execute(db.pool())
+    .await
+    .expect("corrupt release pointer");
+
+    assert!(matches!(
+        db.resources()
+            .effective_version(resources[0].0.id, member.id)
+            .await,
+        Err(StorageError::InvalidPersistedResource(_))
+    ));
+    assert!(matches!(
+        db.resources().list_effective_versions(member.id).await,
+        Err(StorageError::InvalidPersistedResource(_))
+    ));
+}
+
+#[tokio::test]
+async fn effective_delivery_rejects_bundle_identity_that_disagrees_with_the_release() {
+    let db = connect_test_db().await;
+    let (project, admin) = db
+        .instance()
+        .complete_setup(
+            &SetupRequest {
+                project_name: "bundle-identity-integrity".into(),
+                display_name: None,
+                bind_host: "127.0.0.1".into(),
+                bind_port: 4700,
+                public_url: None,
+                admin_email: "bundle-integrity-admin@example.test".into(),
+                admin_display_name: "Bundle Integrity Admin".into(),
+                admin_password: "unused".into(),
+                sso: None,
+            },
+            PLACEHOLDER_PASSWORD_HASH,
+            "bundle-integrity-jwt-secret",
+            None,
+        )
+        .await
+        .expect("complete setup");
+    let member = seed_active_user(&db, PrimaryRole::User).await;
+    let resource = db
+        .resources()
+        .create(
+            project.id,
+            &CreateResourceRequest {
+                kind: ResourceKind::Skill,
+                slug: "bundle-integrity-skill".into(),
+                name: "Bundle integrity skill".into(),
+                description: None,
+                version: "0.1.0".into(),
+                visibility: ResourceVisibility::Shared,
+                payload: metadata_payload('c'),
+                changelog: None,
+            },
+            admin.id,
+            &draft_content('c'),
+        )
+        .await
+        .expect("create resource");
+    let released = db
+        .resources()
+        .release(
+            resource.id,
+            &ReleaseResourceRequest {
+                channel: ReleaseChannel::Published,
+                version_mode: VersionMode::Auto,
+                manual_version: None,
+                draft_revision: 0,
+                changelog: None,
+                beta_member_ids: vec![],
+                minimum_evoflux_version: None,
+            },
+            &ReleaseContent {
+                sha256: "c".repeat(64),
+                size: 13,
+                artifact_key: Some(content_key('c')),
+                updated_payload: Some(metadata_payload('c').to_string()),
+            },
+            admin.id,
+        )
+        .await
+        .expect("release resource");
+    let mut corrupt_payload = metadata_payload('c');
+    corrupt_payload["bundle"] = serde_json::json!({
+        "schema_version": 2,
+        "kind": "plugin",
+        "slug": resource.slug,
+        "version": released.version,
+        "artifact_sha256": "c".repeat(64),
+        "artifact_size": 13,
+        "artifact_media_type": "application/vnd.evoflux.resource+zip",
+        "tree_sha256": "d".repeat(64),
+        "files": []
+    });
+    sqlx::query("UPDATE resource_versions SET payload = ? WHERE id = ?")
+        .bind(corrupt_payload.to_string())
+        .bind(released.version_id.to_string())
+        .execute(db.pool())
+        .await
+        .expect("corrupt persisted bundle identity");
+
+    assert!(matches!(
+        db.resources()
+            .effective_version(resource.id, member.id)
+            .await,
+        Err(StorageError::InvalidPersistedResource(_))
+    ));
 }
 
 fn content_key(marker: char) -> String {

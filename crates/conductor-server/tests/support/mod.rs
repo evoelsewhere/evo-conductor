@@ -21,8 +21,9 @@ use axum::http::{HeaderMap, Request, StatusCode};
 use axum::Router;
 use conductor_auth::JwtService;
 use conductor_domain::core::constants::auth::{AUTH_SCHEME_BEARER, DEFAULT_JWT_TTL_HOURS};
-use conductor_domain::{CreateMemberRequest, UserStatus};
+use conductor_domain::CreateMemberRequest;
 use conductor_domain::{PrimaryRole, User};
+use conductor_server::core::authorization::AuthorizationService;
 use conductor_server::{build_router, AppState, Config, RealtimeConfig};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
@@ -68,7 +69,7 @@ async fn seed_active_user(db: &conductor_storage::Db, role: PrimaryRole) -> User
         .await
         .expect("create_invited");
     db.users()
-        .set_status(user.id, UserStatus::Active)
+        .activate_invited_on_password_login(user.id)
         .await
         .expect("activate seeded user")
 }
@@ -81,11 +82,16 @@ pub struct TestApp {
 
 /// A running application backed by an empty, isolated database.
 pub async fn test_app() -> TestApp {
+    test_app_with_authorization(AuthorizationService::default()).await
+}
+
+pub async fn test_app_with_authorization(authorization: AuthorizationService) -> TestApp {
     let database_url = test_database_url();
 
-    let state = AppState::new(&database_url, RealtimeConfig::default())
+    let mut state = AppState::new(&database_url, RealtimeConfig::default())
         .await
         .expect("connect test database");
+    state.authorization = authorization;
 
     // Fact 1: without this every authenticated request returns 428.
     let secret = format!("{TEST_JWT_SECRET_PREFIX}{}", Uuid::new_v4().simple());
@@ -107,6 +113,30 @@ pub async fn test_app() -> TestApp {
 }
 
 impl TestApp {
+    /// Seed the singleton project identity required by project-scoped
+    /// authorization without marking setup complete or creating an admin.
+    ///
+    /// Most authorization tests exercise protected routes directly, while the
+    /// default fixture intentionally remains unconfigured for bootstrap tests.
+    pub async fn seed_project_identity(&self) -> Uuid {
+        let project_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO instance (
+                id, project_name, display_name, bind_host, bind_port,
+                setup_completed, jwt_secret, created_at, updated_at
+            ) VALUES (?, 'Test project', 'Test project', '127.0.0.1', 0,
+                      0, 'test-project-secret',
+                      '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')
+            "#,
+        )
+        .bind(project_id.to_string())
+        .execute(self.state.db.pool())
+        .await
+        .expect("seed project identity");
+        project_id
+    }
+
     pub async fn seed_user(&self, role: PrimaryRole) -> User {
         seed_active_user(&self.state.db, role).await
     }

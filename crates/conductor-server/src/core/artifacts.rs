@@ -187,10 +187,12 @@ impl ArtifactStore {
                 kind,
                 &slug,
                 &version,
-                &artifact.key,
-                &artifact.sha256,
-                artifact.size,
-                crate::core::resource_authoring::resource_archive_media_type(kind),
+                crate::core::resource_authoring::ResourceStorageArtifact {
+                    key: &artifact.key,
+                    sha256: &artifact.sha256,
+                    size: artifact.size,
+                    media_type: crate::core::resource_authoring::resource_archive_media_type(kind),
+                },
                 &files,
             );
             let updated = sqlx::query(
@@ -237,10 +239,12 @@ impl ArtifactStore {
                 kind,
                 &slug,
                 &version,
-                &artifact.key,
-                &artifact.sha256,
-                artifact.size,
-                crate::core::resource_authoring::resource_archive_media_type(kind),
+                crate::core::resource_authoring::ResourceStorageArtifact {
+                    key: &artifact.key,
+                    sha256: &artifact.sha256,
+                    size: artifact.size,
+                    media_type: crate::core::resource_authoring::resource_archive_media_type(kind),
+                },
                 &files,
             );
             let metadata_text = serde_json::to_string(&metadata)?;

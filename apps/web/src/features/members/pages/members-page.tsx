@@ -20,6 +20,7 @@ import { useMemo, useState } from "react"
 
 import {
   api,
+  type MemberListItem,
   type PrimaryRole,
   type User,
   type UserStatus,
@@ -34,6 +35,11 @@ import {
   USER_STATUS_FILTER_OPTIONS,
 } from "@/shared/constants/member"
 import { useAuthStore } from "@/shared/stores/auth"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { BadgeList } from "@/shared/ui/badge-list"
 import { Button, buttonVariants } from "@/shared/ui/button"
@@ -66,7 +72,10 @@ import {
 
 export function MembersPage() {
   const actor = useAuthStore((s) => s.user)
-  const isAdmin = actor?.primary_role === PRIMARY_ROLE.ADMIN
+  const authorization = useAuthStore((s) => s.authorization)
+  const can = useAuthStore((s) => s.can)
+  const canManageMembers = mayRequest(can(PERMISSION.MEMBER_MANAGE))
+  const canReadTaxonomy = mayRequest(can(PERMISSION.TAXONOMY_READ))
   const qc = useQueryClient()
 
   const [q, setQ] = useState("")
@@ -88,18 +97,25 @@ export function MembersPage() {
   const { data: tags = [] } = useQuery({
     queryKey: ["tags"],
     queryFn: () => api.tags(),
-    enabled:
-      actor?.primary_role === PRIMARY_ROLE.ADMIN ||
-      actor?.primary_role === PRIMARY_ROLE.CONTRIBUTE,
+    enabled: canReadTaxonomy,
   })
   const { data: subRoles = [] } = useQuery({
     queryKey: ["sub-roles"],
     queryFn: () => api.subRoles(),
-    enabled: isAdmin,
+    enabled: canManageMembers,
   })
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["members", q, status, role, tag, page],
+    queryKey: [
+      "members",
+      authorization?.current_role,
+      authorization?.policy_revision,
+      q,
+      status,
+      role,
+      tag,
+      page,
+    ],
     queryFn: () =>
       api.members({
         q: q || undefined,
@@ -127,6 +143,7 @@ export function MembersPage() {
         disabled: disabled.total,
       }
     },
+    enabled: canManageMembers,
   })
 
   const tagName = useMemo(() => {
@@ -191,10 +208,14 @@ export function MembersPage() {
   return (
     <PageFrame
       title="Members"
-      subtitle="Manage invitations, SSO approvals, account status, and project access."
+      subtitle={
+        canManageMembers
+          ? "Manage invitations, SSO approvals, account status, and project access."
+          : "Browse the active member directory. Private account and usage details stay restricted."
+      }
       className="max-w-7xl"
       action={
-        isAdmin ? (
+        canManageMembers ? (
           <Button variant="gradient" onClick={() => setShowAdd(true)}>
             <Plus className="size-3.5" />
             Add member
@@ -209,7 +230,9 @@ export function MembersPage() {
         />
       )}
 
-      <MemberPortfolioSummary summary={memberSummary} loading={portfolio.isLoading} />
+      {canManageMembers && (
+        <MemberPortfolioSummary summary={memberSummary} loading={portfolio.isLoading} />
+      )}
 
       <div className="mb-4 rounded-xl border border-(--border-card) bg-(--bg-card)">
         <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
@@ -217,7 +240,7 @@ export function MembersPage() {
             <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--color-text-subtle)" />
             <Input
               className="pl-9"
-              placeholder="Search members by name or email"
+              placeholder={canManageMembers ? "Search members by name or email" : "Search members by name"}
               value={q}
               onChange={(e) => {
                 setQ(e.target.value)
@@ -242,7 +265,7 @@ export function MembersPage() {
         {filtersOpen && (
           <div className="border-t border-(--border-soft) p-4">
             <div className="grid gap-4 sm:grid-cols-3">
-              {isAdmin && (
+              {canManageMembers && (
                 <FilterField label="Account status">
                   <Select
                     value={status || "__any__"}
@@ -275,19 +298,21 @@ export function MembersPage() {
                   ]}
                 />
               </FilterField>
-              <FilterField label="Tag">
-                <Select
-                  value={tag || "__any__"}
-                  onValueChange={(v) => {
-                    setTag(v === "__any__" ? "" : v)
-                    setPage(1)
-                  }}
-                  options={[
-                    { value: "__any__", label: "Any tag" },
-                    ...tagOptions,
-                  ]}
-                />
-              </FilterField>
+              {canManageMembers && (
+                <FilterField label="Tag">
+                  <Select
+                    value={tag || "__any__"}
+                    onValueChange={(v) => {
+                      setTag(v === "__any__" ? "" : v)
+                      setPage(1)
+                    }}
+                    options={[
+                      { value: "__any__", label: "Any tag" },
+                      ...tagOptions,
+                    ]}
+                  />
+                </FilterField>
+              )}
             </div>
             {activeFilterCount > 0 && (
               <Button
@@ -340,28 +365,40 @@ export function MembersPage() {
                 <tr>
                   <TableTh>Member</TableTh>
                   <TableTh>Access profile</TableTh>
-                  <TableTh>Last seen</TableTh>
-                  <TableTh>Status</TableTh>
-                  {isAdmin && <TableTh />}
+                  {canManageMembers && <TableTh>Last seen</TableTh>}
+                  {canManageMembers && <TableTh>Status</TableTh>}
+                  {canManageMembers && <TableTh />}
                 </tr>
               </TableHead>
               <TableBody>
-                {items.map((m) => (
-                  <TableRow
-                    key={m.id}
-                  >
+                {items.map((m) => {
+                  const managed = isManagedMember(m)
+                  const canOpenPrivate = mayRequest(
+                    bestAuthorizationDecision([
+                      can(PERMISSION.MEMBER_PRIVATE_READ_SELF, { targetId: m.id }),
+                      can(PERMISSION.MEMBER_PRIVATE_READ_ANY, { targetId: m.id }),
+                    ]),
+                  )
+                  return (
+                  <TableRow key={m.id}>
                     <TableTd>
-                      <Link
-                        to="/app/members/$userId"
-                        params={{ userId: m.id }}
-                        className="font-medium hover:text-(--color-accent) hover:underline"
-                      >
-                        {m.display_name}
-                      </Link>
-                      <div className="text-xs text-(--color-text-subtle)">
-                        {m.email}
-                      </div>
-                      {isAdmin && m.sub_role_ids.length > 0 && (
+                      {canOpenPrivate ? (
+                        <Link
+                          to="/app/members/$userId"
+                          params={{ userId: m.id }}
+                          className="font-medium hover:text-(--color-accent) hover:underline"
+                        >
+                          {m.display_name}
+                        </Link>
+                      ) : (
+                        <span className="font-medium">{m.display_name}</span>
+                      )}
+                      {canManageMembers && managed && (
+                        <div className="text-xs text-(--color-text-subtle)">
+                          {m.email}
+                        </div>
+                      )}
+                      {canManageMembers && managed && m.sub_role_ids.length > 0 && (
                         <BadgeList
                           className="mt-1"
                           max={2}
@@ -372,13 +409,17 @@ export function MembersPage() {
                     <TableTd>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Badge tone="accent" className="capitalize">{m.primary_role}</Badge>
-                        <BadgeList className="max-w-48" max={2} items={m.tag_ids.map(tagName)} />
+                        {canManageMembers && managed && (
+                          <BadgeList className="max-w-48" max={2} items={m.tag_ids.map(tagName)} />
+                        )}
                       </div>
-                      <div className="mt-1 text-[0.68rem] text-(--color-text-subtle)">
-                        {m.sub_role_ids.length} sub-roles · {m.tag_ids.length} tags
-                      </div>
+                      {canManageMembers && managed && (
+                        <div className="mt-1 text-[0.68rem] text-(--color-text-subtle)">
+                          {m.sub_role_ids.length} sub-roles · {m.tag_ids.length} tags
+                        </div>
+                      )}
                     </TableTd>
-                    <TableTd>
+                    {canManageMembers && managed && <TableTd>
                       <div className="text-xs text-(--color-text-muted)">
                         {m.last_seen_at ? formatLastSeen(m.last_seen_at) : "Never"}
                       </div>
@@ -390,14 +431,14 @@ export function MembersPage() {
                         )}
                         {m.must_change_password ? "Password change required" : "Account ready"}
                       </div>
-                    </TableTd>
-                    <TableTd>
+                    </TableTd>}
+                    {canManageMembers && managed && <TableTd>
                       <span className="inline-flex items-center gap-1.5 capitalize text-(--color-text-muted)">
                         <StatusDot tone={MEMBER_STATUS_TONES[m.status]} />
                         {m.status}
                       </span>
-                    </TableTd>
-                    {isAdmin && (
+                    </TableTd>}
+                    {canManageMembers && managed && (
                       <TableTd>
                         <div className="flex justify-end gap-1">
                           <Link
@@ -444,7 +485,8 @@ export function MembersPage() {
                       </TableTd>
                     )}
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           </TableWrap>
@@ -776,6 +818,15 @@ function EditMemberDialog({
         </div>
       </div>
     </Dialog>
+  )
+}
+
+function isManagedMember(member: MemberListItem): member is User {
+  return (
+    "email" in member &&
+    "status" in member &&
+    "sub_role_ids" in member &&
+    "tag_ids" in member
   )
 }
 

@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::role::PrimaryRole;
@@ -19,7 +21,7 @@ pub struct User {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UserStatus {
     /// SSO first login — waiting for admin approval.
@@ -31,6 +33,8 @@ pub enum UserStatus {
 }
 
 impl UserStatus {
+    pub const ALL: [Self; 4] = [Self::Pending, Self::Invited, Self::Active, Self::Disabled];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -40,17 +44,37 @@ impl UserStatus {
         }
     }
 
-    pub fn parse(value: &str) -> Self {
+    pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "pending" => Self::Pending,
-            "invited" => Self::Invited,
-            "disabled" => Self::Disabled,
-            _ => Self::Active,
+            "pending" => Some(Self::Pending),
+            "invited" => Some(Self::Invited),
+            "active" => Some(Self::Active),
+            "disabled" => Some(Self::Disabled),
+            _ => None,
         }
     }
 
     pub fn can_authenticate(self) -> bool {
         matches!(self, Self::Active | Self::Invited)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseUserStatusError;
+
+impl fmt::Display for ParseUserStatusError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown user status")
+    }
+}
+
+impl std::error::Error for ParseUserStatusError {}
+
+impl FromStr for UserStatus {
+    type Err = ParseUserStatusError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or(ParseUserStatusError)
     }
 }
 
@@ -127,21 +151,14 @@ mod tests {
     #[test]
     fn as_str_and_parse_round_trip() {
         for status in ALL {
-            assert_eq!(UserStatus::parse(status.as_str()), status);
+            assert_eq!(UserStatus::parse(status.as_str()), Some(status));
         }
     }
 
-    /// `parse` falls back to `Active` for anything it does not recognise. That
-    /// is a permissive default on a security-relevant field, so it is asserted
-    /// deliberately rather than left implicit.
     #[test]
-    fn parse_falls_back_to_active_for_unknown_values() {
+    fn unknown_persisted_status_cannot_authenticate() {
         for value in ["", "unknown", "ACTIVE", "deleted"] {
-            assert_eq!(
-                UserStatus::parse(value),
-                UserStatus::Active,
-                "unexpected fallback for {value:?}"
-            );
+            assert_eq!(UserStatus::parse(value), None, "accepted {value:?}");
         }
     }
 

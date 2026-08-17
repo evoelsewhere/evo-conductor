@@ -2,9 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Minus, Pencil, Plus, Trash2 } from "lucide-react"
 import { useState } from "react"
 
-import { api, type SubRole } from "@/shared/api/client"
+import { api, type PermissionGrant, type SubRole } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import {
+  PERMISSION,
+  constraintLabel,
+  mayRequest,
+  permissionLabel,
+} from "@/shared/lib/authorization"
 import { useAuthStore } from "@/shared/stores/auth"
+import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { Card, CardHeader, CardList, CardTitle } from "@/shared/ui/card"
 import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
@@ -22,34 +29,9 @@ import {
   TableWrap,
 } from "@/shared/ui/table"
 
-const primaryRoles = [
-  {
-    role: "admin",
-    desc: "Project settings, SSO, members, roles, tags, full telemetry.",
-  },
-  {
-    role: "contribute",
-    desc: "Publish shared Agents, Skills and Plugins and view team monitoring.",
-  },
-  {
-    role: "user",
-    desc: "Consume shared catalogs, create personal secrets, report usage.",
-  },
-] as const
-
-const permissionMatrix = [
-  { capability: "Project settings & SSO", admin: true, contribute: false, user: false },
-  { capability: "Approve and manage members", admin: true, contribute: false, user: false },
-  { capability: "View active member directory", admin: true, contribute: true, user: false },
-  { capability: "Manage sub-roles", admin: true, contribute: false, user: false },
-  { capability: "Manage shared tags", admin: true, contribute: true, user: false },
-  { capability: "Publish shared resources", admin: true, contribute: true, user: false },
-  { capability: "Consume shared resources", admin: true, contribute: true, user: true },
-  { capability: "Manage own connection secrets", admin: true, contribute: true, user: true },
-] as const
-
 export function RolesPage() {
-  const user = useAuthStore((s) => s.user)
+  const authorization = useAuthStore((state) => state.authorization)
+  const can = useAuthStore((state) => state.can)
   const qc = useQueryClient()
   const { data = [], isLoading } = useQuery({
     queryKey: ["sub-roles"],
@@ -67,7 +49,9 @@ export function RolesPage() {
     },
   })
 
-  const canManage = user?.primary_role === "admin"
+  const canManage = mayRequest(can(PERMISSION.TAXONOMY_DEFINITION_MANAGE))
+  const fixedRoles = authorization?.fixed_roles ?? []
+  const permissions = authorization?.permission_metadata ?? []
 
   return (
     <PageFrame
@@ -82,12 +66,21 @@ export function RolesPage() {
         ) : undefined
       }
     >
+      {!canManage && (
+        <p className="mb-4 rounded-lg border border-(--border-soft) bg-(--bg-key) px-3 py-2 text-sm text-(--color-text-muted)">
+          Fixed role bundles and sub-roles are read-only for your account.
+        </p>
+      )}
+
       <div className="mb-6 grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-        {primaryRoles.map((item) => (
+        {fixedRoles.map((item) => (
           <Card key={item.role} className="p-4">
-            <div className="text-sm font-semibold capitalize">{item.role}</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold">{roleLabel(item.role)}</div>
+              {authorization?.current_role === item.role && <Badge tone="accent">Current</Badge>}
+            </div>
             <p className="mt-1 text-xs leading-relaxed text-(--color-text-muted)">
-              {item.desc}
+              Server-defined fixed bundle with {item.grants.length} permission grants.
             </p>
           </Card>
         ))}
@@ -98,24 +91,27 @@ export function RolesPage() {
           <TableHead>
             <tr>
               <TableTh>Permission boundary</TableTh>
-              {primaryRoles.map((role) => (
-                <TableTh key={role.role} className="text-center capitalize">
-                  {role.role}
+              {fixedRoles.map((role) => (
+                <TableTh key={role.role} className="text-center">
+                  {roleLabel(role.role)}
                 </TableTh>
               ))}
             </tr>
           </TableHead>
           <TableBody>
-            {permissionMatrix.map((row) => (
-              <TableRow key={row.capability}>
-                <TableTd className="font-medium">{row.capability}</TableTd>
-                {primaryRoles.map((role) => {
-                  const allowed = row[role.role]
+            {permissions.map(({ key }) => (
+              <TableRow key={key}>
+                <TableTd>
+                  <div className="font-medium">{permissionLabel(key)}</div>
+                  <code className="text-[0.65rem] text-(--color-text-subtle)">{key}</code>
+                </TableTd>
+                {fixedRoles.map((role) => {
+                  const grant = role.grants.find((item) => item.permission === key)
                   return (
                     <TableTd key={role.role} className="text-center">
-                      <span className="sr-only">{allowed ? "Allowed" : "Not allowed"}</span>
-                      {allowed ? (
-                        <Check className="mx-auto size-4 text-(--color-success)" aria-hidden />
+                      <span className="sr-only">{grant ? "Granted" : "Not granted"}</span>
+                      {grant ? (
+                        <GrantCell grant={grant} />
                       ) : (
                         <Minus className="mx-auto size-4 text-(--color-text-subtle)" aria-hidden />
                       )}
@@ -214,6 +210,27 @@ export function RolesPage() {
       />
     </PageFrame>
   )
+}
+
+function GrantCell({ grant }: { grant: PermissionGrant }) {
+  return (
+    <span className="inline-flex max-w-40 flex-col items-center gap-1">
+      <Check className="size-4 text-(--color-success)" aria-hidden />
+      <span className="text-[0.62rem] leading-tight text-(--color-text-subtle)">
+        {constraintLabel(grant.constraints)}
+      </span>
+      {grant.response_projection && (
+        <Badge tone="neutral" className="text-[0.58rem]">
+          {grant.response_projection.replaceAll("_", " ")}
+        </Badge>
+      )}
+    </span>
+  )
+}
+
+function roleLabel(role: string) {
+  if (role === "contribute") return "Contributor"
+  return role.charAt(0).toUpperCase() + role.slice(1)
 }
 
 function RoleDialog({

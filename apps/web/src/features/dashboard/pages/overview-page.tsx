@@ -102,7 +102,7 @@ export function OverviewPage() {
           />
           <Row
             title="Monitor performance"
-            body="Admin and Contribute roles see per-member usage: tokens, tool calls, active agents."
+            body="Admins can investigate member detail; Contributors receive privacy-safe project and owned-resource aggregates."
           />
         </CardList>
         <CardFooter>

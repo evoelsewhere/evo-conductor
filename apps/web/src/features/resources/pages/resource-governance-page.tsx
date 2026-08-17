@@ -26,6 +26,10 @@ import {
   RESOURCE_STATUS,
 } from "@/shared/constants/resource"
 import { PageFrame } from "@/shared/components/page-frame"
+import {
+  PERMISSION,
+  mayRequest,
+} from "@/shared/lib/authorization"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
@@ -50,7 +54,7 @@ export function ResourceGovernancePage({
     resourceId: string
   }
   const navigate = useNavigate()
-  const actor = useAuthStore((state) => state.user)
+  const can = useAuthStore((state) => state.can)
   const resources = useQuery({
     queryKey: [RESOURCE_QUERY_KEY],
     queryFn: () => api.resources(),
@@ -58,12 +62,27 @@ export function ResourceGovernancePage({
   const resource = resources.data?.find(
     (item) => item.id === resourceId && item.kind === kind,
   )
-  const canManage = Boolean(
-    resource &&
-      actor &&
-      (actor.primary_role === "admin" ||
-        (actor.primary_role === "contribute" &&
-          resource.owner_user_id === actor.id)),
+  const permissionTarget = resource
+    ? {
+        ownerId: resource.owner_user_id,
+        resourceKind: resource.kind,
+        lifecycle: resource.status,
+      }
+    : undefined
+  const canAuthor = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_AUTHOR, permissionTarget)),
+  )
+  const canManageAccess = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_ACCESS_MANAGE, permissionTarget)),
+  )
+  const canManageLifecycle = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_LIFECYCLE_MANAGE, permissionTarget)),
+  )
+  const canReadFeedback = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_FEEDBACK_READ, permissionTarget)),
+  )
+  const canSubmitFeedback = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_FEEDBACK_SUBMIT, permissionTarget)),
   )
 
   const catalogPath = resourceCatalogPath(resource?.kind ?? kind)
@@ -99,7 +118,7 @@ export function ResourceGovernancePage({
     )
   }
 
-  if (view === "access" && !canManage) {
+  if (view === "access" && !canManageAccess) {
     return (
       <PageFrame
         title={resource.name}
@@ -135,7 +154,7 @@ export function ResourceGovernancePage({
             <ArrowLeft className="size-3.5" />
             Catalog
           </Button>
-          {canManage && (
+          {canAuthor && (
             <Button
               variant="gradient"
               onClick={() =>
@@ -155,15 +174,23 @@ export function ResourceGovernancePage({
       <ResourceGovernanceNav
         resource={resource}
         active={view}
-        canManage={canManage}
+        canManage={canManageAccess}
       />
 
       {view === "overview" ? (
-        <ResourceOverview resource={resource} canManage={canManage} />
+        <ResourceOverview
+          resource={resource}
+          canEdit={canAuthor}
+          canManageLifecycle={canManageLifecycle}
+        />
       ) : view === "access" ? (
         <ResourceAccess resource={resource} />
       ) : (
-        <ResourceFeedback resource={resource} canManage={canManage} />
+        <ResourceFeedback
+          resource={resource}
+          canRead={canReadFeedback}
+          canSubmit={canSubmitFeedback}
+        />
       )}
     </PageFrame>
   )
@@ -235,10 +262,12 @@ function ResourceGovernanceNav({
 
 function ResourceOverview({
   resource,
-  canManage,
+  canEdit,
+  canManageLifecycle,
 }: {
   resource: ManagedResource
-  canManage: boolean
+  canEdit: boolean
+  canManageLifecycle: boolean
 }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(resource.name)
@@ -329,7 +358,7 @@ function ResourceOverview({
             </div>
           </div>
 
-          {canManage ? (
+          {canEdit ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Name" htmlFor="resource-name">
                 <Input
@@ -402,7 +431,7 @@ function ResourceOverview({
             </dl>
           </section>
 
-          {canManage && (
+          {canManageLifecycle && (
             <section className="rounded-xl border border-(--color-error)/25 bg-(--color-error-subtle)/35 p-4">
               <div className="flex items-start gap-2.5">
                 <Archive className="mt-0.5 size-4 shrink-0 text-(--color-error)" />
@@ -461,6 +490,11 @@ function ResourceOverview({
 
 function ResourceAccess({ resource }: { resource: ManagedResource }) {
   const queryClient = useQueryClient()
+  const authorization = useAuthStore((state) => state.authorization)
+  const can = useAuthStore((state) => state.can)
+  const canReadMemberPrivate = mayRequest(
+    can(PERMISSION.MEMBER_PRIVATE_READ_ANY),
+  )
   const access = useQuery({
     queryKey: [RESOURCE_QUERY_KEY, resource.id, "access"],
     queryFn: () => api.resourceAccess(resource.id),
@@ -468,7 +502,12 @@ function ResourceAccess({ resource }: { resource: ManagedResource }) {
   const roles = useQuery({ queryKey: ["sub-roles"], queryFn: api.subRoles })
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.tags })
   const members = useQuery({
-    queryKey: ["members", "access-options"],
+    queryKey: [
+      "members",
+      "access-options",
+      authorization?.current_role,
+      authorization?.policy_revision,
+    ],
     queryFn: () => api.members({ status: "active", limit: 100 }),
   })
   const [policy, setPolicy] = useState<ResourceAccessPolicy | null>(null)
@@ -590,7 +629,9 @@ function ResourceAccess({ resource }: { resource: ManagedResource }) {
               disabled={policy.all_members}
               options={(members.data?.items ?? []).map((member) => ({
                 value: member.id,
-                label: `${member.display_name} · ${member.email}`,
+                label: canReadMemberPrivate && "email" in member
+                  ? `${member.display_name} · ${member.email}`
+                  : member.display_name,
               }))}
               value={policy.member_ids}
               onChange={(member_ids) => change({ ...policy, member_ids })}
@@ -634,10 +675,12 @@ function ResourceAccess({ resource }: { resource: ManagedResource }) {
 
 function ResourceFeedback({
   resource,
-  canManage,
+  canRead,
+  canSubmit,
 }: {
   resource: ManagedResource
-  canManage: boolean
+  canRead: boolean
+  canSubmit: boolean
 }) {
   const queryClient = useQueryClient()
   const [rating, setRating] = useState<"1" | "2" | "3" | "4" | "5">("5")
@@ -646,7 +689,7 @@ function ResourceFeedback({
   const feedback = useQuery({
     queryKey: [RESOURCE_QUERY_KEY, resource.id, "feedback"],
     queryFn: () => api.resourceFeedback(resource.id),
-    enabled: canManage,
+    enabled: canRead,
   })
   const submit = useMutation({
     mutationFn: () => api.submitResourceFeedback(resource.id, Number(rating), comment.trim()),
@@ -701,7 +744,7 @@ function ResourceFeedback({
           )
         )}
 
-        {feedbackOpen ? (
+        {feedbackOpen && canSubmit ? (
           <div className="space-y-4">
             <Field label="Rating" htmlFor="feedback-rating">
               <Select
@@ -754,7 +797,7 @@ function ResourceFeedback({
         )}
       </section>
 
-      {canManage ? (
+      {canRead ? (
         <section className="rounded-xl border border-(--border-card) bg-(--bg-card) p-5">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>

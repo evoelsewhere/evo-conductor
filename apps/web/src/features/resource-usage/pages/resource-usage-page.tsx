@@ -50,6 +50,7 @@ import {
   type ResourceUsageParams,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/components/stat-card"
 import { RESOURCE_KIND, RESOURCE_KIND_LABEL, type ResourceKind } from "@/shared/constants/resource"
 import { RESOURCE_KIND_USAGE_PATHS } from "@/shared/constants/resource-monitoring"
@@ -76,6 +77,7 @@ import { Badge } from "@/shared/ui/badge"
 import { Button, buttonVariants } from "@/shared/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
+import { useAuthStore } from "@/shared/stores/auth"
 
 const PAGE_COPY: Record<ResourceUsageView, { title: string; subtitle: string }> = {
   [RESOURCE_USAGE_VIEW.OVERVIEW]: {
@@ -99,9 +101,13 @@ export function ResourceUsagePage({
   view?: ResourceUsageView
   scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
 }) {
+  const can = useAuthStore((state) => state.can)
+  const allowMemberDetail = mayRequest(can(PERMISSION.TELEMETRY_MEMBER_READ_ANY))
   const initialRange = useMemo(readRangeFromUrl, [])
   const dates = useUsageRange(initialRange.preset, initialRange.from, initialRange.to)
-  const [filters, setFilters] = useState<ResourceUsageFilterState>(() => readFiltersFromUrl(scopeKind))
+  const [filters, setFilters] = useState<ResourceUsageFilterState>(() =>
+    sanitizeMemberFilters(readFiltersFromUrl(scopeKind), allowMemberDetail),
+  )
   const [offset, setOffset] = useState(readOffsetFromUrl)
   const deferredProvider = useDeferredValue(filters.provider.trim())
   const deferredModel = useDeferredValue(filters.model.trim())
@@ -109,11 +115,12 @@ export function ResourceUsagePage({
   const members = useQuery({
     queryKey: [RESOURCE_USAGE_MEMBERS_QUERY_KEY],
     queryFn: () => api.members({ limit: 100 }),
+    enabled: allowMemberDetail,
   })
   const installations = useQuery({
     queryKey: [RESOURCE_USAGE_INSTALLATIONS_QUERY_KEY, filters.memberId],
     queryFn: () => api.memberInstallations(filters.memberId),
-    enabled: filters.memberId !== RESOURCE_USAGE_ALL_FILTER,
+    enabled: allowMemberDetail && filters.memberId !== RESOURCE_USAGE_ALL_FILTER,
   })
   const resources = useQuery({ queryKey: [RESOURCE_USAGE_RESOURCES_QUERY_KEY], queryFn: api.resources })
   const versions = useQuery({
@@ -124,8 +131,8 @@ export function ResourceUsagePage({
 
   const params = useMemo<ResourceUsageParams>(() => ({
     ...dates.range,
-    member_id: optional(filters.memberId),
-    installation_id: optional(filters.installationId),
+    member_id: allowMemberDetail ? optional(filters.memberId) : undefined,
+    installation_id: allowMemberDetail ? optional(filters.installationId) : undefined,
     primary_role: optional(filters.primaryRole) as PrimaryRole | undefined,
     resource_kind: scopeKind ?? optional(filters.resourceKind) as ResourceKind | undefined,
     resource_id: optional(filters.resourceId),
@@ -139,7 +146,7 @@ export function ResourceUsagePage({
       ? RESOURCE_USAGE_OVERVIEW_ACTIVITY_LIMIT
       : RESOURCE_USAGE_PAGE_SIZE,
     offset: view === RESOURCE_USAGE_VIEW.ACTIVITY ? offset : 0,
-  }), [dates.range, deferredModel, deferredProvider, deferredToolName, filters, offset, scopeKind, view])
+  }), [allowMemberDetail, dates.range, deferredModel, deferredProvider, deferredToolName, filters, offset, scopeKind, view])
 
   const analyticsQuery = useMemo<AnalyticsQuery>(() => ({
     date_range: analyticsDateRange(dates.preset),
@@ -160,7 +167,7 @@ export function ResourceUsagePage({
 
   function applyAnalyticsQuery(query: AnalyticsQuery) {
     applyAnalyticsDateRange(query, dates)
-    setFilters({
+    setFilters(sanitizeMemberFilters({
       memberId: query.member_id ?? RESOURCE_USAGE_ALL_FILTER,
       installationId: query.installation_id ?? RESOURCE_USAGE_ALL_FILTER,
       primaryRole: query.primary_role ?? RESOURCE_USAGE_ALL_FILTER,
@@ -172,7 +179,7 @@ export function ResourceUsagePage({
       provider: query.provider ?? "",
       model: query.model ?? "",
       toolName: query.tool_name ?? "",
-    })
+    }, allowMemberDetail))
     setOffset(0)
   }
 
@@ -186,6 +193,12 @@ export function ResourceUsagePage({
     const suffix = search.toString()
     window.history.replaceState(null, "", `${window.location.pathname}${suffix ? `?${suffix}` : ""}`)
   }, [dates.customFrom, dates.customTo, dates.preset, filters, offset, view])
+
+  useEffect(() => {
+    if (!allowMemberDetail) {
+      setFilters((current) => sanitizeMemberFilters(current, false))
+    }
+  }, [allowMemberDetail])
 
   const copy = scopedPageCopy(view, scopeKind)
   return (
@@ -203,11 +216,12 @@ export function ResourceUsagePage({
         resources={(resources.data ?? []).filter((item) => [RESOURCE_KIND.AGENT, RESOURCE_KIND.SKILL, RESOURCE_KIND.PLUGIN].includes(item.kind as never))}
         versions={versions.data ?? []}
         lockedKind={scopeKind}
+        allowMemberDetail={allowMemberDetail}
         onChange={(next) => { setFilters(next); setOffset(0) }}
       />
 
       {usage.error && <ErrorState className="mt-4" message={usage.error.message} />}
-      {view === RESOURCE_USAGE_VIEW.OVERVIEW && <OverviewPanel data={usage.data} loading={usage.isLoading} activityPath={scopeKind ? RESOURCE_KIND_USAGE_PATHS[scopeKind].activity : RESOURCE_USAGE_PATHS.activity} />}
+      {view === RESOURCE_USAGE_VIEW.OVERVIEW && <OverviewPanel data={usage.data} loading={usage.isLoading} activityPath={scopeKind ? RESOURCE_KIND_USAGE_PATHS[scopeKind].activity : RESOURCE_USAGE_PATHS.activity} showMemberDetail={allowMemberDetail} />}
       {view === RESOURCE_USAGE_VIEW.ACTIVITY && (
         <ActivityPanel data={usage.data} loading={usage.isLoading} offset={offset} onOffsetChange={setOffset} />
       )}
@@ -218,13 +232,14 @@ export function ResourceUsagePage({
           scopeKind={scopeKind}
           query={analyticsQuery}
           onApplyQuery={applyAnalyticsQuery}
+          showMemberDetail={allowMemberDetail}
         />
       )}
     </PageFrame>
   )
 }
 
-function OverviewPanel({ data, loading, activityPath }: { data?: ResourceUsageAnalytics; loading: boolean; activityPath: string }) {
+function OverviewPanel({ data, loading, activityPath, showMemberDetail }: { data?: ResourceUsageAnalytics; loading: boolean; activityPath: string; showMemberDetail: boolean }) {
   const totals = data?.totals
   const successRate = calculateSuccessRate(totals?.successes ?? 0, totals?.errors ?? 0)
   const averageCost = totals?.requests
@@ -236,7 +251,7 @@ function OverviewPanel({ data, loading, activityPath }: { data?: ResourceUsageAn
       {loading ? <StatCardGridSkeleton count={4} className="mt-4 lg:grid-cols-4" /> : (
         <StatCardGrid className="mt-4 lg:grid-cols-4">
           <StatCard label="Requests" value={(totals?.requests ?? 0).toLocaleString()} hint={`${formatTokens(totals?.average_tokens_per_request ?? 0)} tokens/request`} icon={Gauge} />
-          <StatCard label="Active members" value={(data?.members.length ?? 0).toLocaleString()} hint={`${totals?.installed_members ?? 0} members with an installation`} icon={Users} tone="accent" />
+          <StatCard label="Installed members" value={(totals?.installed_members ?? 0).toLocaleString()} hint="Aggregate project adoption" icon={Users} tone="accent" />
           <StatCard label="Success rate" value={`${successRate}%`} hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked · ${totals?.cancelled ?? 0} cancelled`} icon={Users} tone={successRate >= 90 ? "success" : "warning"} />
           <StatCard label="Estimated cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${formatEstimatedCost(averageCost)} avg · ${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} tone="warning" />
         </StatCardGrid>
@@ -250,7 +265,7 @@ function OverviewPanel({ data, loading, activityPath }: { data?: ResourceUsageAn
           <TokenCostChart daily={data?.daily ?? []} />
         </div>
       )}
-      <Card className="mt-4">
+      {showMemberDetail && <Card className="mt-4">
         <CardHeader>
           <div><CardTitle>Recent attributed activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Server-received request metadata. Open any row for its privacy-safe event timeline.</p></div>
           <Link to={activityPath} search className={buttonVariants({ variant: "outline", size: "sm" })}>View all activity</Link>
@@ -258,7 +273,7 @@ function OverviewPanel({ data, loading, activityPath }: { data?: ResourceUsageAn
         <CardContent className="p-0">
           {loading ? <div className="grid h-40 place-items-center text-sm text-(--color-text-muted)">Loading activity…</div> : data?.activity.length ? <ResourceUsageActivityTable items={data.activity} /> : <ResourceActivityEmpty />}
         </CardContent>
-      </Card>
+      </Card>}
     </>
   )
 }
@@ -348,12 +363,14 @@ function UsagePanel({
   scopeKind,
   query,
   onApplyQuery,
+  showMemberDetail,
 }: {
   data?: ResourceUsageAnalytics
   loading: boolean
   scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
   query: AnalyticsQuery
   onApplyQuery: (query: AnalyticsQuery) => void
+  showMemberDetail: boolean
 }) {
   const scopeLabel = scopeKind ? `${RESOURCE_KIND_LABEL[scopeKind]}s` : "Resources"
   return (
@@ -366,13 +383,16 @@ function UsagePanel({
         scope={scopeKind ? { resourceKind: scopeKind } : undefined}
         query={query}
         onApplyQuery={onApplyQuery}
+        allowMemberDetail={showMemberDetail}
       />
       <BreakdownCard title="Resource and version usage" description="Adoption, request outcomes, calls, token volume and cost by immutable resource version.">
         {data?.resources.length ? <ResourceBreakdownTable items={data.resources} /> : <ResourceUsageEmpty title="No resource usage" description="Resource-version breakdown appears after attributed telemetry arrives." />}
       </BreakdownCard>
-      <BreakdownCard title="Member adoption" description="Recorded role, resource usage and consumption by member; no productivity scoring.">
-        {data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <ResourceUsageEmpty title="No member adoption" description="Member breakdown appears after attributed telemetry arrives." />}
-      </BreakdownCard>
+      {showMemberDetail && (
+        <BreakdownCard title="Member adoption" description="Recorded role, resource usage and consumption by member; no productivity scoring.">
+          {data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <ResourceUsageEmpty title="No member adoption" description="Member breakdown appears after attributed telemetry arrives." />}
+        </BreakdownCard>
+      )}
       <BreakdownCard title="Provider and model usage" description="Calls, tokens, estimated cost and pricing coverage while governed resources were active.">
         {data?.models.length ? <ResourceModelBreakdownTable items={data.models} /> : <ResourceUsageEmpty title="No model usage" description="Provider and model breakdown appears after model-call telemetry arrives." />}
       </BreakdownCard>
@@ -405,6 +425,18 @@ function calculateSuccessRate(successes: number, errors: number) {
 
 function optional(value: string) {
   return value && value !== RESOURCE_USAGE_ALL_FILTER ? value : undefined
+}
+
+function sanitizeMemberFilters(
+  filters: ResourceUsageFilterState,
+  allowMemberDetail: boolean,
+): ResourceUsageFilterState {
+  if (allowMemberDetail) return filters
+  return {
+    ...filters,
+    memberId: RESOURCE_USAGE_ALL_FILTER,
+    installationId: RESOURCE_USAGE_ALL_FILTER,
+  }
 }
 
 function readFiltersFromUrl(scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">): ResourceUsageFilterState {

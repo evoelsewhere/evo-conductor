@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::role::PrimaryRole;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
     Agent,
@@ -565,7 +565,7 @@ pub struct ResourceInventoryItem {
     pub release_channel: Option<ReleaseChannel>,
     pub content_sha256: Option<String>,
     pub plugin_installation_id: Option<String>,
-    pub observed_state: String,
+    pub observed_state: ResourceInventoryObservedState,
     pub error_category: Option<String>,
     pub observed_at: DateTime<Utc>,
 }
@@ -610,6 +610,24 @@ impl ResourceInventoryObservedState {
             Self::ProjectScopeMismatch => "project_scope_mismatch",
             Self::Error => "error",
             Self::Removed => "removed",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "staged" => Some(Self::Staged),
+            "trust_pending" => Some(Self::TrustPending),
+            "update_pending" => Some(Self::UpdatePending),
+            "applied" => Some(Self::Applied),
+            "in_sync" => Some(Self::InSync),
+            "declined" => Some(Self::Declined),
+            "incompatible" => Some(Self::Incompatible),
+            "ownership_conflict" => Some(Self::OwnershipConflict),
+            "project_scope_mismatch" => Some(Self::ProjectScopeMismatch),
+            "error" => Some(Self::Error),
+            "removed" => Some(Self::Removed),
+            _ => None,
         }
     }
 }

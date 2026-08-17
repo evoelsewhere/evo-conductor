@@ -10,6 +10,13 @@ pub struct RoleRepo {
     pool: Pool<Any>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaxonomyDeleteResult {
+    Deleted,
+    NotFound,
+    Referenced,
+}
+
 impl RoleRepo {
     pub fn new(pool: Pool<Any>) -> Self {
         Self { pool }
@@ -134,18 +141,41 @@ impl RoleRepo {
         }))
     }
 
-    pub async fn delete_sub_role(&self, id: &str) -> Result<bool, sqlx::Error> {
+    pub async fn delete_sub_role(&self, id: &str) -> Result<TaxonomyDeleteResult, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM user_sub_roles WHERE sub_role_id = ?")
+        let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sub_roles WHERE id = ?")
             .bind(id)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
+        if exists == 0 {
+            tx.rollback().await?;
+            return Ok(TaxonomyDeleteResult::NotFound);
+        }
+        let member_references: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM user_sub_roles WHERE sub_role_id = ?")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let resource_references: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_access_rules WHERE subject_type = 'sub_role' AND subject_id = ?",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if member_references > 0 || resource_references > 0 {
+            tx.rollback().await?;
+            return Ok(TaxonomyDeleteResult::Referenced);
+        }
         let res = sqlx::query("DELETE FROM sub_roles WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(res.rows_affected() > 0)
+        Ok(if res.rows_affected() > 0 {
+            TaxonomyDeleteResult::Deleted
+        } else {
+            TaxonomyDeleteResult::NotFound
+        })
     }
 
     pub async fn list_tags(&self) -> Result<Vec<Tag>, sqlx::Error> {
@@ -263,22 +293,44 @@ impl RoleRepo {
         }))
     }
 
-    pub async fn delete_tag(&self, id: &str) -> Result<bool, sqlx::Error> {
+    pub async fn delete_tag(&self, id: &str) -> Result<TaxonomyDeleteResult, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM tag_assignments WHERE tag_id = ?")
+        let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE id = ?")
             .bind(id)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM user_tags WHERE tag_id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        if exists == 0 {
+            tx.rollback().await?;
+            return Ok(TaxonomyDeleteResult::NotFound);
+        }
+        let assignment_references: i64 = sqlx::query_scalar(
+            "SELECT (SELECT COUNT(*) FROM tag_assignments WHERE tag_id = ?) + \
+                    (SELECT COUNT(*) FROM user_tags WHERE tag_id = ?)",
+        )
+        .bind(id)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let resource_references: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM resource_access_rules WHERE subject_type = 'tag' AND subject_id = ?",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if assignment_references > 0 || resource_references > 0 {
+            tx.rollback().await?;
+            return Ok(TaxonomyDeleteResult::Referenced);
+        }
         let res = sqlx::query("DELETE FROM tags WHERE id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(res.rows_affected() > 0)
+        Ok(if res.rows_affected() > 0 {
+            TaxonomyDeleteResult::Deleted
+        } else {
+            TaxonomyDeleteResult::NotFound
+        })
     }
 
     pub async fn tag_ids_for_entity(

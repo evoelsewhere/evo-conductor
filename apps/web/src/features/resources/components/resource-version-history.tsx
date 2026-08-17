@@ -43,6 +43,7 @@ interface ResourceVersionHistoryProps {
   draftRevision: number
   loading: boolean
   versions?: ResourceVersion[]
+  canManageLifecycle: boolean
   onVersionDeprecated: (version: ResourceVersion) => void
   onDraftRestored: (tree: DraftFileTree, version: ResourceVersion) => void
 }
@@ -52,6 +53,7 @@ export function ResourceVersionHistory({
   draftRevision,
   loading,
   versions,
+  canManageLifecycle,
   onVersionDeprecated,
   onDraftRestored,
 }: ResourceVersionHistoryProps) {
@@ -133,7 +135,7 @@ export function ResourceVersionHistory({
                   <TableTh>Lifecycle</TableTh>
                   <TableTh>Integrity</TableTh>
                   <TableTh>Released</TableTh>
-                  <TableTh className="text-right">Actions</TableTh>
+                  {canManageLifecycle && <TableTh className="text-right">Actions</TableTh>}
                 </tr>
               </TableHead>
               <TableBody>
@@ -167,7 +169,7 @@ export function ResourceVersionHistory({
                           </div>
                         )}
                       </TableTd>
-                      <TableTd>
+                      {canManageLifecycle && <TableTd>
                         <div className="flex justify-end gap-1.5">
                           <Button
                             variant="outline"
@@ -207,7 +209,7 @@ export function ResourceVersionHistory({
                             </Button>
                           )}
                         </div>
-                      </TableTd>
+                      </TableTd>}
                     </TableRow>
                   )
                 })}
@@ -218,7 +220,7 @@ export function ResourceVersionHistory({
       </Card>
 
       <Dialog
-        open={deprecating !== null}
+        open={canManageLifecycle && deprecating !== null}
         title={`Deprecate v${deprecating?.version ?? ""}?`}
         description="The immutable files and history remain available, but this version will no longer be a normal restore source."
         onClose={() => {
@@ -268,7 +270,7 @@ export function ResourceVersionHistory({
       </Dialog>
 
       <Dialog
-        open={restoring !== null}
+        open={canManageLifecycle && restoring !== null}
         title={`Restore v${restoring?.version ?? ""} to Draft?`}
         description="This replaces the current mutable Draft only. Active Beta or Published content stays unchanged until a new greater version is released."
         onClose={() => {

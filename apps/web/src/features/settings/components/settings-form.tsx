@@ -18,7 +18,9 @@ import {
   type StorageBackend,
 } from "@/shared/api/client"
 import { BrandLogo } from "@/shared/components/logo"
+import { mayRequest, PERMISSION } from "@/shared/lib/authorization"
 import { cn } from "@/shared/lib/utils"
+import { useAuthStore } from "@/shared/stores/auth"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { ErrorState } from "@/shared/ui/empty-state"
@@ -77,6 +79,8 @@ const MAX_LOGO_BYTES = 512 * 1024
 /** Project + network + SSO form used inside the settings modal. */
 export function SettingsForm() {
   const qc = useQueryClient()
+  const can = useAuthStore((state) => state.can)
+  const canManageSettings = mayRequest(can(PERMISSION.PROJECT_SETTINGS_MANAGE))
   const { data, isLoading, error } = useQuery({
     queryKey: ["settings"],
     queryFn: () => api.settings(),
@@ -464,7 +468,13 @@ export function SettingsForm() {
           </div>
         )}
         {formError && <ErrorState message={formError} />}
+        {!canManageSettings && (
+          <div className="rounded-lg border border-(--border-soft) bg-(--bg-key)/55 px-3 py-2 text-sm text-(--color-text-muted)">
+            You have read-only access to project settings.
+          </div>
+        )}
 
+        <fieldset disabled={!canManageSettings} className="contents">
         {tab === "general" && (
           <section className="space-y-5">
             <SectionHeader
@@ -1023,6 +1033,7 @@ export function SettingsForm() {
             </ActionRow>
           </section>
         )}
+        </fieldset>
         </div>
       </div>
     </div>

@@ -29,6 +29,7 @@ import {
   RESOURCE_STATUS,
 } from "@/shared/constants/resource"
 import { useAuthStore } from "@/shared/stores/auth"
+import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
@@ -89,8 +90,11 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const actor = useAuthStore((state) => state.user)
-  const canCreate = actor?.primary_role === "admin" || actor?.primary_role === "contribute"
-  const canMonitor = canCreate
+  const can = useAuthStore((state) => state.can)
+  const canCreate = mayRequest(
+    can(PERMISSION.RESOURCE_AUTHOR, { ownerId: actor?.id }),
+  )
+  const canMonitor = mayRequest(can(PERMISSION.TELEMETRY_PROJECT_READ))
   const catalogDates = useUsageRange()
   const resources = useQuery({
     queryKey: [RESOURCE_QUERY_KEY],
@@ -175,9 +179,12 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
     : null
 
   function canManage(resource: ManagedResource) {
-    return (
-      actor?.primary_role === "admin" ||
-      (actor?.primary_role === "contribute" && resource.owner_user_id === actor.id)
+    return mayRequest(
+      can(PERMISSION.RESOURCE_AUTHOR, {
+        ownerId: resource.owner_user_id,
+        resourceKind: resource.kind,
+        lifecycle: resource.status,
+      }),
     )
   }
 
@@ -482,13 +489,13 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
 
       {fixedKind === RESOURCE_KIND.PLUGIN ? (
         <PluginCreateDrawer
-          open={showCreate}
+          open={showCreate && canCreate}
           onClose={() => setShowCreate(false)}
           onCreated={handleCreated}
         />
       ) : (
         <ResourceCreateDrawer
-          open={showCreate}
+          open={showCreate && canCreate}
           defaultKind={fixedKind}
           onClose={() => setShowCreate(false)}
           onCreated={handleCreated}

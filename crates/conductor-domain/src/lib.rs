@@ -12,6 +12,7 @@
 //! ```
 
 pub mod analytics;
+pub mod authorization;
 pub mod client_installation;
 pub mod core;
 pub mod instance;
@@ -28,6 +29,14 @@ pub use analytics::{
     AnalyticsQuery, AnalyticsView, AnalyticsViewDefinition, AnalyticsViewVisibility,
     AnalyticsVisualization, AnalyticsWidget, AnalyticsWidgetSize, CreateAnalyticsViewRequest,
     UpdateAnalyticsViewRequest, ANALYTICS_VIEW_SCHEMA_VERSION,
+};
+pub use authorization::{
+    evaluate_policy, grants_for_role, role_has_permission, scope_is_role_compatible,
+    AuthenticationKind, AuthorizationAction, AuthorizationTarget, AuthorizationTargetSummary,
+    ConnectionPolicyRequirement, ConstraintExpr, DecisionReason, DeclaredRequirement,
+    LifecycleState, NonEmptySet, PermissionAlternative, PermissionGrant, PermissionKey,
+    PolicyDecision, PolicyDefinitionError, PolicyInput, PolicyRequirement, ResponseProjection,
+    TargetConstraint, TargetType, UnknownPolicyValue, V1_POLICY_REVISION,
 };
 pub use client_installation::{
     ClientHeartbeatRequest, ClientHeartbeatResponse, ClientInstallation, ClientInstallationSummary,

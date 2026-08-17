@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use tokio::sync::RwLock;
 
 use crate::core::artifacts::ArtifactStore;
+use crate::core::authorization::AuthorizationService;
 use crate::core::config::RealtimeConfig;
 use crate::http::realtime::RealtimeHub;
 
@@ -27,6 +28,7 @@ pub struct AppState {
     pub oidc_pending: Arc<DashMap<String, PendingOidc>>,
     pub realtime: RealtimeHub,
     pub artifacts: ArtifactStore,
+    pub authorization: AuthorizationService,
 }
 
 impl AppState {
@@ -57,6 +59,7 @@ impl AppState {
             oidc_pending: Arc::new(DashMap::new()),
             realtime: RealtimeHub::new(realtime_config),
             artifacts,
+            authorization: AuthorizationService::default(),
         })
     }
 

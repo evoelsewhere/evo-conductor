@@ -60,6 +60,9 @@ pub enum RealtimeSignal {
         audience: RealtimeAudience,
         resource_id: Uuid,
     },
+    ResourceAudienceChanged {
+        owner_user_id: Uuid,
+    },
     AccessRevoked {
         secret_id: Option<Uuid>,
         owner_user_id: Option<Uuid>,
@@ -141,6 +144,10 @@ impl RealtimeHub {
             owner_user_id: Some(owner_user_id),
             reason: reason.into(),
         });
+    }
+
+    pub fn resync_owner_resources(&self, owner_user_id: Uuid) {
+        self.publish(RealtimeSignal::ResourceAudienceChanged { owner_user_id });
     }
 
     pub fn try_connect(

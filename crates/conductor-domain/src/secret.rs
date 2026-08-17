@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +17,7 @@ pub struct ConnectionSecret {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretScope {
     /// Pull shared Agents, Skills and Plugin catalogs.
@@ -27,12 +29,46 @@ pub enum SecretScope {
 }
 
 impl SecretScope {
+    pub const ALL: [Self; 3] = [
+        Self::SubscribeResources,
+        Self::ReportTelemetry,
+        Self::SyncInventory,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::SubscribeResources => "subscribe_resources",
             Self::ReportTelemetry => "report_telemetry",
             Self::SyncInventory => "sync_inventory",
         }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "subscribe_resources" => Some(Self::SubscribeResources),
+            "report_telemetry" => Some(Self::ReportTelemetry),
+            "sync_inventory" => Some(Self::SyncInventory),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseSecretScopeError;
+
+impl fmt::Display for ParseSecretScopeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown secret scope")
+    }
+}
+
+impl std::error::Error for ParseSecretScopeError {}
+
+impl FromStr for SecretScope {
+    type Err = ParseSecretScopeError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or(ParseSecretScopeError)
     }
 }
 

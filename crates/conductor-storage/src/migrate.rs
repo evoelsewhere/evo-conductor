@@ -432,6 +432,13 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         sqlx::query(sql.trim()).execute(pool).await?;
     }
 
+    reject_duplicate_connection_token_hashes(pool).await?;
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_connection_secrets_token_hash ON connection_secrets(token_hash)",
+    )
+    .execute(pool)
+    .await?;
+
     // Best-effort column upgrades for databases created before this revision.
     let telemetry_event_type_alter = format!(
         "ALTER TABLE telemetry_events ADD COLUMN event_type TEXT NOT NULL DEFAULT '{}'",
@@ -562,6 +569,28 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+async fn reject_duplicate_connection_token_hashes(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
+    let duplicate_groups: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*) FROM (
+            SELECT token_hash
+            FROM connection_secrets
+            GROUP BY token_hash
+            HAVING COUNT(*) > 1
+        ) duplicate_token_hashes
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if duplicate_groups > 0 {
+        return Err(sqlx::Error::Protocol(
+            "connection credential uniqueness check failed".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn backfill_resource_versions(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
     let rows = sqlx::query(
         r#"
@@ -637,6 +666,46 @@ mod tests {
     use sqlx::any::AnyPoolOptions;
 
     use super::*;
+
+    #[tokio::test]
+    async fn migration_rejects_duplicate_token_hashes_without_exposing_them() {
+        sqlx::any::install_default_drivers();
+        let pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory database");
+        run(&pool).await.expect("run initial migration");
+
+        sqlx::query("DROP INDEX idx_connection_secrets_token_hash")
+            .execute(&pool)
+            .await
+            .expect("simulate pre-index schema");
+        let hash_canary = "MIGRATION_DUPLICATE_TOKEN_HASH_CANARY_never_serialize";
+        for owner in ["first-owner", "second-owner"] {
+            sqlx::query(
+                r#"
+                INSERT INTO connection_secrets (
+                    id, name, prefix, token_hash, owner_user_id, scopes, created_at
+                ) VALUES (?, 'migration canary', 'evc_test', ?, ?,
+                          '["subscribe_resources"]', '2026-08-17T00:00:00Z')
+                "#,
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(hash_canary)
+            .bind(owner)
+            .execute(&pool)
+            .await
+            .expect("seed duplicate legacy credential");
+        }
+
+        let error = run(&pool)
+            .await
+            .expect_err("migration must reject ambiguous token hashes");
+        let rendered = error.to_string();
+        assert!(rendered.contains("credential uniqueness check failed"));
+        assert!(!rendered.contains(hash_canary));
+    }
 
     #[tokio::test]
     async fn adds_description_to_an_existing_instance_table() {

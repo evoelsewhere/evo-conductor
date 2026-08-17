@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 const MAX_LOGO_BYTES: usize = 512 * 1024;
 const MAX_PROJECT_DESCRIPTION_CHARS: usize = 500;
 
-use crate::core::error::ApiResult;
+use crate::core::error::{ApiError, ApiResult};
 use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
 
@@ -76,11 +76,8 @@ pub async fn get_project_logo(State(state): State<AppState>) -> ApiResult<Respon
 
 pub async fn get_settings(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    AuthUser(_user): AuthUser,
 ) -> ApiResult<Json<ProjectSettings>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
     let instance = state
         .db
         .instance()
@@ -115,9 +112,6 @@ pub async fn update_data_policy(
     AuthUser(user): AuthUser,
     Json(request): Json<UpdateDataPolicyRequest>,
 ) -> ApiResult<Json<ProjectSettings>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
     state
         .db
         .instance()
@@ -131,9 +125,6 @@ pub async fn update_settings(
     AuthUser(user): AuthUser,
     Json(req): Json<UpdateInstanceRequest>,
 ) -> ApiResult<Json<ProjectSettings>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
     if let Some(ref name) = req.project_name {
         if name.trim().is_empty() {
             return Err(ConductorError::msg("project_name cannot be empty").into());
@@ -188,9 +179,6 @@ pub async fn update_network(
     AuthUser(user): AuthUser,
     Json(req): Json<UpdateNetworkRequest>,
 ) -> ApiResult<Json<ProjectSettings>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
     let bind_host = req.bind_host.trim();
     if bind_host.is_empty() {
         return Err(ConductorError::msg("bind_host cannot be empty").into());
@@ -235,12 +223,9 @@ pub async fn update_network(
 
 pub async fn update_storage(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    AuthUser(_user): AuthUser,
     Json(request): Json<UpdateStorageRequest>,
 ) -> ApiResult<Json<StorageMigrationResult>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
     let current = state.db.instance().storage_settings().await?;
     let credential_change = request.storage.git.clear_credential
         || request
@@ -261,10 +246,10 @@ pub async fn update_storage(
         keys.push(logo.key);
     }
     if current != request.storage && !request.migrate_existing && !keys.is_empty() {
-        return Err(ConductorError::Conflict(
-            "existing resource objects must be migrated before changing storage".into(),
-        )
-        .into());
+        return Err(ApiError::conflict(
+            "storage_migration_required",
+            "existing resource objects must be migrated before changing storage",
+        ));
     }
 
     let settings = request.storage;
@@ -294,9 +279,6 @@ pub async fn upload_logo(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<ProjectSettings>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
     if body.is_empty() || body.len() > MAX_LOGO_BYTES {
         return Err(ConductorError::msg("logo must be between 1 byte and 512 KiB").into());
     }
@@ -322,9 +304,6 @@ pub async fn delete_logo(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
 ) -> ApiResult<Json<ProjectSettings>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
     state.db.instance().update_logo_artifact(None).await?;
     get_settings(State(state), AuthUser(user)).await
 }
@@ -352,13 +331,9 @@ fn validated_logo_media_type(headers: &HeaderMap, bytes: &[u8]) -> ApiResult<&'s
 
 pub async fn update_sso(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    AuthUser(_user): AuthUser,
     Json(req): Json<UpdateSsoRequest>,
 ) -> ApiResult<Json<conductor_domain::SsoConfig>> {
-    if !user.primary_role.can_manage_settings() {
-        return Err(ConductorError::Forbidden.into());
-    }
-
     let mut req = req;
     req.issuer_url = req
         .issuer_url
