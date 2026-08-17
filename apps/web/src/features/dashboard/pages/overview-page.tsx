@@ -4,6 +4,10 @@ import { Boxes, KeyRound, Radio, Users } from "lucide-react"
 import { api } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { StatCard, StatCardSkeleton } from "@/shared/components/stat-card"
+import {
+  PRIMARY_ROLE,
+  PRIMARY_ROLE_LABELS,
+} from "@/shared/constants/member"
 import { Badge } from "@/shared/ui/badge"
 import {
   Card,
@@ -106,9 +110,9 @@ export function OverviewPage() {
           />
         </CardList>
         <CardFooter>
-          <Badge>admin</Badge>
-          <Badge>contribute</Badge>
-          <Badge>user + sub-roles</Badge>
+          <Badge>{PRIMARY_ROLE_LABELS[PRIMARY_ROLE.ADMIN]}</Badge>
+          <Badge>{PRIMARY_ROLE_LABELS[PRIMARY_ROLE.CONTRIBUTE]}</Badge>
+          <Badge>{PRIMARY_ROLE_LABELS[PRIMARY_ROLE.USER]} + sub-roles</Badge>
         </CardFooter>
       </Card>
     </PageFrame>

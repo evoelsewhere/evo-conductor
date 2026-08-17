@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { api, type PermissionGrant, type SubRole } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import {
   PERMISSION,
   constraintLabel,
@@ -76,7 +77,9 @@ export function RolesPage() {
         {fixedRoles.map((item) => (
           <Card key={item.role} className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold">{roleLabel(item.role)}</div>
+              <div className="text-sm font-semibold">
+                {PRIMARY_ROLE_LABELS[item.role]}
+              </div>
               {authorization?.current_role === item.role && <Badge tone="accent">Current</Badge>}
             </div>
             <p className="mt-1 text-xs leading-relaxed text-(--color-text-muted)">
@@ -93,7 +96,7 @@ export function RolesPage() {
               <TableTh>Permission boundary</TableTh>
               {fixedRoles.map((role) => (
                 <TableTh key={role.role} className="text-center">
-                  {roleLabel(role.role)}
+                  {PRIMARY_ROLE_LABELS[role.role]}
                 </TableTh>
               ))}
             </tr>
@@ -226,11 +229,6 @@ function GrantCell({ grant }: { grant: PermissionGrant }) {
       )}
     </span>
   )
-}
-
-function roleLabel(role: string) {
-  if (role === "contribute") return "Contributor"
-  return role.charAt(0).toUpperCase() + role.slice(1)
 }
 
 function RoleDialog({

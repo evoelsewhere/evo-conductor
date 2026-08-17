@@ -9,6 +9,7 @@ import {
 } from "@/features/resource-usage/components/resource-usage-formatters"
 import type { ResourceUsageActivityItem } from "@/shared/api/client"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
 import { Badge } from "@/shared/ui/badge"
 import { buttonVariants } from "@/shared/ui/button"
@@ -50,7 +51,7 @@ export function ResourceUsageActivityTable({ items }: { items: ResourceUsageActi
                 <div className="mt-0.5 max-w-48 truncate font-mono text-[0.65rem] text-(--color-text-subtle)">{item.request_id}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-(--color-text-subtle)">
                   <Link to="/app/members/$userId" params={{ userId: item.user_id }} className="hover:text-(--color-accent)">{item.display_name}</Link>
-                  <Badge tone="neutral" className="capitalize">{item.primary_role}</Badge>
+                  <Badge tone="neutral">{PRIMARY_ROLE_LABELS[item.primary_role]}</Badge>
                 </div>
               </TableTd>
               <TableTd>

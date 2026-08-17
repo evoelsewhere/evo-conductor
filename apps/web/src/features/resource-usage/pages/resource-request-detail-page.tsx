@@ -19,7 +19,10 @@ import { api } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
 import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/components/stat-card"
-import { MEMBER_QUERY_KEYS } from "@/shared/constants/member"
+import {
+  MEMBER_QUERY_KEYS,
+  PRIMARY_ROLE_LABELS,
+} from "@/shared/constants/member"
 import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
 import { RESOURCE_USAGE_COST_SOURCE_LABELS, RESOURCE_USAGE_PATHS } from "@/shared/constants/resource-usage"
 import {
@@ -126,7 +129,7 @@ export function ResourceRequestDetailPage() {
                 <CardContent>
                   <div className="text-sm font-medium">{member.data?.display_name ?? "Loading member…"}</div>
                   <div className="mt-0.5 text-xs text-(--color-text-subtle)">{member.data?.email}</div>
-                  {member.data && <div className="mt-3 flex items-center justify-between"><Badge tone="accent" className="capitalize">Current role: {member.data.primary_role}</Badge><Link to="/app/members/$userId" params={{ userId }} className="inline-flex items-center gap-1 text-xs text-(--color-accent)">Member profile<ExternalLink className="size-3" /></Link></div>}
+                  {member.data && <div className="mt-3 flex items-center justify-between"><Badge tone="accent">Current role: {PRIMARY_ROLE_LABELS[member.data.primary_role]}</Badge><Link to="/app/members/$userId" params={{ userId }} className="inline-flex items-center gap-1 text-xs text-(--color-accent)">Member profile<ExternalLink className="size-3" /></Link></div>}
                 </CardContent>
               </Card>
               <Card>

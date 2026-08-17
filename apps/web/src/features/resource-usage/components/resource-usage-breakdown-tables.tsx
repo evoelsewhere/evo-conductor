@@ -14,6 +14,7 @@ import type {
   ResourceUsageTool,
 } from "@/shared/api/client"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
 import { RESOURCE_USAGE_PATHS } from "@/shared/constants/resource-usage"
 import { cn } from "@/shared/lib/utils"
@@ -105,7 +106,7 @@ export function ResourceMemberBreakdownTable({ items }: { items: ResourceUsageMe
           {items.map((item) => (
             <TableRow key={item.user_id}>
               <TableTd><Link to="/app/members/$userId" params={{ userId: item.user_id }} className="font-medium hover:text-(--color-accent)">{item.display_name}</Link><div className="text-xs text-(--color-text-subtle)">{item.email}</div></TableTd>
-              <TableTd><Badge tone="accent" className="capitalize">{item.primary_role}</Badge></TableTd>
+              <TableTd><Badge tone="accent">{PRIMARY_ROLE_LABELS[item.primary_role]}</Badge></TableTd>
               <TableTd className="tabular-nums">{item.requests.toLocaleString()}</TableTd>
               <TableTd className="tabular-nums">{item.resource_uses.toLocaleString()}</TableTd>
               <TableTd className="font-medium tabular-nums">{formatTokens(item.total_tokens)}</TableTd>
@@ -149,7 +150,7 @@ export function ResourceRoleBreakdownTable({ items }: { items: ResourceUsageRole
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.primary_role}>
-              <TableTd><Badge tone="accent" className="capitalize">{item.primary_role}</Badge></TableTd>
+              <TableTd><Badge tone="accent">{PRIMARY_ROLE_LABELS[item.primary_role]}</Badge></TableTd>
               <TableTd className="tabular-nums">{item.requests.toLocaleString()}</TableTd>
               <TableTd className="tabular-nums">{item.model_calls.toLocaleString()}</TableTd>
               <TableTd className="tabular-nums">{item.tool_calls.toLocaleString()}</TableTd>

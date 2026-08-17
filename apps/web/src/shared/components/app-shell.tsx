@@ -39,6 +39,7 @@ import { useAuthStore } from "@/shared/stores/auth"
 import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { useThemeStore, type ThemeMode } from "@/shared/stores/theme"
 import { useUiStore } from "@/shared/stores/ui"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { Avatar } from "@/shared/ui/avatar"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
@@ -371,9 +372,7 @@ function Topbar({ brand }: { brand: BrandProps }) {
             <span className="max-w-40 truncate text-xs text-(--color-text-muted)">
               {user.email}
             </span>
-            <Badge tone="accent" className="capitalize">
-              {user.primary_role}
-            </Badge>
+            <Badge tone="accent">{PRIMARY_ROLE_LABELS[user.primary_role]}</Badge>
           </div>
         )}
         <ThemeToggle />
@@ -784,8 +783,8 @@ function UserFooter({ collapsed }: { collapsed: boolean }) {
               {user.email}
             </div>
           </div>
-          <Badge tone="accent" className="ml-auto shrink-0 capitalize">
-            {user.primary_role}
+          <Badge tone="accent" className="ml-auto shrink-0">
+            {PRIMARY_ROLE_LABELS[user.primary_role]}
           </Badge>
         </div>
 

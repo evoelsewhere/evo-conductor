@@ -28,6 +28,7 @@ import {
   RESOURCE_PENDING_STATES,
   type ResourceMonitoringTab,
 } from "@/shared/constants/resource-monitoring"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { Badge } from "@/shared/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
@@ -157,7 +158,7 @@ function InstallationsPanel({ data, loading }: { data?: ResourceInventoryMonitor
             <TableBody>
               {data.installations.map((item) => (
                 <TableRow key={item.installation_id}>
-                  <TableTd><div className="font-medium">{item.member_name}</div><div className="text-xs text-(--color-text-subtle)">{item.email}</div><Badge tone="accent" className="mt-1 capitalize">{item.primary_role}</Badge></TableTd>
+                  <TableTd><div className="font-medium">{item.member_name}</div><div className="text-xs text-(--color-text-subtle)">{item.email}</div><Badge tone="accent" className="mt-1">{PRIMARY_ROLE_LABELS[item.primary_role]}</Badge></TableTd>
                   <TableTd><div className="font-medium">{item.installation_name}</div><div className="text-xs capitalize text-(--color-text-subtle)">{item.platform} · EvoFlux {item.evoflux_version}</div></TableTd>
                   <TableTd className="font-mono text-xs"><div>{item.desired_version ? `v${item.desired_version}` : "—"}</div><div className="text-(--color-text-subtle)">→ {item.applied_version ? `v${item.applied_version}` : "not applied"}</div></TableTd>
                   <TableTd><Badge tone="neutral" className="capitalize">{item.release_channel ?? "—"}</Badge></TableTd>

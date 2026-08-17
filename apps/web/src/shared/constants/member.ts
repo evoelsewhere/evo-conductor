@@ -6,6 +6,12 @@ export const PRIMARY_ROLE = {
 
 export type PrimaryRole = (typeof PRIMARY_ROLE)[keyof typeof PRIMARY_ROLE]
 
+export const PRIMARY_ROLE_LABELS: Record<PrimaryRole, string> = {
+  [PRIMARY_ROLE.ADMIN]: "Admin",
+  [PRIMARY_ROLE.CONTRIBUTE]: "Contributor",
+  [PRIMARY_ROLE.USER]: "User",
+}
+
 export const USER_STATUS = {
   PENDING: "pending",
   INVITED: "invited",
@@ -24,16 +30,13 @@ export const CLIENT_PLATFORM = {
 export type ClientPlatform = (typeof CLIENT_PLATFORM)[keyof typeof CLIENT_PLATFORM]
 
 export const PRIMARY_ROLE_OPTIONS = [
-  { value: PRIMARY_ROLE.ADMIN, label: "Admin" },
-  { value: PRIMARY_ROLE.CONTRIBUTE, label: "Contribute" },
-  { value: PRIMARY_ROLE.USER, label: "User" },
+  { value: PRIMARY_ROLE.ADMIN, label: PRIMARY_ROLE_LABELS[PRIMARY_ROLE.ADMIN] },
+  {
+    value: PRIMARY_ROLE.CONTRIBUTE,
+    label: PRIMARY_ROLE_LABELS[PRIMARY_ROLE.CONTRIBUTE],
+  },
+  { value: PRIMARY_ROLE.USER, label: PRIMARY_ROLE_LABELS[PRIMARY_ROLE.USER] },
 ] as const
-
-export const PRIMARY_ROLE_LABELS: Record<PrimaryRole, string> = {
-  [PRIMARY_ROLE.ADMIN]: "Admin",
-  [PRIMARY_ROLE.CONTRIBUTE]: "Contribute",
-  [PRIMARY_ROLE.USER]: "User",
-}
 
 export const USER_STATUS_FILTER_OPTIONS = [
   { value: "", label: "All" },

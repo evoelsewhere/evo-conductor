@@ -45,6 +45,7 @@ import type {
   ResourceUsageDay,
 } from "@/shared/api/client"
 import { api } from "@/shared/api/client"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import type { ResourceKind } from "@/shared/constants/resource"
 import { TELEMETRY_CHART_SERIES } from "@/shared/constants/telemetry"
 import {
@@ -1185,7 +1186,7 @@ function rankingRows(
     return data.resources.map((item) => ({ key: `${item.resource_id}:${item.version_id}:${item.relation}`, label: item.name, detail: `v${item.version} · ${item.kind}`, value: item.uses }))
   }
   if (id === "members") {
-    return data.members.map((item) => ({ key: item.user_id, label: item.display_name, detail: item.primary_role, value: item.requests }))
+    return data.members.map((item) => ({ key: item.user_id, label: item.display_name, detail: PRIMARY_ROLE_LABELS[item.primary_role], value: item.requests }))
   }
   if (id === "models") {
     return data.models.map((item) => ({ key: `${item.provider}:${item.model}`, label: item.model, detail: item.provider, value: item.calls }))
@@ -1193,7 +1194,7 @@ function rankingRows(
   if (id === "tools") {
     return data.tools.map((item) => ({ key: item.tool_name, label: item.tool_name, detail: `${item.category} · ${item.errors} errors`, value: item.calls }))
   }
-  return data.roles.map((item) => ({ key: item.primary_role, label: item.primary_role, detail: `${item.model_calls} model · ${item.tool_calls} tool`, value: item.model_calls + item.tool_calls }))
+  return data.roles.map((item) => ({ key: item.primary_role, label: PRIMARY_ROLE_LABELS[item.primary_role], detail: `${item.model_calls} model · ${item.tool_calls} tool`, value: item.model_calls + item.tool_calls }))
 }
 
 function rankingMeasureLabel(id: Exclude<WidgetId, "requests" | "outcomes" | "consumption">) {

@@ -25,6 +25,7 @@ import {
   RESOURCE_QUERY_KEY,
   RESOURCE_STATUS,
 } from "@/shared/constants/resource"
+import { PRIMARY_ROLE_OPTIONS } from "@/shared/constants/member"
 import { PageFrame } from "@/shared/components/page-frame"
 import {
   PERMISSION,
@@ -596,11 +597,7 @@ function ResourceAccess({ resource }: { resource: ManagedResource }) {
             <MultiSelect
               id="access-primary-roles"
               disabled={policy.all_members}
-              options={[
-                { value: "admin", label: "Admin" },
-                { value: "contribute", label: "Contribute" },
-                { value: "user", label: "User" },
-              ]}
+              options={[...PRIMARY_ROLE_OPTIONS]}
               value={policy.primary_roles}
               onChange={(primary_roles) => change({ ...policy, primary_roles })}
             />

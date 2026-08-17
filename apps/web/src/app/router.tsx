@@ -129,7 +129,7 @@ const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/app",
   component: AppShell,
-  beforeLoad: async ({ location }) => {
+  beforeLoad: async () => {
     const status = await api.setupStatus()
     if (!status.configured) throw redirect({ to: "/setup" })
     const token = authSession.getToken()
@@ -141,15 +141,6 @@ const appRoute = createRoute({
       if (!user) throw new Error("The current session could not be loaded.")
       if (user.must_change_password) {
         throw redirect({ to: "/change-password" })
-      }
-      const authorizationState = useAuthStore.getState()
-      if (
-        location.pathname.replace(/\/+$/, "") === "/app" &&
-        authorizationState.can(PERMISSION.PROJECT_DASHBOARD_READ) ===
-          AUTHORIZATION_DECISION.DENY &&
-        mayRequest(authorizationState.can(PERMISSION.RESOURCE_CONSUME))
-      ) {
-        throw redirect({ to: "/app/resources" })
       }
     } catch (e) {
       if (e && typeof e === "object" && "to" in e) throw e
@@ -242,6 +233,16 @@ const overviewRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/",
   component: OverviewRoutePage,
+  beforeLoad: () => {
+    const authorizationState = useAuthStore.getState()
+    if (
+      authorizationState.can(PERMISSION.PROJECT_DASHBOARD_READ) ===
+        AUTHORIZATION_DECISION.DENY &&
+      mayRequest(authorizationState.can(PERMISSION.RESOURCE_CONSUME))
+    ) {
+      throw redirect({ to: "/app/resources" })
+    }
+  },
 })
 
 const membersRoute = createRoute({

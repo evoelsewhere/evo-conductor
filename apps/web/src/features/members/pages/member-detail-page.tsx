@@ -36,6 +36,7 @@ import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/component
 import {
   MEMBER_QUERY_KEYS,
   MEMBER_STATUS_TONES,
+  PRIMARY_ROLE_LABELS,
   PRIMARY_ROLE_OPTIONS,
 } from "@/shared/constants/member"
 import { CONNECTION_SECRET_SCOPES } from "@/shared/constants/secret"
@@ -119,7 +120,11 @@ export function MemberDetailPage() {
   return (
     <PageFrame
       title={member.data?.display_name ?? "Member overview"}
-      subtitle={member.data ? `${member.data.email} · ${member.data.primary_role}` : undefined}
+      subtitle={
+        member.data
+          ? `${member.data.email} · ${PRIMARY_ROLE_LABELS[member.data.primary_role]}`
+          : undefined
+      }
       action={
         canManage && member.data ? (
           <Button variant="outline" onClick={() => setEditOpen(true)}>
@@ -148,7 +153,9 @@ export function MemberDetailPage() {
               <StatusDot tone={MEMBER_STATUS_TONES[member.data.status]} />
               {member.data.status}
             </Badge>
-            <Badge tone="accent" className="capitalize">{member.data.primary_role}</Badge>
+            <Badge tone="accent">
+              {PRIMARY_ROLE_LABELS[member.data.primary_role]}
+            </Badge>
           </div>
         )}
         <DateRangeFilter

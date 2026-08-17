@@ -30,6 +30,7 @@ import {
   MEMBER_LIST_PAGE_SIZE,
   MEMBER_STATUS_TONES,
   PRIMARY_ROLE,
+  PRIMARY_ROLE_LABELS,
   PRIMARY_ROLE_OPTIONS,
   USER_STATUS,
   USER_STATUS_FILTER_OPTIONS,
@@ -408,7 +409,9 @@ export function MembersPage() {
                     </TableTd>
                     <TableTd>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge tone="accent" className="capitalize">{m.primary_role}</Badge>
+                        <Badge tone="accent">
+                          {PRIMARY_ROLE_LABELS[m.primary_role]}
+                        </Badge>
                         {canManageMembers && managed && (
                           <BadgeList className="max-w-48" max={2} items={m.tag_ids.map(tagName)} />
                         )}
