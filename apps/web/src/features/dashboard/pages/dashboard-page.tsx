@@ -9,6 +9,7 @@ import {
   PartialErrorPanel,
 } from "@/features/dashboard/components/dashboard-states"
 import { DashboardToolbar } from "@/features/dashboard/components/dashboard-toolbar"
+import { LiveOperations } from "@/features/dashboard/components/live-operations"
 import { useDashboardData } from "@/features/dashboard/hooks/use-dashboard-data"
 import { dashboardResourceTotal } from "@/features/dashboard/lib/dashboard-model"
 import { PageFrame } from "@/shared/components/page-frame"
@@ -73,13 +74,20 @@ export function DashboardPage() {
             analytics={analytics.data}
           />
 
-          <DashboardAnalyticsPanel
-            analytics={analytics.data}
-            summary={summary.data}
-            isLoading={analytics.isLoading}
-            error={analytics.error}
-            analyticsHref={overviewHref()}
-          />
+          <div className="grid items-start gap-4 xl:grid-cols-12">
+            <DashboardAnalyticsPanel
+              analytics={analytics.data}
+              summary={summary.data}
+              isLoading={analytics.isLoading}
+              error={analytics.error}
+              analyticsHref={overviewHref()}
+            />
+            <LiveOperations
+              className="xl:col-span-5"
+              summary={summary.data}
+              analytics={analytics.data}
+            />
+          </div>
 
           {summary.data &&
             summary.data.members_total <= 1 &&
