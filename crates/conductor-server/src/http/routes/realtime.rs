@@ -2,10 +2,9 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use chrono::{DateTime, Utc};
 use conductor_domain::{
     scope_is_role_compatible, AuthorizationTarget, SecretScope, TargetType, User, UserStatus,
@@ -18,7 +17,7 @@ use uuid::Uuid;
 use crate::core::state::AppState;
 use crate::http::authorization::{authorize_current_connection_target, RouteAuthorization};
 use crate::http::extractors::authenticate_connection_secret;
-use crate::http::realtime::{RealtimeCapacityError, RealtimeSignal, PROTOCOL_NAME};
+use crate::http::realtime::{capacity_response, RealtimeSignal, PROTOCOL_NAME};
 
 pub async fn events(
     State(state): State<AppState>,
@@ -309,35 +308,6 @@ fn protocol_event(
             })
             .to_string(),
         )
-}
-
-fn capacity_response(error: RealtimeCapacityError) -> Response {
-    let (status, message) = match error {
-        RealtimeCapacityError::Global => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "realtime connection capacity reached",
-        ),
-        RealtimeCapacityError::PerSecret => (
-            StatusCode::TOO_MANY_REQUESTS,
-            "connection limit reached for this secret",
-        ),
-        RealtimeCapacityError::Handshake => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "too many concurrent realtime handshakes",
-        ),
-    };
-    let mut response = (
-        status,
-        Json(json!({
-            "error": message,
-            "retry_after_seconds": 5,
-        })),
-    )
-        .into_response();
-    response
-        .headers_mut()
-        .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
-    response
 }
 
 async fn current_connection_owner(
