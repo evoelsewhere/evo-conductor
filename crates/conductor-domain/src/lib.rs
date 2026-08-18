@@ -46,8 +46,9 @@ pub use client_installation::{
 };
 pub use core::error::{ConductorError, Result};
 pub use dashboard::{
-    DashboardPresence, DashboardRealtime, DashboardRealtimeScope, DashboardSummary,
-    DASHBOARD_PRESENCE_THRESHOLD_SECONDS,
+    DashboardFeedbackDistribution, DashboardFeedbackScope, DashboardFeedbackSummary,
+    DashboardHostMetrics, DashboardHostMetricsScope, DashboardPresence, DashboardRealtime,
+    DashboardRealtimeScope, DashboardSummary, DASHBOARD_PRESENCE_THRESHOLD_SECONDS,
 };
 pub use instance::{
     AzureBlobStorageSettings, DataPolicySettings, GitAuthMode, GitStorageSettings, InstanceConfig,
