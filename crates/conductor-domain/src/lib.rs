@@ -45,7 +45,10 @@ pub use client_installation::{
     CollectionLevel, RegisterClientRequest, RegisterClientResponse, RegisteredInstallation,
 };
 pub use core::error::{ConductorError, Result};
-pub use dashboard::DashboardSummary;
+pub use dashboard::{
+    DashboardPresence, DashboardRealtime, DashboardRealtimeScope, DashboardSummary,
+    DASHBOARD_PRESENCE_THRESHOLD_SECONDS,
+};
 pub use instance::{
     AzureBlobStorageSettings, DataPolicySettings, GitAuthMode, GitStorageSettings, InstanceConfig,
     LocalStorageSettings, ProjectBranding, ProjectSettings, RealtimeSettings, S3StorageSettings,
