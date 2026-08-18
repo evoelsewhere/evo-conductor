@@ -7,8 +7,8 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use conductor_domain::{
     grants_for_role, role_has_permission, scope_is_role_compatible, AuthenticationKind,
-    AuthorizationTarget, ConductorError, ConstraintExpr, DeclaredRequirement, PolicyDecision,
-    PolicyInput, TargetConstraint, TargetType,
+    AuthorizationAction, AuthorizationTarget, ConductorError, ConstraintExpr, DeclaredRequirement,
+    PolicyDecision, PolicyInput, TargetConstraint, TargetType,
 };
 use uuid::Uuid;
 
@@ -20,6 +20,7 @@ use crate::http::extractors::{
     authenticate_browser_user, authenticate_connection_principal, connection_principal_scope,
     mark_connection_secret_used_if_due, AuthUser, ConnectionPrincipal,
 };
+use crate::http::realtime::capacity_response;
 
 use super::catalog::{
     BrowserRoutePolicy, ConnectionRoutePolicy, RouteAuthentication, RouteSpec, RouteTargetSelector,
@@ -400,6 +401,18 @@ async fn authorize_connection(
     policy: ConnectionRoutePolicy,
     route_authorization: RouteAuthorization,
 ) -> Response {
+    // Realtime reconnect storms must be rejected before credential/project
+    // queries. Hold the permit until the handler has admitted or rejected the
+    // stream; other connection routes do not consume this dedicated budget.
+    let realtime_handshake = if boundary.spec.action == AuthorizationAction::ClientRealtimeEvents {
+        match boundary.app.realtime.try_begin_handshake() {
+            Ok(permit) => Some(permit),
+            Err(error) => return capacity_response(error),
+        }
+    } else {
+        None
+    };
+
     let principal = match authenticate_connection_principal(&boundary.app, request.headers()).await
     {
         Ok(principal) => principal,
@@ -487,6 +500,7 @@ async fn authorize_connection(
 
     request.extensions_mut().insert(principal.clone());
     let response = connection_principal_scope(principal.clone(), next.run(request)).await;
+    drop(realtime_handshake);
     if response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED {
         if let Err(error) = mark_connection_secret_used_if_due(&boundary.app, &principal).await {
             tracing::error!(

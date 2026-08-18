@@ -24,11 +24,6 @@ pub async fn events(
     axum::Extension(route): axum::Extension<RouteAuthorization>,
     headers: HeaderMap,
 ) -> Response {
-    let handshake = match state.realtime.try_begin_handshake() {
-        Ok(permit) => permit,
-        Err(error) => return capacity_response(error),
-    };
-
     let principal =
         match authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources)
             .await
@@ -68,8 +63,6 @@ pub async fn events(
     // The stream is an invalidation channel, not a data plane. Subscribe before
     // advertising the fetch endpoint so a concurrent head change cannot be missed.
     let mut receiver = state.realtime.subscribe();
-    drop(handshake);
-
     let connection_id = Uuid::new_v4();
     let heartbeat_seconds = state.realtime.heartbeat_seconds();
     let secret_id = principal.secret.id;
