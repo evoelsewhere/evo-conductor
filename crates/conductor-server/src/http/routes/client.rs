@@ -1,40 +1,59 @@
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
-    Json,
+    Extension, Json,
 };
 use chrono::Utc;
 use conductor_auth::hash_token;
 use conductor_domain::{
-    ClientHeartbeatRequest, ClientHeartbeatResponse, ClientInstallationSummary, ClientMember,
-    ClientPolicy, ClientProject, ClientTelemetryPolicy, CollectionLevel, ConductorError,
-    RegisterClientRequest, RegisterClientResponse, RegisteredInstallation, SecretScope,
+    AuthorizationTarget, ClientHeartbeatRequest, ClientHeartbeatResponse,
+    ClientInstallationSummary, ClientMember, ClientPolicy, ClientProject, ClientTelemetryPolicy,
+    CollectionLevel, ConductorError, RegisterClientRequest, RegisterClientResponse,
+    RegisteredInstallation, TargetType,
 };
 use conductor_storage::repos::RegisterInstallationError;
 use uuid::Uuid;
 
 use crate::core::error::{ApiError, ApiResult};
 use crate::core::state::AppState;
-use crate::http::extractors::{authenticate_connection_secret, AuthUser};
+use crate::http::authorization::{
+    authorize_current_browser_target, authorize_current_connection_target, RouteAuthorization,
+};
+use crate::http::extractors::{AuthUser, ConnectionPrincipal};
 
 const CLIENT_HEARTBEAT_INTERVAL_SECONDS: u32 = 60;
 const PRIVACY_NOTICE_VERSION: &str = "2026-08-10";
 
 pub async fn register(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     headers: HeaderMap,
     Json(mut request): Json<RegisterClientRequest>,
 ) -> ApiResult<Json<RegisterClientResponse>> {
     validate_registration(&mut request)?;
     let idempotency_key = parse_idempotency_key(&headers)?;
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
     let instance = state
         .db
         .instance()
         .get()
         .await?
         .ok_or(ConductorError::SetupRequired)?;
+    authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(instance.id),
+            target_type: TargetType::ClientInstallation,
+            target_id: None,
+            owner_id: Some(principal.user.id),
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: None,
+        },
+    )
+    .await?;
     let request_material = serde_json::to_string(&request).map_err(|_| ConductorError::Internal)?;
     let installation = state
         .db
@@ -48,9 +67,9 @@ pub async fn register(
         )
         .await
         .map_err(|error| match error {
-            RegisterInstallationError::Conflict => ApiError::from(ConductorError::Conflict(
-                "registration key already used".into(),
-            )),
+            RegisterInstallationError::Conflict => {
+                ApiError::conflict("registration_key_conflict", "registration key already used")
+            }
             RegisterInstallationError::Database(error) => ApiError::from(error),
         })?;
 
@@ -104,17 +123,43 @@ pub async fn register(
 
 pub async fn heartbeat(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(route): Extension<RouteAuthorization>,
+    Extension(principal): Extension<ConnectionPrincipal>,
     Json(request): Json<ClientHeartbeatRequest>,
 ) -> ApiResult<Json<ClientHeartbeatResponse>> {
-    let principal =
-        authenticate_connection_secret(&state, &headers, SecretScope::SubscribeResources).await?;
     let instance = state
         .db
         .instance()
         .get()
         .await?
         .ok_or(ConductorError::SetupRequired)?;
+    let installation = state
+        .db
+        .client_installations()
+        .find_by_id(request.installation_id)
+        .await?
+        .ok_or_else(|| ConductorError::NotFound("client installation".into()))?;
+    if let Err(error) = authorize_current_connection_target(
+        &state,
+        &route,
+        &principal,
+        AuthorizationTarget {
+            project_id: Some(installation.instance_id),
+            target_type: TargetType::ClientInstallation,
+            target_id: Some(installation.id),
+            owner_id: Some(installation.user_id),
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: None,
+        },
+    )
+    .await
+    {
+        if installation.user_id != principal.user.id || installation.instance_id != instance.id {
+            return Err(ConductorError::NotFound("client installation".into()).into());
+        }
+        return Err(error);
+    }
     state
         .db
         .client_installations()
@@ -131,18 +176,37 @@ pub async fn heartbeat(
 
 pub async fn list_member_installations(
     State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
     AuthUser(actor): AuthUser,
     Path(user_id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<ClientInstallationSummary>>> {
-    if actor.id != user_id && !actor.primary_role.can_view_telemetry() {
-        return Err(ConductorError::Forbidden.into());
-    }
-    state
+    let member = state
         .db
         .users()
         .find_by_id(user_id)
         .await?
         .ok_or_else(|| ConductorError::NotFound("member".into()))?;
+    let project_id = state
+        .db
+        .instance()
+        .authorization_project_id()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?;
+    authorize_current_browser_target(
+        &state,
+        &route,
+        &actor,
+        AuthorizationTarget {
+            project_id: Some(project_id),
+            target_type: TargetType::ClientInstallation,
+            target_id: Some(member.id),
+            owner_id: Some(member.id),
+            resource_kind: None,
+            lifecycle: None,
+            effective_audience: None,
+        },
+    )
+    .await?;
     Ok(Json(
         state
             .db

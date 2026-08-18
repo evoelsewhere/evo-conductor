@@ -6,9 +6,12 @@
 //! depends on this module rather than the other way round.
 
 pub mod artifacts;
+pub mod authorization;
 pub mod config;
 pub mod constants;
 pub mod error;
+pub mod host_metrics;
+pub mod request_context;
 pub mod resource_authoring;
 pub mod routes;
 pub mod state;

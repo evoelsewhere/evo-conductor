@@ -2,6 +2,7 @@
 
 pub const AUTH_ME: &str = "/auth/me";
 pub const AUTH_CHANGE_PASSWORD: &str = "/auth/change-password";
+pub const AUTHORIZATION_ME: &str = "/authorization/me";
 pub const SSO: &str = "/sso";
 pub const PROJECT: &str = "/project";
 pub const SETTINGS: &str = "/settings";

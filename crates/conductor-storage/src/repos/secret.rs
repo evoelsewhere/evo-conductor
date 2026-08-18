@@ -4,7 +4,10 @@ use sqlx::Row;
 use sqlx::{Any, Pool};
 use uuid::Uuid;
 
-use crate::core::mapping::parse_dt;
+use crate::core::error::{
+    InvalidPersistedCredential, PersistedCredentialField, PersistedSecurityReason, StorageError,
+    StorageResult,
+};
 
 #[derive(Clone)]
 pub struct SecretRepo {
@@ -24,10 +27,11 @@ impl SecretRepo {
         token_hash: &str,
         scopes: &[SecretScope],
         expires_at: Option<DateTime<Utc>>,
-    ) -> Result<ConnectionSecret, sqlx::Error> {
+    ) -> StorageResult<ConnectionSecret> {
         let id = Uuid::new_v4();
         let now = Utc::now();
-        let scopes_json = serde_json::to_string(scopes).unwrap_or_else(|_| "[]".into());
+        validate_scopes(scopes, Some(id))?;
+        let scopes_json = serde_json::to_string(scopes).map_err(StorageError::Serialization)?;
 
         sqlx::query(
             r#"
@@ -61,10 +65,7 @@ impl SecretRepo {
         })
     }
 
-    pub async fn list_for_user(
-        &self,
-        owner_user_id: Uuid,
-    ) -> Result<Vec<ConnectionSecret>, sqlx::Error> {
+    pub async fn list_for_user(&self, owner_user_id: Uuid) -> StorageResult<Vec<ConnectionSecret>> {
         let rows = sqlx::query(
             r#"
             SELECT id, name, prefix, owner_user_id, scopes, last_used_at,
@@ -78,7 +79,7 @@ impl SecretRepo {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(map_secret).collect())
+        rows.into_iter().map(map_secret).collect()
     }
 
     pub async fn revoke(&self, id: Uuid, owner_user_id: Uuid) -> Result<bool, sqlx::Error> {
@@ -98,23 +99,47 @@ impl SecretRepo {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn find_by_hash(
-        &self,
-        token_hash: &str,
-    ) -> Result<Option<ConnectionSecret>, sqlx::Error> {
-        let row = sqlx::query(
+    pub async fn find_by_hash(&self, token_hash: &str) -> StorageResult<Option<ConnectionSecret>> {
+        let mut rows = sqlx::query(
             r#"
             SELECT id, name, prefix, owner_user_id, scopes, last_used_at,
                    expires_at, revoked_at, created_at
             FROM connection_secrets
             WHERE token_hash = ? AND revoked_at IS NULL
+            LIMIT 2
             "#,
         )
         .bind(token_hash)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if rows.len() > 1 {
+            return Err(InvalidPersistedCredential::new(
+                None,
+                PersistedCredentialField::TokenHash,
+                PersistedSecurityReason::DuplicateValue,
+            )
+            .into());
+        }
+        rows.pop().map(map_secret).transpose()
+    }
+
+    /// Loads a credential for policy/realtime revalidation even after it was revoked.
+    /// Lifecycle fields are decoded strictly before the caller evaluates them.
+    pub async fn find_by_id(&self, id: Uuid) -> StorageResult<Option<ConnectionSecret>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, name, prefix, owner_user_id, scopes, last_used_at,
+                   expires_at, revoked_at, created_at
+            FROM connection_secrets
+            WHERE id = ?
+            "#,
+        )
+        .bind(id.to_string())
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(map_secret))
+        row.map(map_secret).transpose()
     }
 
     pub async fn mark_used(&self, id: Uuid) -> Result<(), sqlx::Error> {
@@ -137,18 +162,167 @@ impl SecretRepo {
     }
 }
 
-fn map_secret(r: sqlx::any::AnyRow) -> ConnectionSecret {
-    let scopes: String = r.get("scopes");
-    ConnectionSecret {
-        id: Uuid::parse_str(r.get::<String, _>("id").as_str()).unwrap_or_else(|_| Uuid::nil()),
-        name: r.get("name"),
-        prefix: r.get("prefix"),
-        owner_user_id: Uuid::parse_str(r.get::<String, _>("owner_user_id").as_str())
-            .unwrap_or_else(|_| Uuid::nil()),
-        scopes: serde_json::from_str(&scopes).unwrap_or_default(),
-        last_used_at: r.get::<Option<String>, _>("last_used_at").map(parse_dt),
-        expires_at: r.get::<Option<String>, _>("expires_at").map(parse_dt),
-        revoked_at: r.get::<Option<String>, _>("revoked_at").map(parse_dt),
-        created_at: parse_dt(r.get("created_at")),
+fn map_secret(r: sqlx::any::AnyRow) -> StorageResult<ConnectionSecret> {
+    let id_raw: String = r.try_get("id").map_err(|error| {
+        credential_column_error(
+            error,
+            None,
+            PersistedCredentialField::Id,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let id = Uuid::parse_str(&id_raw).map_err(|_| {
+        InvalidPersistedCredential::new(
+            None,
+            PersistedCredentialField::Id,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let invalid = |field, reason| InvalidPersistedCredential::new(Some(id), field, reason);
+
+    let owner_raw: String = r.try_get("owner_user_id").map_err(|error| {
+        credential_column_error(
+            error,
+            Some(id),
+            PersistedCredentialField::OwnerUserId,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let owner_user_id = Uuid::parse_str(&owner_raw).map_err(|_| {
+        invalid(
+            PersistedCredentialField::OwnerUserId,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let scopes_raw: String = r.try_get("scopes").map_err(|error| {
+        credential_column_error(
+            error,
+            Some(id),
+            PersistedCredentialField::Scopes,
+            PersistedSecurityReason::MalformedPayload,
+        )
+    })?;
+    let scopes: Vec<SecretScope> = serde_json::from_str(&scopes_raw).map_err(|_| {
+        invalid(
+            PersistedCredentialField::Scopes,
+            PersistedSecurityReason::MalformedPayload,
+        )
+    })?;
+    validate_scopes(&scopes, Some(id))?;
+
+    let last_used_at_raw = r.try_get("last_used_at").map_err(|error| {
+        credential_column_error(
+            error,
+            Some(id),
+            PersistedCredentialField::LastUsedAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let last_used_at =
+        parse_optional_credential_dt(last_used_at_raw, id, PersistedCredentialField::LastUsedAt)?;
+    let expires_at_raw = r.try_get("expires_at").map_err(|error| {
+        credential_column_error(
+            error,
+            Some(id),
+            PersistedCredentialField::ExpiresAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let expires_at =
+        parse_optional_credential_dt(expires_at_raw, id, PersistedCredentialField::ExpiresAt)?;
+    let revoked_at_raw = r.try_get("revoked_at").map_err(|error| {
+        credential_column_error(
+            error,
+            Some(id),
+            PersistedCredentialField::RevokedAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let revoked_at =
+        parse_optional_credential_dt(revoked_at_raw, id, PersistedCredentialField::RevokedAt)?;
+    let created_at_raw: String = r.try_get("created_at").map_err(|error| {
+        credential_column_error(
+            error,
+            Some(id),
+            PersistedCredentialField::CreatedAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let created_at = parse_credential_dt(&created_at_raw, id, PersistedCredentialField::CreatedAt)?;
+
+    Ok(ConnectionSecret {
+        id,
+        name: r.try_get("name")?,
+        prefix: r.try_get("prefix")?,
+        owner_user_id,
+        scopes,
+        last_used_at,
+        expires_at,
+        revoked_at,
+        created_at,
+    })
+}
+
+fn credential_column_error(
+    error: sqlx::Error,
+    credential_id: Option<Uuid>,
+    field: PersistedCredentialField,
+    reason: PersistedSecurityReason,
+) -> StorageError {
+    match error {
+        sqlx::Error::ColumnDecode { .. } => {
+            InvalidPersistedCredential::new(credential_id, field, reason).into()
+        }
+        operational => StorageError::Database(operational),
     }
+}
+
+fn validate_scopes(scopes: &[SecretScope], id: Option<Uuid>) -> StorageResult<()> {
+    if scopes.is_empty() {
+        return Err(InvalidPersistedCredential::new(
+            id,
+            PersistedCredentialField::Scopes,
+            PersistedSecurityReason::EmptyCollection,
+        )
+        .into());
+    }
+    if scopes
+        .iter()
+        .enumerate()
+        .any(|(index, scope)| scopes[..index].contains(scope))
+    {
+        return Err(InvalidPersistedCredential::new(
+            id,
+            PersistedCredentialField::Scopes,
+            PersistedSecurityReason::DuplicateValue,
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn parse_optional_credential_dt(
+    value: Option<String>,
+    credential_id: Uuid,
+    field: PersistedCredentialField,
+) -> Result<Option<DateTime<Utc>>, InvalidPersistedCredential> {
+    value
+        .map(|value| parse_credential_dt(&value, credential_id, field))
+        .transpose()
+}
+
+fn parse_credential_dt(
+    value: &str,
+    credential_id: Uuid,
+    field: PersistedCredentialField,
+) -> Result<DateTime<Utc>, InvalidPersistedCredential> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|datetime| datetime.with_timezone(&Utc))
+        .map_err(|_| {
+            InvalidPersistedCredential::new(
+                Some(credential_id),
+                field,
+                PersistedSecurityReason::InvalidTimestamp,
+            )
+        })
 }

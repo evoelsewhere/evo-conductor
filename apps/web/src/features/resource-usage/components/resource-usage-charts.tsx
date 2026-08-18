@@ -24,6 +24,7 @@ import type {
 } from "@/shared/api/client"
 import { ChartCard } from "@/shared/components/chart-card"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { TELEMETRY_CHART_SERIES } from "@/shared/constants/telemetry"
 import {
   AccessibleChartTable,
@@ -164,7 +165,11 @@ export function ModelCallsChart({ models }: { models: ResourceUsageModel[] }) {
 }
 
 export function MemberUsageChart({ members }: { members: ResourceUsageMember[] }) {
-  const data = members.slice(0, 8).map((item) => ({ ...item, label: item.display_name }))
+  const data = members.slice(0, 8).map((item) => ({
+    ...item,
+    label: item.display_name,
+    role_label: PRIMARY_ROLE_LABELS[item.primary_role],
+  }))
   return (
     <RankedBarChart
       title="Top members"
@@ -175,7 +180,7 @@ export function MemberUsageChart({ members }: { members: ResourceUsageMember[] }
       tableCaption="Top members by attributed request count"
       tableColumns={[
         { key: "label", label: "Member" },
-        { key: "primary_role", label: "Recorded role" },
+        { key: "role_label", label: "Recorded role" },
         { key: "requests", label: "Requests" },
         { key: "resource_uses", label: "Resource uses" },
       ]}
@@ -186,7 +191,7 @@ export function MemberUsageChart({ members }: { members: ResourceUsageMember[] }
 export function RoleCallsChart({ roles }: { roles: ResourceUsageRole[] }) {
   const data = roles.map((item) => ({
     ...item,
-    label: item.primary_role.charAt(0).toUpperCase() + item.primary_role.slice(1),
+    label: PRIMARY_ROLE_LABELS[item.primary_role],
   }))
   return (
     <ChartCard title="Calls by recorded role" description="Model and tool calls grouped by the member role captured at ingest time.">

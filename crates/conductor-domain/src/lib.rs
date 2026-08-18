@@ -12,8 +12,10 @@
 //! ```
 
 pub mod analytics;
+pub mod authorization;
 pub mod client_installation;
 pub mod core;
+pub mod dashboard;
 pub mod instance;
 pub mod resource;
 pub mod resource_semver;
@@ -29,12 +31,25 @@ pub use analytics::{
     AnalyticsVisualization, AnalyticsWidget, AnalyticsWidgetSize, CreateAnalyticsViewRequest,
     UpdateAnalyticsViewRequest, ANALYTICS_VIEW_SCHEMA_VERSION,
 };
+pub use authorization::{
+    evaluate_policy, grants_for_role, role_has_permission, scope_is_role_compatible,
+    AuthenticationKind, AuthorizationAction, AuthorizationTarget, AuthorizationTargetSummary,
+    ConnectionPolicyRequirement, ConstraintExpr, DecisionReason, DeclaredRequirement,
+    LifecycleState, NonEmptySet, PermissionAlternative, PermissionGrant, PermissionKey,
+    PolicyDecision, PolicyDefinitionError, PolicyInput, PolicyRequirement, ResponseProjection,
+    TargetConstraint, TargetType, UnknownPolicyValue, V1_POLICY_REVISION,
+};
 pub use client_installation::{
     ClientHeartbeatRequest, ClientHeartbeatResponse, ClientInstallation, ClientInstallationSummary,
     ClientMember, ClientPlatform, ClientPolicy, ClientProject, ClientTelemetryPolicy,
     CollectionLevel, RegisterClientRequest, RegisterClientResponse, RegisteredInstallation,
 };
 pub use core::error::{ConductorError, Result};
+pub use dashboard::{
+    DashboardFeedbackDistribution, DashboardFeedbackScope, DashboardFeedbackSummary,
+    DashboardHostMetrics, DashboardHostMetricsScope, DashboardPresence, DashboardRealtime,
+    DashboardRealtimeScope, DashboardSummary, DASHBOARD_PRESENCE_THRESHOLD_SECONDS,
+};
 pub use instance::{
     AzureBlobStorageSettings, DataPolicySettings, GitAuthMode, GitStorageSettings, InstanceConfig,
     LocalStorageSettings, ProjectBranding, ProjectSettings, RealtimeSettings, S3StorageSettings,
@@ -43,7 +58,7 @@ pub use instance::{
     UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
 };
 pub use resource::{
-    CreateDraftFileRequest, CreateResourceRequest, DashboardSummary, DeleteDraftEntryRequest,
+    CreateDraftFileRequest, CreateResourceRequest, DeleteDraftEntryRequest,
     DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile, DraftFileTree,
     EffectiveResourceVersion, FileManifestEntry, ManagedResource, MoveDraftEntryRequest,
     ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy,

@@ -45,9 +45,17 @@ import type {
   ResourceUsageDay,
 } from "@/shared/api/client"
 import { api } from "@/shared/api/client"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import type { ResourceKind } from "@/shared/constants/resource"
 import { TELEMETRY_CHART_SERIES } from "@/shared/constants/telemetry"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
+import { terminalRequestSuccessRate } from "@/shared/lib/telemetry-metrics"
 import { cn } from "@/shared/lib/utils"
+import { useAuthStore } from "@/shared/stores/auth"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import {
@@ -76,6 +84,7 @@ import {
   MenuSeparator,
 } from "@/shared/ui/menu"
 import { Select } from "@/shared/ui/select"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 type DashboardPreset = "executive" | "adoption" | "reliability" | "cost" | "custom"
 type DashboardDensity = "comfortable" | "compact"
@@ -228,6 +237,8 @@ export function ResourceAnalyticsStudio({
   scope,
   query,
   onApplyQuery,
+  allowMemberDetail = true,
+  announceLoading = true,
 }: {
   data?: ResourceUsageAnalytics
   loading: boolean
@@ -236,36 +247,74 @@ export function ResourceAnalyticsStudio({
   scope?: { resourceKind?: ResourceKind; resourceId?: string }
   query?: AnalyticsViewDefinition["query"]
   onApplyQuery?: (query: AnalyticsViewDefinition["query"]) => void
+  allowMemberDetail?: boolean
+  announceLoading?: boolean
 }) {
   const queryClient = useQueryClient()
+  const actorId = useAuthStore((state) => state.user?.id)
+  const authorization = useAuthStore((state) => state.authorization)
+  const can = useAuthStore((state) => state.can)
   const [customizing, setCustomizing] = useState(false)
   const [savedViewId, setSavedViewId] = useState<string | null>(null)
   const [showSaveView, setShowSaveView] = useState(false)
   const [viewName, setViewName] = useState("")
   const [viewVisibility, setViewVisibility] = useState<AnalyticsViewVisibility>("private")
   const [dashboard, setDashboard] = useState<DashboardState>(() =>
-    readDashboard(storageKey) ?? defaultDashboard("executive"),
+    dashboardForAccess(
+      readDashboard(storageKey) ?? defaultDashboard("executive"),
+      allowMemberDetail,
+    ),
   )
+  const canCreateView = mayRequest(
+    can(PERMISSION.ANALYTICS_VIEW_MANAGE_SELF, { ownerId: actorId }),
+  )
+  const canReadViews = mayRequest(can(PERMISSION.ANALYTICS_VIEW_READ))
+  const savedViewsQueryKey = [
+    "analytics-views",
+    actorId,
+    authorization?.current_role,
+    authorization?.policy_revision,
+  ] as const
   const savedViews = useQuery({
-    queryKey: ["analytics-views"],
+    queryKey: savedViewsQueryKey,
     queryFn: api.analyticsViews,
+    enabled: canReadViews,
   })
-  const visibleSavedViews = (savedViews.data ?? []).filter((view) =>
-    savedViewMatchesScope(view, scope),
+  const visibleSavedViews = (savedViews.data ?? []).filter(
+    (view) =>
+      savedViewMatchesScope(view, scope) &&
+      (allowMemberDetail ||
+        (!view.definition.query.member_id && !view.definition.query.installation_id)),
   )
   const selectedSavedView = visibleSavedViews.find((view) => view.id === savedViewId)
+  const canManageSelectedView = selectedSavedView
+    ? mayRequest(
+        bestAuthorizationDecision([
+          can(PERMISSION.ANALYTICS_VIEW_MANAGE_SELF, {
+            ownerId: selectedSavedView.owner_user_id,
+          }),
+          can(PERMISSION.ANALYTICS_VIEW_MANAGE_ANY, {
+            ownerId: selectedSavedView.owner_user_id,
+          }),
+        ]),
+      )
+    : canCreateView
   const createView = useMutation({
     mutationFn: () =>
       api.createAnalyticsView({
         name: viewName.trim(),
         description: `${scopeLabel} dashboard created in Analytics Studio`,
         visibility: viewVisibility,
-        definition: dashboardDefinition(dashboard, query, scope),
+        definition: dashboardDefinition(
+          dashboardForAccess(dashboard, allowMemberDetail),
+          sanitizeAnalyticsQuery(query, allowMemberDetail),
+          scope,
+        ),
       }),
     onSuccess: (view) => {
       setSavedViewId(view.id)
       setShowSaveView(false)
-      void queryClient.invalidateQueries({ queryKey: ["analytics-views"] })
+      void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey })
     },
   })
   const updateView = useMutation({
@@ -275,12 +324,16 @@ export function ResourceAnalyticsStudio({
         name: selectedSavedView.name,
         description: selectedSavedView.description,
         visibility: selectedSavedView.visibility,
-        definition: dashboardDefinition(dashboard, query, scope),
+        definition: dashboardDefinition(
+          dashboardForAccess(dashboard, allowMemberDetail),
+          sanitizeAnalyticsQuery(query, allowMemberDetail),
+          scope,
+        ),
         revision: selectedSavedView.revision,
       })
     },
     onSuccess: (view) => {
-      queryClient.setQueryData<AnalyticsView[]>(["analytics-views"], (current = []) =>
+      queryClient.setQueryData<AnalyticsView[]>(savedViewsQueryKey, (current = []) =>
         current.map((item) => (item.id === view.id ? view : item)),
       )
     },
@@ -292,20 +345,27 @@ export function ResourceAnalyticsStudio({
     },
     onSuccess: () => {
       setSavedViewId(null)
-      setDashboard(defaultDashboard("executive"))
-      void queryClient.invalidateQueries({ queryKey: ["analytics-views"] })
+      setDashboard(
+        dashboardForAccess(defaultDashboard("executive"), allowMemberDetail),
+      )
+      void queryClient.invalidateQueries({ queryKey: savedViewsQueryKey })
     },
   })
+  const visibleData = analyticsDataForAccess(data, allowMemberDetail)
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(dashboard))
-  }, [dashboard, storageKey])
+    const safeDashboard = dashboardForAccess(dashboard, allowMemberDetail)
+    window.localStorage.setItem(storageKey, JSON.stringify(safeDashboard))
+    if (safeDashboard.widgets.length !== dashboard.widgets.length) {
+      setDashboard(safeDashboard)
+    }
+  }, [allowMemberDetail, dashboard, storageKey])
 
-  const totals = data?.totals
-  const completed = (totals?.successes ?? 0) + (totals?.errors ?? 0)
-  const successRate = completed
-    ? Math.round(((totals?.successes ?? 0) / completed) * 100)
-    : 0
+  const totals = visibleData?.totals
+  const successRate = terminalRequestSuccessRate(
+    totals?.successes,
+    totals?.requests,
+  )
   const pricingCoverage = totals?.model_calls
     ? Math.max(
         0,
@@ -314,9 +374,14 @@ export function ResourceAnalyticsStudio({
         ),
       )
     : 0
-  const empty = !loading && !hasAnalyticsData(data)
+  const empty = !loading && !hasAnalyticsData(visibleData)
+  const visibleWidgets = dashboard.widgets.filter(
+    (widget) => allowMemberDetail || widget.id !== "members",
+  )
   const hiddenWidgets = (Object.keys(WIDGET_META) as WidgetId[]).filter(
-    (id) => !dashboard.widgets.some((widget) => widget.id === id),
+    (id) =>
+      (allowMemberDetail || id !== "members") &&
+      !visibleWidgets.some((widget) => widget.id === id),
   )
 
   function updateWidgets(update: (widgets: WidgetState[]) => WidgetState[]) {
@@ -333,7 +398,14 @@ export function ResourceAnalyticsStudio({
     setDashboard((current) => ({
       preset,
       density: current.density,
-      widgets: PRESET_WIDGETS[preset].map((widget) => ({ ...widget })),
+      widgets: dashboardForAccess(
+        {
+          preset,
+          density: current.density,
+          widgets: PRESET_WIDGETS[preset].map((widget) => ({ ...widget })),
+        },
+        allowMemberDetail,
+      ).widgets,
     }))
   }
 
@@ -345,8 +417,10 @@ export function ResourceAnalyticsStudio({
     const view = visibleSavedViews.find((item) => item.id === value.slice(6))
     if (!view) return
     setSavedViewId(view.id)
-    setDashboard(dashboardFromDefinition(view.definition))
-    onApplyQuery?.(view.definition.query)
+    setDashboard(
+      dashboardForAccess(dashboardFromDefinition(view.definition), allowMemberDetail),
+    )
+    onApplyQuery?.(sanitizeAnalyticsQuery(view.definition.query, allowMemberDetail)!)
   }
 
   return (
@@ -393,35 +467,37 @@ export function ResourceAnalyticsStudio({
               <Settings2 className="size-3.5" />
               Customize
             </Button>
-            <Button
-              variant={savedViewId ? "outline" : "default"}
-              disabled={createView.isPending || updateView.isPending}
-              onClick={() => {
-                if (savedViewId) updateView.mutate()
-                else {
-                  setViewName(`${scopeLabel} dashboard`)
-                  setShowSaveView(true)
-                }
-              }}
-            >
-              <Save className="size-3.5" />
-              {updateView.isPending ? "Saving…" : savedViewId ? "Save changes" : "Save view"}
-            </Button>
+            {canManageSelectedView && (
+              <Button
+                variant={savedViewId ? "outline" : "default"}
+                disabled={createView.isPending || updateView.isPending}
+                onClick={() => {
+                  if (savedViewId) updateView.mutate()
+                  else {
+                    setViewName(`${scopeLabel} dashboard`)
+                    setShowSaveView(true)
+                  }
+                }}
+              >
+                <Save className="size-3.5" />
+                {updateView.isPending ? "Saving…" : savedViewId ? "Save changes" : "Save view"}
+              </Button>
+            )}
             <Menu
               side="bottom"
               align="end"
               trigger={
-                <Button variant="outline" disabled={!data}>
+                <Button variant="outline" disabled={!visibleData}>
                   <Download className="size-3.5" /> Export
                 </Button>
               }
             >
               <MenuGroup>
                 <MenuGroupLabel>Portable report data</MenuGroupLabel>
-                <MenuItem onClick={() => data && exportResourceAnalytics(data, "csv", scopeLabel)}>
+                <MenuItem onClick={() => visibleData && exportResourceAnalytics(visibleData, "csv", scopeLabel)}>
                   <FileSpreadsheet className="size-4" /> Export CSV
                 </MenuItem>
-                <MenuItem onClick={() => data && exportResourceAnalytics(data, "json", scopeLabel)}>
+                <MenuItem onClick={() => visibleData && exportResourceAnalytics(visibleData, "json", scopeLabel)}>
                   <FileJson className="size-4" /> Export JSON
                 </MenuItem>
                 <MenuSeparator />
@@ -493,11 +569,15 @@ export function ResourceAnalyticsStudio({
               </Menu>
               <Button
                 variant="ghost"
-                onClick={() => setDashboard(defaultDashboard("executive"))}
+                onClick={() =>
+                  setDashboard(
+                    dashboardForAccess(defaultDashboard("executive"), allowMemberDetail),
+                  )
+                }
               >
                 <RotateCcw className="size-3.5" /> Reset
               </Button>
-              {selectedSavedView && (
+              {selectedSavedView && canManageSelectedView && (
                 <Button
                   variant="destructive"
                   disabled={deleteView.isPending}
@@ -515,47 +595,59 @@ export function ResourceAnalyticsStudio({
         )}
       </div>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <InsightMetric
-          label="Attributed requests"
-          value={(totals?.requests ?? 0).toLocaleString()}
-          hint={`${(totals?.resource_uses ?? 0).toLocaleString()} resource uses`}
-          icon={Gauge}
-        />
-        <InsightMetric
-          label="Active adoption"
-          value={(totals?.installed_members ?? 0).toLocaleString()}
-          hint={`${(totals?.installed_installations ?? 0).toLocaleString()} installations in sync`}
-          icon={CheckCircle2}
-          tone="success"
-        />
-        <InsightMetric
-          label="Reliability"
-          value={completed ? `${successRate}%` : "—"}
-          hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked`}
-          icon={Sparkles}
-          tone={completed && successRate < 90 ? "warning" : "success"}
-        />
-        <InsightMetric
-          label="Cost coverage"
-          value={totals?.model_calls ? `${pricingCoverage}%` : "—"}
-          hint={`${formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} estimated · ${totals?.unpriced_model_calls ?? 0} unpriced`}
-          icon={FileSpreadsheet}
-          tone="accent"
-        />
-      </div>
+      {loading ? (
+        <AnalyticsInsightSkeleton announce={announceLoading} />
+      ) : (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <InsightMetric
+            label="Attributed requests"
+            value={(totals?.requests ?? 0).toLocaleString()}
+            hint={`${(totals?.resource_uses ?? 0).toLocaleString()} resource uses`}
+            icon={Gauge}
+          />
+          <InsightMetric
+            label="Active adoption"
+            value={(totals?.installed_members ?? 0).toLocaleString()}
+            hint={`${(totals?.installed_installations ?? 0).toLocaleString()} installations in sync`}
+            icon={CheckCircle2}
+            tone="success"
+          />
+          <InsightMetric
+            label="Reliability"
+            value={successRate == null ? "—" : `${successRate}%`}
+            hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked`}
+            icon={Sparkles}
+            tone={successRate != null && successRate < 90 ? "warning" : "success"}
+          />
+          <InsightMetric
+            label="Cost coverage"
+            value={totals?.model_calls ? `${pricingCoverage}%` : "—"}
+            hint={`${formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} estimated · ${totals?.unpriced_model_calls ?? 0} unpriced`}
+            icon={FileSpreadsheet}
+            tone="accent"
+          />
+        </div>
+      )}
 
       {loading ? (
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <LoadingState label="Loading analytics widgets" announce={false} className="mt-3 grid gap-3 lg:grid-cols-2">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-64 animate-pulse rounded-xl border border-(--border-card) bg-(--bg-card)" />
+            <div key={item} className="rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="mt-2 h-3 w-56 max-w-full" />
+              <div className="mt-5 grid h-44 grid-cols-7 items-end gap-2 border-b border-l border-(--border-soft) px-3 pb-3">
+                {[45, 72, 56, 84, 63, 77, 51].map((height, index) => (
+                  <Skeleton key={index} className="w-full rounded-b-none" style={{ height: `${height}%` }} />
+                ))}
+              </div>
+            </div>
           ))}
-        </div>
+        </LoadingState>
       ) : empty ? (
-        <TelemetryReadiness data={data} />
+        <TelemetryReadiness data={visibleData} />
       ) : (
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-12">
-          {dashboard.widgets.map((widget, index) => (
+          {visibleWidgets.map((widget, index) => (
             <div
               key={widget.id}
               className={widget.width === "full" ? "lg:col-span-12" : "lg:col-span-6"}
@@ -563,8 +655,8 @@ export function ResourceAnalyticsStudio({
               <AnalyticsWidget
                 widget={widget}
                 index={index}
-                count={dashboard.widgets.length}
-                data={data!}
+                count={visibleWidgets.length}
+                data={visibleData!}
                 density={dashboard.density}
                 customizing={customizing}
                 onChange={(next) =>
@@ -585,7 +677,7 @@ export function ResourceAnalyticsStudio({
       )}
 
       <Dialog
-        open={showSaveView}
+        open={showSaveView && canCreateView}
         title="Save analytics view"
         description="Persist this dashboard on Conductor so it follows you across browsers and can be shared with the project."
         onClose={() => {
@@ -647,6 +739,23 @@ export function ResourceAnalyticsStudio({
         </div>
       </Dialog>
     </section>
+  )
+}
+
+function AnalyticsInsightSkeleton({ announce = true }: { announce?: boolean }) {
+  return (
+    <LoadingState label="Loading analytics summary" announce={announce} className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {Array.from({ length: 4 }, (_, index) => (
+        <div key={index} className="rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+          <div className="flex items-center justify-between gap-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="size-7" />
+          </div>
+          <Skeleton className="mt-3 h-6 w-14" />
+          <Skeleton className="mt-2 h-3 w-32 max-w-full" />
+        </div>
+      ))}
+    </LoadingState>
   )
 }
 
@@ -1110,7 +1219,7 @@ function rankingRows(
     return data.resources.map((item) => ({ key: `${item.resource_id}:${item.version_id}:${item.relation}`, label: item.name, detail: `v${item.version} · ${item.kind}`, value: item.uses }))
   }
   if (id === "members") {
-    return data.members.map((item) => ({ key: item.user_id, label: item.display_name, detail: item.primary_role, value: item.requests }))
+    return data.members.map((item) => ({ key: item.user_id, label: item.display_name, detail: PRIMARY_ROLE_LABELS[item.primary_role], value: item.requests }))
   }
   if (id === "models") {
     return data.models.map((item) => ({ key: `${item.provider}:${item.model}`, label: item.model, detail: item.provider, value: item.calls }))
@@ -1118,7 +1227,7 @@ function rankingRows(
   if (id === "tools") {
     return data.tools.map((item) => ({ key: item.tool_name, label: item.tool_name, detail: `${item.category} · ${item.errors} errors`, value: item.calls }))
   }
-  return data.roles.map((item) => ({ key: item.primary_role, label: item.primary_role, detail: `${item.model_calls} model · ${item.tool_calls} tool`, value: item.model_calls + item.tool_calls }))
+  return data.roles.map((item) => ({ key: item.primary_role, label: PRIMARY_ROLE_LABELS[item.primary_role], detail: `${item.model_calls} model · ${item.tool_calls} tool`, value: item.model_calls + item.tool_calls }))
 }
 
 function rankingMeasureLabel(id: Exclude<WidgetId, "requests" | "outcomes" | "consumption">) {
@@ -1158,6 +1267,42 @@ function defaultDashboard(preset: Exclude<DashboardPreset, "custom">): Dashboard
     preset,
     density: "comfortable",
     widgets: PRESET_WIDGETS[preset].map((widget) => ({ ...widget })),
+  }
+}
+
+function dashboardForAccess(
+  dashboard: DashboardState,
+  allowMemberDetail: boolean,
+): DashboardState {
+  if (allowMemberDetail) return dashboard
+  return {
+    ...dashboard,
+    widgets: dashboard.widgets.filter((widget) => widget.id !== "members"),
+  }
+}
+
+function sanitizeAnalyticsQuery(
+  query: AnalyticsViewDefinition["query"] | undefined,
+  allowMemberDetail: boolean,
+): AnalyticsViewDefinition["query"] | undefined {
+  if (!query || allowMemberDetail) return query
+  return {
+    ...query,
+    member_id: null,
+    installation_id: null,
+  }
+}
+
+function analyticsDataForAccess(
+  data: ResourceUsageAnalytics | undefined,
+  allowMemberDetail: boolean,
+): ResourceUsageAnalytics | undefined {
+  if (!data || allowMemberDetail) return data
+  return {
+    ...data,
+    members: [],
+    activity: [],
+    activity_total: 0,
   }
 }
 

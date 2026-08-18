@@ -145,6 +145,7 @@ async fn saved_views_enforce_visibility_ownership_and_optimistic_revision() {
         )
         .await;
     assert_eq!(status, StatusCode::CONFLICT, "{conflict}");
+    assert_eq!(conflict["error_code"], "revision_conflict");
 
     let (status, _) = app
         .delete(

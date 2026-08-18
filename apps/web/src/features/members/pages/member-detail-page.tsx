@@ -19,7 +19,10 @@ import {
   useUsageRange,
 } from "@/features/members/components/date-range-filter"
 import { MemberInstallationsPanel } from "@/features/members/components/member-installations-panel"
-import { MemberActivityTable } from "@/features/members/components/member-activity-table"
+import {
+  MemberActivityTable,
+  MemberActivityTableSkeleton,
+} from "@/features/members/components/member-activity-table"
 import { MemberNav } from "@/features/members/components/member-nav"
 import {
   formatTokens,
@@ -36,15 +39,21 @@ import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/component
 import {
   MEMBER_QUERY_KEYS,
   MEMBER_STATUS_TONES,
-  PRIMARY_ROLE,
+  PRIMARY_ROLE_LABELS,
   PRIMARY_ROLE_OPTIONS,
 } from "@/shared/constants/member"
 import { CONNECTION_SECRET_SCOPES } from "@/shared/constants/secret"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import {
   TELEMETRY_QUERY_KEYS,
   TELEMETRY_RECENT_ACTIVITY_LIMIT,
 } from "@/shared/constants/telemetry"
 import { useAuthStore } from "@/shared/stores/auth"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
@@ -54,12 +63,33 @@ import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { MultiSelect } from "@/shared/ui/multi-select"
 import { Select } from "@/shared/ui/select"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function MemberDetailPage() {
   const { userId } = useParams({ strict: false }) as { userId: string }
-  const actor = useAuthStore((state) => state.user)
-  const canManage = actor?.primary_role === PRIMARY_ROLE.ADMIN
-  const canViewSecrets = canManage || actor?.id === userId
+  const can = useAuthStore((state) => state.can)
+  const canManage = mayRequest(can(PERMISSION.MEMBER_MANAGE, { targetId: userId }))
+  const canViewSecrets = mayRequest(
+    bestAuthorizationDecision([
+      can(PERMISSION.CONNECTION_TOKEN_READ_SELF, {
+        targetId: userId,
+        ownerId: userId,
+      }),
+      can(PERMISSION.CONNECTION_TOKEN_READ_ANY, { targetId: userId }),
+    ]),
+  )
+  const canIssueToken = mayRequest(
+    can(PERMISSION.CONNECTION_TOKEN_ISSUE_SELF, { ownerId: userId }),
+  )
+  const canRevokeToken = mayRequest(
+    bestAuthorizationDecision([
+      can(PERMISSION.CONNECTION_TOKEN_REVOKE_SELF, {
+        targetId: userId,
+        ownerId: userId,
+      }),
+      can(PERMISSION.CONNECTION_TOKEN_REVOKE_ANY, { targetId: userId }),
+    ]),
+  )
   const qc = useQueryClient()
   const dates = useUsageRange()
   const [editOpen, setEditOpen] = useState(false)
@@ -72,6 +102,8 @@ export function MemberDetailPage() {
   const usage = useQuery({
     queryKey: TELEMETRY_QUERY_KEYS.summary(userId, dates.range.from, dates.range.to),
     queryFn: () => api.memberUsageSummary(userId, dates.range),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === userId ? previousData : undefined,
   })
   const recent = useQuery({
     queryKey: TELEMETRY_QUERY_KEYS.activity(
@@ -85,7 +117,17 @@ export function MemberDetailPage() {
         ...dates.range,
         limit: TELEMETRY_RECENT_ACTIVITY_LIMIT,
       }),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === userId ? previousData : undefined,
   })
+  const memberLoading = useMinimumLoading(member.isLoading && !member.data)
+  const usageLoading = useMinimumLoading(usage.isLoading && !usage.data)
+  const recentLoading = useMinimumLoading(recent.isLoading && !recent.data)
+  const pageInitialLoading =
+    memberLoading || usageLoading || recentLoading
+  const telemetryRefreshing =
+    (usage.isFetching && Boolean(usage.data)) ||
+    (recent.isFetching && Boolean(recent.data))
 
   const refreshMember = () => {
     void qc.invalidateQueries({ queryKey: MEMBER_QUERY_KEYS.detail(userId) })
@@ -95,7 +137,11 @@ export function MemberDetailPage() {
   return (
     <PageFrame
       title={member.data?.display_name ?? "Member overview"}
-      subtitle={member.data ? `${member.data.email} · ${member.data.primary_role}` : undefined}
+      subtitle={
+        member.data
+          ? `${member.data.email} · ${PRIMARY_ROLE_LABELS[member.data.primary_role]}`
+          : undefined
+      }
       action={
         canManage && member.data ? (
           <Button variant="outline" onClick={() => setEditOpen(true)}>
@@ -113,33 +159,62 @@ export function MemberDetailPage() {
         All members
       </Link>
       <MemberNav userId={userId} />
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {pageInitialLoading ? "Loading member overview…" : ""}
+      </span>
 
-      {member.error && <ErrorState className="mb-4" message={member.error.message} />}
-      {usage.error && <ErrorState className="mb-4" message={usage.error.message} />}
+      {member.error && !memberLoading && (
+        <ErrorState className="mb-4" message={member.error.message} />
+      )}
+      {usage.error && !usageLoading && (
+        <ErrorState className="mb-4" message={usage.error.message} />
+      )}
+      {recent.error && !recentLoading && (
+        <ErrorState className="mb-4" message={recent.error.message} />
+      )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        {member.data && (
+        {memberLoading ? (
+          <LoadingState label="Loading member identity" announce={false} className="flex items-center gap-2">
+            <Skeleton className="h-5 w-16" />
+            <Skeleton className="h-5 w-20" />
+          </LoadingState>
+        ) : member.data ? (
           <div className="flex items-center gap-2 text-sm">
             <Badge tone={MEMBER_STATUS_TONES[member.data.status]}>
               <StatusDot tone={MEMBER_STATUS_TONES[member.data.status]} />
               {member.data.status}
             </Badge>
-            <Badge tone="accent" className="capitalize">{member.data.primary_role}</Badge>
+            <Badge tone="accent">
+              {PRIMARY_ROLE_LABELS[member.data.primary_role]}
+            </Badge>
           </div>
-        )}
-        <DateRangeFilter
-          preset={dates.preset}
-          onPresetChange={dates.setPreset}
-          customFrom={dates.customFrom}
-          onCustomFromChange={dates.setCustomFrom}
-          customTo={dates.customTo}
-          onCustomToChange={dates.setCustomTo}
-        />
+        ) : <span />}
+        <div className="grid justify-items-end gap-1">
+          <DateRangeFilter
+            preset={dates.preset}
+            onPresetChange={dates.setPreset}
+            customFrom={dates.customFrom}
+            onCustomFromChange={dates.setCustomFrom}
+            customTo={dates.customTo}
+            onCustomToChange={dates.setCustomTo}
+          />
+          {telemetryRefreshing && (
+            <span className="text-xs text-(--color-text-subtle)" role="status" aria-live="polite">
+              Updating member telemetry…
+            </span>
+          )}
+        </div>
       </div>
 
-      {usage.isLoading ? (
-        <StatCardGridSkeleton count={4} />
-      ) : (
+      {usageLoading ? (
+        <StatCardGridSkeleton count={4} announce={false} />
+      ) : usage.data ? (
         <StatCardGrid>
           <StatCard
             label="Total tokens"
@@ -169,12 +244,16 @@ export function MemberDetailPage() {
             tone="warning"
           />
         </StatCardGrid>
-      )}
+      ) : null}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <TokenTrendChart daily={usage.data?.daily ?? []} />
-        <ModelDonutChart models={usage.data?.models ?? []} />
-      </div>
+      {usageLoading ? (
+        <MemberChartGridSkeleton />
+      ) : usage.data ? (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <TokenTrendChart daily={usage.data.daily} />
+          <ModelDonutChart models={usage.data.models} />
+        </div>
+      ) : null}
 
       <Card className="mt-4">
         <CardHeader>
@@ -188,19 +267,21 @@ export function MemberDetailPage() {
           </Link>
         </CardHeader>
         <CardContent className="p-0">
-          {recent.data?.items.length === 0 ? (
+          {recentLoading ? (
+            <MemberActivityTableSkeleton rows={5} density="compact" announce={false} />
+          ) : recent.data?.items.length === 0 ? (
             <EmptyState
               title="No requests in this range"
               description="Usage appears after this member runs EvoFlux while Conductor sync is enabled."
               className="border-0 py-10"
             />
-          ) : (
+          ) : recent.data ? (
             <MemberActivityTable
               userId={userId}
-              items={recent.data?.items ?? []}
+              items={recent.data.items}
               density="compact"
             />
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
@@ -211,7 +292,12 @@ export function MemberDetailPage() {
           </CardContent>
         </Card>
         {canViewSecrets && (
-          <MemberSecretsCard userId={userId} onCreate={() => setTokenOpen(true)} />
+          <MemberSecretsCard
+            userId={userId}
+            canCreate={canIssueToken}
+            canRevoke={canRevokeToken}
+            onCreate={() => setTokenOpen(true)}
+          />
         )}
       </div>
 
@@ -225,16 +311,51 @@ export function MemberDetailPage() {
           }}
         />
       )}
-      {tokenOpen && (
+      {tokenOpen && canIssueToken && (
         <CreateTokenDialog userId={userId} onClose={() => setTokenOpen(false)} />
       )}
     </PageFrame>
   )
 }
 
-function MemberSecretsCard({ userId, onCreate }: { userId: string; onCreate: () => void }) {
+function MemberChartGridSkeleton() {
+  return (
+    <LoadingState label="Loading member charts" announce={false} className="mt-4 grid gap-4 lg:grid-cols-2">
+      {Array.from({ length: 2 }, (_, panel) => (
+        <Card key={panel}>
+          <CardHeader>
+            <div className="min-w-0 flex-1">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="mt-2 h-3 w-48 max-w-full" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid h-52 grid-cols-7 items-end gap-2 border-b border-l border-(--border-soft) px-3 pb-3">
+              {[45, 68, 52, 79, 61, 84, 57].map((height, index) => (
+                <Skeleton key={index} className="w-full rounded-b-none" style={{ height: `${height}%` }} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </LoadingState>
+  )
+}
+
+function MemberSecretsCard({
+  userId,
+  canCreate,
+  canRevoke,
+  onCreate,
+}: {
+  userId: string
+  canCreate: boolean
+  canRevoke: boolean
+  onCreate: () => void
+}) {
   const qc = useQueryClient()
   const query = useQuery({ queryKey: MEMBER_QUERY_KEYS.secrets(userId), queryFn: () => api.memberSecrets(userId) })
+  const initialLoading = useMinimumLoading(query.isLoading && !query.data)
   const revoke = useMutation({
     mutationFn: (secretId: string) => api.revokeMemberSecret(userId, secretId),
     onSuccess: () => void qc.invalidateQueries({ queryKey: MEMBER_QUERY_KEYS.secrets(userId) }),
@@ -244,19 +365,45 @@ function MemberSecretsCard({ userId, onCreate }: { userId: string; onCreate: () 
     <Card>
       <CardHeader>
         <div><CardTitle>Connection tokens</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Tokens this member can use to connect EvoFlux.</p></div>
-        <Button size="sm" variant="outline" onClick={onCreate}><Plus className="size-3.5" />Create</Button>
+        {canCreate && (
+          <Button size="sm" variant="outline" onClick={onCreate}>
+            <Plus className="size-3.5" />Create
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
-        {query.error && <ErrorState message={query.error.message} />}
-        {active.length === 0 ? (
-          <EmptyState icon={KeyRound} title="No active tokens" description="Create a scoped token and share it once with this member." className="border-0 py-7" />
+        {query.error && query.data && <ErrorState className="mb-3" message={query.error.message} />}
+        {initialLoading ? (
+          <LoadingState label="Loading connection tokens" className="divide-y divide-(--border-soft)">
+            {Array.from({ length: 2 }, (_, index) => (
+              <div key={index} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="mt-1.5 h-3 w-20" />
+                </div>
+                <Skeleton className="h-3 w-20" />
+                {canRevoke && <Skeleton className="h-8 w-16" />}
+              </div>
+            ))}
+          </LoadingState>
+        ) : query.error && !query.data ? (
+          <ErrorState message={query.error.message} />
+        ) : active.length === 0 ? (
+          <EmptyState
+            icon={KeyRound}
+            title="No active tokens"
+            description={canCreate ? "Create a scoped token for your own EvoFlux client." : "This member has no active connection-token metadata."}
+            className="border-0 py-7"
+          />
         ) : (
           <div className="divide-y divide-(--border-soft)">
             {active.map((secret) => (
               <div key={secret.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{secret.name}</div><code className="text-xs text-(--color-text-subtle)">{secret.prefix}…</code></div>
                 <div className="text-right text-[0.65rem] text-(--color-text-subtle)">{secret.last_used_at ? `Used ${new Date(secret.last_used_at).toLocaleDateString()}` : "Never used"}</div>
-                <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate(secret.id)}>Revoke</Button>
+                {canRevoke && (
+                  <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate(secret.id)}>Revoke</Button>
+                )}
               </div>
             ))}
           </div>
@@ -309,6 +456,12 @@ function EditMemberDialog({ user, onClose, onSaved }: { user: User; onClose: () 
   const [tagIds, setTagIds] = useState(user.tag_ids)
   const tags = useQuery({ queryKey: ["tags"], queryFn: () => api.tags() })
   const subRoles = useQuery({ queryKey: ["sub-roles"], queryFn: () => api.subRoles() })
+  const taxonomyLoading = useMinimumLoading(
+    (tags.isLoading && !tags.data) || (subRoles.isLoading && !subRoles.data)
+  )
+  const taxonomyError = [tags.error, subRoles.error].find(
+    (value): value is Error => value instanceof Error,
+  )
   const tagOptions = useMemo(() => (tags.data ?? []).map((item) => ({ value: item.id, label: item.name })), [tags.data])
   const subRoleOptions = useMemo(() => (subRoles.data ?? []).map((item) => ({ value: item.id, label: item.name })), [subRoles.data])
   const save = useMutation({
@@ -320,10 +473,10 @@ function EditMemberDialog({ user, onClose, onSaved }: { user: User; onClose: () 
       <div className="space-y-3">
         <div className="space-y-1.5"><Label>Display name</Label><Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></div>
         <div className="space-y-1.5"><Label>Primary role</Label><Select value={role} disabled={actorId === user.id} onValueChange={(value) => setRole(value as PrimaryRole)} options={[...PRIMARY_ROLE_OPTIONS]} /></div>
-        <div className="space-y-1.5"><Label>Sub-roles</Label><MultiSelect options={subRoleOptions} value={subRoleIds} onChange={setSubRoleIds} placeholder="Select sub-roles…" /></div>
-        <div className="space-y-1.5"><Label>Tags</Label><MultiSelect options={tagOptions} value={tagIds} onChange={setTagIds} placeholder="Select tags…" /></div>
+        <div className="space-y-1.5"><Label>Sub-roles</Label>{taxonomyLoading ? <LoadingState label="Loading access profile options"><Skeleton className="h-9 w-full" /></LoadingState> : taxonomyError ? <ErrorState message={`Sub-role options unavailable: ${taxonomyError.message}`} /> : <MultiSelect options={subRoleOptions} value={subRoleIds} onChange={setSubRoleIds} placeholder="Select sub-roles…" />}</div>
+        <div className="space-y-1.5"><Label>Tags</Label>{taxonomyLoading ? <LoadingState label="Loading tag options" announce={false}><Skeleton className="h-9 w-full" /></LoadingState> : taxonomyError ? <ErrorState message={`Tag options unavailable: ${taxonomyError.message}`} /> : <MultiSelect options={tagOptions} value={tagIds} onChange={setTagIds} placeholder="Select tags…" />}</div>
         {save.error && <ErrorState message={save.error.message} />}
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="gradient" disabled={!displayName.trim() || save.isPending} onClick={() => save.mutate()}>Save changes</Button></div>
+        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="gradient" disabled={!displayName.trim() || save.isPending || Boolean(taxonomyError)} onClick={() => save.mutate()}>Save changes</Button></div>
       </div>
     </Dialog>
   )

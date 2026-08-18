@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Activity, Bot, Boxes, CircleDollarSign, Download, Gauge, Users, Wrench } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { DateRangeFilter, useUsageRange } from "@/features/members/components/date-range-filter"
 import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
@@ -28,10 +28,12 @@ import {
   RESOURCE_PENDING_STATES,
   type ResourceMonitoringTab,
 } from "@/shared/constants/resource-monitoring"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { Badge } from "@/shared/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import { Table, TableBody, TableHead, TableRow, TableTd, TableTh, TableWrap } from "@/shared/ui/table"
 
 const MONITORING_TABS: Array<{ value: ResourceMonitoringTab; label: string }> = [
@@ -41,7 +43,13 @@ const MONITORING_TABS: Array<{ value: ResourceMonitoringTab; label: string }> = 
   { value: RESOURCE_MONITORING_TAB.USAGE, label: "Usage" },
 ]
 
-export function ResourceDetailMonitoring({ resource }: { resource: ManagedResource }) {
+export function ResourceDetailMonitoring({
+  resource,
+  showMemberDetail,
+}: {
+  resource: ManagedResource
+  showMemberDetail: boolean
+}) {
   const dates = useUsageRange()
   const [tab, setTab] = useState<ResourceMonitoringTab>(RESOURCE_MONITORING_TAB.OVERVIEW)
   const usage = useQuery({
@@ -56,6 +64,36 @@ export function ResourceDetailMonitoring({ resource }: { resource: ManagedResour
     queryKey: ["resource-detail-inventory", resource.id],
     queryFn: () => api.resourceInventory(resource.id),
   })
+  const usageLoading = useMinimumLoading(usage.isLoading && !usage.data)
+  const inventoryLoading = useMinimumLoading(
+    inventory.isLoading && !inventory.data,
+  )
+  const activeError =
+    tab === RESOURCE_MONITORING_TAB.OVERVIEW
+      ? usage.error ?? inventory.error
+      : tab === RESOURCE_MONITORING_TAB.INSTALLATIONS
+        ? inventory.error
+        : usage.error
+  const activeLoading =
+    tab === RESOURCE_MONITORING_TAB.OVERVIEW
+      ? usageLoading || inventoryLoading
+      : tab === RESOURCE_MONITORING_TAB.INSTALLATIONS
+        ? inventoryLoading
+        : usageLoading
+  const usageFatal = Boolean(usage.error && !usage.data && !usageLoading)
+  const inventoryFatal = Boolean(
+    inventory.error && !inventory.data && !inventoryLoading,
+  )
+
+  useEffect(() => {
+    if (
+      !showMemberDetail &&
+      (tab === RESOURCE_MONITORING_TAB.INSTALLATIONS ||
+        tab === RESOURCE_MONITORING_TAB.ACTIVITY)
+    ) {
+      setTab(RESOURCE_MONITORING_TAB.OVERVIEW)
+    }
+  }, [showMemberDetail, tab])
 
   return (
     <div>
@@ -67,7 +105,14 @@ export function ResourceDetailMonitoring({ resource }: { resource: ManagedResour
         <DateRangeFilter preset={dates.preset} onPresetChange={dates.setPreset} customFrom={dates.customFrom} onCustomFromChange={dates.setCustomFrom} customTo={dates.customTo} onCustomToChange={dates.setCustomTo} />
       </div>
       <div className="mb-4 flex gap-1 overflow-x-auto border-b border-(--border-soft)">
-        {MONITORING_TABS.map((item) => (
+        {MONITORING_TABS
+          .filter(
+            (item) =>
+              showMemberDetail ||
+              (item.value !== RESOURCE_MONITORING_TAB.INSTALLATIONS &&
+                item.value !== RESOURCE_MONITORING_TAB.ACTIVITY),
+          )
+          .map((item) => (
           <button
             key={item.value}
             type="button"
@@ -78,13 +123,13 @@ export function ResourceDetailMonitoring({ resource }: { resource: ManagedResour
           </button>
         ))}
       </div>
-      {(usage.error || inventory.error) && (
-        <ErrorState message={(usage.error ?? inventory.error)?.message ?? "Resource monitoring could not be loaded."} />
+      {activeError && !activeLoading && (
+        <ErrorState message={activeError.message ?? "Resource monitoring could not be loaded."} />
       )}
-      {tab === RESOURCE_MONITORING_TAB.OVERVIEW && <MonitoringOverview usage={usage.data} inventory={inventory.data} loading={usage.isLoading || inventory.isLoading} />}
-      {tab === RESOURCE_MONITORING_TAB.INSTALLATIONS && <InstallationsPanel data={inventory.data} loading={inventory.isLoading} />}
-      {tab === RESOURCE_MONITORING_TAB.ACTIVITY && <ActivityPanel data={usage.data} loading={usage.isLoading} />}
-      {tab === RESOURCE_MONITORING_TAB.USAGE && <UsagePanel resource={resource} data={usage.data} loading={usage.isLoading} dates={dates} />}
+      {tab === RESOURCE_MONITORING_TAB.OVERVIEW && !usageFatal && !inventoryFatal && <MonitoringOverview usage={usage.data} inventory={inventory.data} loading={usageLoading || inventoryLoading} />}
+      {showMemberDetail && tab === RESOURCE_MONITORING_TAB.INSTALLATIONS && !inventoryFatal && <InstallationsPanel data={inventory.data} loading={inventoryLoading} />}
+      {showMemberDetail && tab === RESOURCE_MONITORING_TAB.ACTIVITY && !usageFatal && <ActivityPanel data={usage.data} loading={usageLoading} />}
+      {tab === RESOURCE_MONITORING_TAB.USAGE && !usageFatal && <UsagePanel resource={resource} data={usage.data} loading={usageLoading} dates={dates} showMemberDetail={showMemberDetail} />}
     </div>
   )
 }
@@ -94,7 +139,7 @@ function MonitoringOverview({ usage, inventory, loading }: { usage?: ResourceUsa
   const inventoryTotals = inventory?.summary
   const successTotal = (totals?.successes ?? 0) + (totals?.errors ?? 0)
   const successRate = successTotal ? Math.round(((totals?.successes ?? 0) / successTotal) * 100) : 0
-  if (loading) return <SkeletonRows rows={5} />
+  if (loading) return <MonitoringOverviewSkeleton />
   return (
     <>
       <div className="overflow-x-auto rounded-xl border border-(--border-card) bg-(--bg-card)">
@@ -103,7 +148,7 @@ function MonitoringOverview({ usage, inventory, loading }: { usage?: ResourceUsa
           <MonitoringMetric label="Pending" value={inventoryTotals?.pending_installations ?? 0} hint={`${inventoryTotals?.attention_installations ?? 0} need attention`} icon={Gauge} />
           <MonitoringMetric label="Requests" value={totals?.requests ?? 0} hint={`${totals?.resource_uses ?? 0} attributed uses`} icon={Activity} />
           <MonitoringMetric label="Success" value={`${successRate}%`} hint={`${totals?.errors ?? 0} errors`} icon={Gauge} />
-          <MonitoringMetric label="Members" value={usage?.members.length ?? 0} hint="active in range" icon={Users} />
+          <MonitoringMetric label="Installed members" value={totals?.installed_members ?? 0} hint="aggregate only" icon={Users} />
           <MonitoringMetric label="Model calls" value={totals?.model_calls ?? 0} hint={`${usage?.models.length ?? 0} models`} icon={Bot} />
           <MonitoringMetric label="Tool calls" value={totals?.tool_calls ?? 0} hint={`${usage?.tools.length ?? 0} tools`} icon={Wrench} />
           <MonitoringMetric label="Est. cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} />
@@ -132,7 +177,7 @@ function MonitoringMetric({ label, value, hint, icon: Icon }: { label: string; v
 }
 
 function InstallationsPanel({ data, loading }: { data?: ResourceInventoryMonitoring; loading: boolean }) {
-  if (loading) return <SkeletonRows rows={6} />
+  if (loading) return <InstallationsSkeleton />
   if (!data?.installations.length) return <EmptyState title="No reported installations" description="Install or reconcile this resource from EvoFlux to populate current inventory." />
   return (
     <Card>
@@ -144,7 +189,7 @@ function InstallationsPanel({ data, loading }: { data?: ResourceInventoryMonitor
             <TableBody>
               {data.installations.map((item) => (
                 <TableRow key={item.installation_id}>
-                  <TableTd><div className="font-medium">{item.member_name}</div><div className="text-xs text-(--color-text-subtle)">{item.email}</div><Badge tone="accent" className="mt-1 capitalize">{item.primary_role}</Badge></TableTd>
+                  <TableTd><div className="font-medium">{item.member_name}</div><div className="text-xs text-(--color-text-subtle)">{item.email}</div><Badge tone="accent" className="mt-1">{PRIMARY_ROLE_LABELS[item.primary_role]}</Badge></TableTd>
                   <TableTd><div className="font-medium">{item.installation_name}</div><div className="text-xs capitalize text-(--color-text-subtle)">{item.platform} · EvoFlux {item.evoflux_version}</div></TableTd>
                   <TableTd className="font-mono text-xs"><div>{item.desired_version ? `v${item.desired_version}` : "—"}</div><div className="text-(--color-text-subtle)">→ {item.applied_version ? `v${item.applied_version}` : "not applied"}</div></TableTd>
                   <TableTd><Badge tone="neutral" className="capitalize">{item.release_channel ?? "—"}</Badge></TableTd>
@@ -167,7 +212,7 @@ function InventoryStateBadge({ state }: { state: string }) {
 }
 
 function ActivityPanel({ data, loading }: { data?: ResourceUsageAnalytics; loading: boolean }) {
-  if (loading) return <SkeletonRows rows={7} />
+  if (loading) return <ActivitySkeleton />
   return (
     <Card>
       <CardHeader><div><CardTitle>Attributed request activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Click Details for the event timeline, model/tool calls, tokens, duration and cost.</p></div><Badge tone="neutral">{data?.activity_total ?? 0} rows</Badge></CardHeader>
@@ -176,17 +221,131 @@ function ActivityPanel({ data, loading }: { data?: ResourceUsageAnalytics; loadi
   )
 }
 
+function MonitoringOverviewSkeleton() {
+  return (
+    <LoadingState label="Loading resource monitoring overview" className="space-y-4">
+      <div className="overflow-x-auto rounded-xl border border-(--border-card) bg-(--bg-card)">
+        <div className="grid min-w-max auto-cols-[7.75rem] grid-flow-col divide-x divide-(--border-soft)">
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="space-y-2 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Skeleton className="h-2.5 w-14" />
+                <Skeleton className="size-3.5" />
+              </div>
+              <Skeleton className="h-6 w-16" />
+              <Skeleton className="h-2.5 w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Skeleton className="h-72 w-full rounded-xl" />
+        <Skeleton className="h-72 w-full rounded-xl" />
+      </div>
+    </LoadingState>
+  )
+}
+
+function InstallationsSkeleton() {
+  return (
+    <LoadingState label="Loading resource installations">
+      <Card>
+        <CardHeader>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-3 w-80 max-w-full" />
+          </div>
+          <Skeleton className="h-5 w-20 rounded-full" />
+        </CardHeader>
+        <CardContent className="p-0">
+          <TableWrap className="rounded-none border-0">
+            <Table>
+              <TableHead><tr><TableTh>Member / role</TableTh><TableTh>EvoFlux installation</TableTh><TableTh>Desired → applied</TableTh><TableTh>Channel</TableTh><TableTh>State</TableTh><TableTh>Observed / seen</TableTh></tr></TableHead>
+              <TableBody>
+                {Array.from({ length: 6 }, (_, index) => (
+                  <TableRow key={index}>
+                    <TableTd><Skeleton className="h-10 w-32" /></TableTd>
+                    <TableTd><Skeleton className="h-8 w-40" /></TableTd>
+                    <TableTd><Skeleton className="h-8 w-24" /></TableTd>
+                    <TableTd><Skeleton className="h-5 w-16 rounded-full" /></TableTd>
+                    <TableTd><Skeleton className="h-5 w-20 rounded-full" /></TableTd>
+                    <TableTd><Skeleton className="h-8 w-36" /></TableTd>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableWrap>
+        </CardContent>
+      </Card>
+    </LoadingState>
+  )
+}
+
+function ActivitySkeleton() {
+  const headers = [
+    "Time / member",
+    "Resource version",
+    "Model",
+    "Calls",
+    "Tokens",
+    "Est. cost",
+    "Duration",
+    "Outcome",
+  ]
+  return (
+    <LoadingState label="Loading attributed resource activity">
+      <Card>
+        <CardHeader>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-3 w-96 max-w-full" />
+          </div>
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </CardHeader>
+        <CardContent className="p-0">
+          <TableWrap className="rounded-none border-0">
+            <Table>
+              <TableHead>
+                <tr>
+                  {headers.map((header) => <TableTh key={header}>{header}</TableTh>)}
+                  <TableTh><span className="sr-only">Actions</span></TableTh>
+                </tr>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 7 }, (_, row) => (
+                  <TableRow key={row}>
+                    {headers.map((header, column) => (
+                      <TableTd key={header}>
+                        <Skeleton className={column < 3 ? "h-9 w-32" : "h-5 w-16"} />
+                      </TableTd>
+                    ))}
+                    <TableTd><Skeleton className="ml-auto h-8 w-20" /></TableTd>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableWrap>
+        </CardContent>
+      </Card>
+    </LoadingState>
+  )
+}
+
 function UsagePanel({
   resource,
   data,
   loading,
   dates,
+  showMemberDetail,
 }: {
   resource: ManagedResource
   data?: ResourceUsageAnalytics
   loading: boolean
   dates: ReturnType<typeof useUsageRange>
+  showMemberDetail: boolean
 }) {
+  if (loading) return <ResourceUsagePanelSkeleton showMemberDetail={showMemberDetail} />
+
   const query: AnalyticsQuery = {
     date_range: monitoringDateRange(dates.preset),
     from: dates.preset === "custom" ? dates.range.from ?? null : null,
@@ -204,8 +363,11 @@ function UsagePanel({
         scope={{ resourceKind: resource.kind, resourceId: resource.id }}
         query={query}
         onApplyQuery={(saved) => applyMonitoringDateRange(saved, dates)}
+        allowMemberDetail={showMemberDetail}
       />
-      <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and estimated cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
+      {showMemberDetail && (
+        <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and estimated cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
+      )}
       <Breakdown title="Calls by role" description="Requests, model calls and tool calls by the role captured at ingest time.">{data?.roles.length ? <ResourceRoleBreakdownTable items={data.roles} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Tool calls" description="Which tools this resource drives most, including outcome, average duration and last use.">{data?.tools.length ? <ResourceToolBreakdownTable items={data.tools} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Provider and model calls" description="Model volume, total tokens, estimated cost and pricing coverage.">{data?.models.length ? <ResourceModelBreakdownTable items={data.models} /> : <UsageEmpty />}</Breakdown>
@@ -215,6 +377,46 @@ function UsagePanel({
         <MonitoringMetric label="Estimated cost" value={formatEstimatedCost(data?.totals.estimated_cost_usd_micros ?? 0)} hint={`${data?.totals.unpriced_model_calls ?? 0} unpriced calls`} icon={CircleDollarSign} />
       </div>
     </>
+  )
+}
+
+function ResourceUsagePanelSkeleton({ showMemberDetail }: { showMemberDetail: boolean }) {
+  const breakdowns = showMemberDetail ? 4 : 3
+  return (
+    <LoadingState label="Loading resource usage analytics" className="space-y-4">
+      <Skeleton className="h-28 w-full rounded-xl" />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Skeleton className="h-72 w-full rounded-xl" />
+        <Skeleton className="h-72 w-full rounded-xl" />
+      </div>
+      {Array.from({ length: breakdowns }, (_, index) => (
+        <Card key={index}>
+          <CardHeader>
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-80 max-w-full" />
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 p-4">
+            {Array.from({ length: 3 }, (_, row) => (
+              <div key={row} className="flex items-center justify-between gap-4">
+                <Skeleton className="h-3 w-36" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+      <div className="grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-3 sm:divide-x sm:divide-(--border-soft)">
+        {Array.from({ length: 3 }, (_, index) => (
+          <div key={index} className="space-y-2 p-3">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-6 w-16" />
+            <Skeleton className="h-2.5 w-28" />
+          </div>
+        ))}
+      </div>
+    </LoadingState>
   )
 }
 

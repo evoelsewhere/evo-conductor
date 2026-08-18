@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use conductor_domain::{CreateMemberRequest, PrimaryRole, User, UserStatus};
+use conductor_domain::{CreateMemberRequest, PrimaryRole, User};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use conductor_storage::Db;
 use uuid::Uuid;
@@ -53,7 +53,7 @@ pub async fn seed_active_user(db: &Db, role: PrimaryRole) -> User {
         .expect("create_invited");
 
     db.users()
-        .set_status(user.id, UserStatus::Active)
+        .activate_invited_on_password_login(user.id)
         .await
         .expect("activate seeded user")
 }

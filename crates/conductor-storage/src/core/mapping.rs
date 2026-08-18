@@ -7,6 +7,11 @@ use sqlx::any::AnyRow;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::error::{
+    InvalidPersistedPrincipal, InvalidPersistedResource, PersistedPrincipalField,
+    PersistedResourceField, PersistedSecurityReason, StorageError, StorageResult,
+};
+
 pub fn parse_dt(value: String) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(&value)
         .map(|dt| dt.with_timezone(&Utc))
@@ -28,71 +33,385 @@ pub fn canonicalize_resource_payload(mut payload: serde_json::Value) -> serde_js
     payload
 }
 
-pub fn map_user_row(r: &AnyRow) -> Result<User, sqlx::Error> {
-    let id_str: String = r.get("id");
-    let role_str: String = r.get("primary_role");
-    let status_str: String = r.get("status");
-    let last_seen: Option<String> = r.get("last_seen_at");
-    let must_change: i64 = r.try_get("must_change_password").unwrap_or(0);
+pub fn map_user_row(r: &AnyRow) -> StorageResult<User> {
+    let id_str: String = r.try_get("id").map_err(|error| {
+        principal_column_error(
+            error,
+            None,
+            PersistedPrincipalField::Id,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let id = Uuid::parse_str(&id_str).map_err(|_| {
+        InvalidPersistedPrincipal::new(
+            None,
+            PersistedPrincipalField::Id,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let invalid = |field, reason| InvalidPersistedPrincipal::new(Some(id), field, reason);
+
+    let role_str: String = r.try_get("primary_role").map_err(|error| {
+        principal_column_error(
+            error,
+            Some(id),
+            PersistedPrincipalField::PrimaryRole,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let primary_role = PrimaryRole::parse(&role_str).ok_or_else(|| {
+        invalid(
+            PersistedPrincipalField::PrimaryRole,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let status_str: String = r.try_get("status").map_err(|error| {
+        principal_column_error(
+            error,
+            Some(id),
+            PersistedPrincipalField::Status,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let status = UserStatus::parse(&status_str).ok_or_else(|| {
+        invalid(
+            PersistedPrincipalField::Status,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let session_version: i64 = r.try_get("session_version").map_err(|error| {
+        principal_column_error(
+            error,
+            Some(id),
+            PersistedPrincipalField::SessionVersion,
+            PersistedSecurityReason::InvalidInteger,
+        )
+    })?;
+    if session_version < 0 {
+        return Err(invalid(
+            PersistedPrincipalField::SessionVersion,
+            PersistedSecurityReason::InvalidInteger,
+        )
+        .into());
+    }
+    let must_change: i64 = r.try_get("must_change_password").map_err(|error| {
+        principal_column_error(
+            error,
+            Some(id),
+            PersistedPrincipalField::MustChangePassword,
+            PersistedSecurityReason::InvalidBoolean,
+        )
+    })?;
+    if !matches!(must_change, 0 | 1) {
+        return Err(invalid(
+            PersistedPrincipalField::MustChangePassword,
+            PersistedSecurityReason::InvalidBoolean,
+        )
+        .into());
+    }
+    let last_seen: Option<String> = r.try_get("last_seen_at").map_err(|error| {
+        principal_column_error(
+            error,
+            Some(id),
+            PersistedPrincipalField::LastSeenAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let last_seen_at = last_seen
+        .map(|value| parse_persisted_principal_dt(&value, id, PersistedPrincipalField::LastSeenAt))
+        .transpose()?;
+    let created_at_raw: String = r.try_get("created_at").map_err(|error| {
+        principal_column_error(
+            error,
+            Some(id),
+            PersistedPrincipalField::CreatedAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let created_at =
+        parse_persisted_principal_dt(&created_at_raw, id, PersistedPrincipalField::CreatedAt)?;
 
     Ok(User {
-        id: Uuid::parse_str(&id_str).unwrap_or_else(|_| Uuid::nil()),
-        email: r.get("email"),
-        display_name: r.get("display_name"),
-        primary_role: PrimaryRole::parse(&role_str).unwrap_or(PrimaryRole::User),
+        id,
+        email: r.try_get("email")?,
+        display_name: r.try_get("display_name")?,
+        primary_role,
         sub_role_ids: vec![],
         tag_ids: vec![],
-        status: UserStatus::parse(&status_str),
+        status,
         must_change_password: must_change == 1,
-        last_seen_at: last_seen.map(parse_dt),
-        created_at: parse_dt(r.get("created_at")),
+        last_seen_at,
+        created_at,
     })
 }
 
-pub fn map_resource(r: &AnyRow) -> Result<ManagedResource, sqlx::Error> {
-    let kind_str: String = r.get("kind");
-    let visibility: String = r.get("visibility");
-    let payload: String = r.get("payload");
-    let owner: Option<String> = r.get("owner_user_id");
-    let published_at: Option<String> = r.get("published_at");
+fn principal_column_error(
+    error: sqlx::Error,
+    row_id: Option<Uuid>,
+    field: PersistedPrincipalField,
+    reason: PersistedSecurityReason,
+) -> StorageError {
+    match error {
+        sqlx::Error::ColumnDecode { .. } => {
+            InvalidPersistedPrincipal::new(row_id, field, reason).into()
+        }
+        operational => StorageError::Database(operational),
+    }
+}
+
+fn parse_persisted_principal_dt(
+    value: &str,
+    row_id: Uuid,
+    field: PersistedPrincipalField,
+) -> Result<DateTime<Utc>, InvalidPersistedPrincipal> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|datetime| datetime.with_timezone(&Utc))
+        .map_err(|_| {
+            InvalidPersistedPrincipal::new(
+                Some(row_id),
+                field,
+                PersistedSecurityReason::InvalidTimestamp,
+            )
+        })
+}
+
+pub fn map_resource(r: &AnyRow) -> StorageResult<ManagedResource> {
+    let id_raw: String = r.try_get("id").map_err(|error| {
+        resource_column_error(
+            error,
+            None,
+            PersistedResourceField::Id,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let id = Uuid::parse_str(&id_raw).map_err(|_| {
+        InvalidPersistedResource::new(
+            None,
+            PersistedResourceField::Id,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let invalid = |field, reason| InvalidPersistedResource::new(Some(id), field, reason);
+
+    let project_raw: String = r.try_get("project_id").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::ProjectId,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let project_id = Uuid::parse_str(&project_raw).map_err(|_| {
+        invalid(
+            PersistedResourceField::ProjectId,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+
+    let kind_raw: String = r.try_get("kind").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::Kind,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let kind = ResourceKind::parse(&kind_raw).ok_or_else(|| {
+        invalid(
+            PersistedResourceField::Kind,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+
+    let owner_raw: Option<String> = r.try_get("owner_user_id").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::OwnerUserId,
+            PersistedSecurityReason::InvalidUuid,
+        )
+    })?;
+    let owner_user_id = owner_raw
+        .map(|owner| {
+            Uuid::parse_str(&owner).map_err(|_| {
+                invalid(
+                    PersistedResourceField::OwnerUserId,
+                    PersistedSecurityReason::InvalidUuid,
+                )
+            })
+        })
+        .transpose()?;
+
+    let visibility_raw: String = r.try_get("visibility").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::Visibility,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let visibility = match visibility_raw.as_str() {
+        "shared" => ResourceVisibility::Shared,
+        "private" => ResourceVisibility::Private,
+        _ => {
+            return Err(invalid(
+                PersistedResourceField::Visibility,
+                PersistedSecurityReason::UnknownValue,
+            )
+            .into())
+        }
+    };
+
+    let status_raw: String = r.try_get("status").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::Status,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let status = match status_raw.as_str() {
+        "draft" => ResourceStatus::Draft,
+        "beta" => ResourceStatus::Beta,
+        "published" => ResourceStatus::Published,
+        "archived" => ResourceStatus::Archived,
+        _ => {
+            return Err(invalid(
+                PersistedResourceField::Status,
+                PersistedSecurityReason::UnknownValue,
+            )
+            .into())
+        }
+    };
+
+    let payload_raw: String = r.try_get("payload").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::Payload,
+            PersistedSecurityReason::MalformedPayload,
+        )
+    })?;
+    let payload = serde_json::from_str(&payload_raw).map_err(|_| {
+        invalid(
+            PersistedResourceField::Payload,
+            PersistedSecurityReason::MalformedPayload,
+        )
+    })?;
+
+    let draft_revision: i64 = r.try_get("draft_revision").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::DraftRevision,
+            PersistedSecurityReason::InvalidInteger,
+        )
+    })?;
+    let draft_revision = draft_revision.try_into().map_err(|_| {
+        invalid(
+            PersistedResourceField::DraftRevision,
+            PersistedSecurityReason::InvalidInteger,
+        )
+    })?;
+
+    let release_channel_raw: Option<String> = r.try_get("release_channel").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::ReleaseChannel,
+            PersistedSecurityReason::UnknownValue,
+        )
+    })?;
+    let release_channel = release_channel_raw
+        .map(|channel| {
+            conductor_domain::ReleaseChannel::parse(&channel).ok_or_else(|| {
+                invalid(
+                    PersistedResourceField::ReleaseChannel,
+                    PersistedSecurityReason::UnknownValue,
+                )
+            })
+        })
+        .transpose()?;
+
+    let published_at_raw: Option<String> = r.try_get("published_at").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::PublishedAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let published_at = published_at_raw
+        .map(|value| parse_persisted_resource_dt(&value, id, PersistedResourceField::PublishedAt))
+        .transpose()?;
+    let created_at_raw: String = r.try_get("created_at").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::CreatedAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let created_at =
+        parse_persisted_resource_dt(&created_at_raw, id, PersistedResourceField::CreatedAt)?;
+    let updated_at_raw: String = r.try_get("updated_at").map_err(|error| {
+        resource_column_error(
+            error,
+            Some(id),
+            PersistedResourceField::UpdatedAt,
+            PersistedSecurityReason::InvalidTimestamp,
+        )
+    })?;
+    let updated_at =
+        parse_persisted_resource_dt(&updated_at_raw, id, PersistedResourceField::UpdatedAt)?;
 
     Ok(ManagedResource {
-        id: Uuid::parse_str(r.get::<String, _>("id").as_str()).unwrap_or_else(|_| Uuid::nil()),
-        project_id: r
-            .try_get::<String, _>("project_id")
-            .ok()
-            .and_then(|value| Uuid::parse_str(&value).ok())
-            .unwrap_or_else(Uuid::nil),
-        kind: match kind_str.as_str() {
-            "skill" => ResourceKind::Skill,
-            "plugin" | "mcp" => ResourceKind::Plugin,
-            "workflow" => ResourceKind::Workflow,
-            "command" => ResourceKind::Command,
-            _ => ResourceKind::Agent,
-        },
-        slug: r.get("slug"),
-        name: r.get("name"),
-        description: r.get("description"),
-        version: r.get("version"),
-        highest_version: r.try_get("highest_semver").unwrap_or(None),
-        draft_revision: r.try_get::<i64, _>("draft_revision").unwrap_or(0).max(0) as u64,
-        release_channel: r
-            .try_get::<Option<String>, _>("release_channel")
-            .unwrap_or(None)
-            .as_deref()
-            .and_then(conductor_domain::ReleaseChannel::parse),
-        owner_user_id: owner.and_then(|s| Uuid::parse_str(&s).ok()),
-        visibility: if visibility == "private" {
-            ResourceVisibility::Private
-        } else {
-            ResourceVisibility::Shared
-        },
-        status: ResourceStatus::parse(r.get::<String, _>("status").as_str()),
-        payload: canonicalize_resource_payload(
-            serde_json::from_str(&payload).unwrap_or(serde_json::json!({})),
-        ),
-        published_at: published_at.map(parse_dt),
-        created_at: parse_dt(r.get("created_at")),
-        updated_at: parse_dt(r.get("updated_at")),
+        id,
+        project_id,
+        kind,
+        slug: r.try_get("slug")?,
+        name: r.try_get("name")?,
+        description: r.try_get("description")?,
+        version: r.try_get("version")?,
+        highest_version: r.try_get("highest_semver")?,
+        draft_revision,
+        release_channel,
+        owner_user_id,
+        visibility,
+        status,
+        payload: canonicalize_resource_payload(payload),
+        published_at,
+        created_at,
+        updated_at,
     })
+}
+
+fn resource_column_error(
+    error: sqlx::Error,
+    resource_id: Option<Uuid>,
+    field: PersistedResourceField,
+    reason: PersistedSecurityReason,
+) -> StorageError {
+    match error {
+        sqlx::Error::ColumnDecode { .. } => {
+            InvalidPersistedResource::new(resource_id, field, reason).into()
+        }
+        operational => StorageError::Database(operational),
+    }
+}
+
+fn parse_persisted_resource_dt(
+    value: &str,
+    resource_id: Uuid,
+    field: PersistedResourceField,
+) -> Result<DateTime<Utc>, InvalidPersistedResource> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|datetime| datetime.with_timezone(&Utc))
+        .map_err(|_| {
+            InvalidPersistedResource::new(
+                Some(resource_id),
+                field,
+                PersistedSecurityReason::InvalidTimestamp,
+            )
+        })
 }

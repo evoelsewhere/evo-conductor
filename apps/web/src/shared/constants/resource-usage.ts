@@ -1,4 +1,7 @@
-import { PRIMARY_ROLE } from "@/shared/constants/member"
+import {
+  PRIMARY_ROLE,
+  PRIMARY_ROLE_LABELS,
+} from "@/shared/constants/member"
 import { RESOURCE_KIND } from "@/shared/constants/resource"
 import { TelemetryEventStatus } from "@/shared/constants/telemetry"
 
@@ -56,9 +59,12 @@ export const RESOURCE_USAGE_COST_SOURCE_LABELS = {
 
 export const RESOURCE_USAGE_ROLE_OPTIONS = [
   { value: RESOURCE_USAGE_ALL_FILTER, label: "All roles" },
-  { value: PRIMARY_ROLE.ADMIN, label: "Admin" },
-  { value: PRIMARY_ROLE.CONTRIBUTE, label: "Contribute" },
-  { value: PRIMARY_ROLE.USER, label: "User" },
+  { value: PRIMARY_ROLE.ADMIN, label: PRIMARY_ROLE_LABELS[PRIMARY_ROLE.ADMIN] },
+  {
+    value: PRIMARY_ROLE.CONTRIBUTE,
+    label: PRIMARY_ROLE_LABELS[PRIMARY_ROLE.CONTRIBUTE],
+  },
+  { value: PRIMARY_ROLE.USER, label: PRIMARY_ROLE_LABELS[PRIMARY_ROLE.USER] },
 ] as const
 
 export const RESOURCE_USAGE_KIND_OPTIONS = [

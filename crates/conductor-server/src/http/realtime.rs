@@ -1,9 +1,13 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
+use axum::http::{header, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
 use chrono::{DateTime, Utc};
 use conductor_domain::{ManagedResource, PrimaryRole, ResourceAccessPolicy, User};
 use dashmap::{mapref::entry::Entry, DashMap};
+use serde_json::json;
 use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
@@ -60,6 +64,9 @@ pub enum RealtimeSignal {
         audience: RealtimeAudience,
         resource_id: Uuid,
     },
+    ResourceAudienceChanged {
+        owner_user_id: Uuid,
+    },
     AccessRevoked {
         secret_id: Option<Uuid>,
         owner_user_id: Option<Uuid>,
@@ -82,6 +89,35 @@ pub enum RealtimeCapacityError {
     Global,
     PerSecret,
     Handshake,
+}
+
+pub(crate) fn capacity_response(error: RealtimeCapacityError) -> Response {
+    let (status, message) = match error {
+        RealtimeCapacityError::Global => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "realtime connection capacity reached",
+        ),
+        RealtimeCapacityError::PerSecret => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "connection limit reached for this secret",
+        ),
+        RealtimeCapacityError::Handshake => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many concurrent realtime handshakes",
+        ),
+    };
+    let mut response = (
+        status,
+        Json(json!({
+            "error": message,
+            "retry_after_seconds": 5,
+        })),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+    response
 }
 
 #[derive(Clone)]
@@ -141,6 +177,10 @@ impl RealtimeHub {
             owner_user_id: Some(owner_user_id),
             reason: reason.into(),
         });
+    }
+
+    pub fn resync_owner_resources(&self, owner_user_id: Uuid) {
+        self.publish(RealtimeSignal::ResourceAudienceChanged { owner_user_id });
     }
 
     pub fn try_connect(

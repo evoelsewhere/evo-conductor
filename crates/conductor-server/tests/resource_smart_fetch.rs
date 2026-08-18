@@ -81,22 +81,27 @@ fn idempotency_headers() -> HeaderMap {
     headers
 }
 
-async fn create_released_skill(app: &TestApp, admin_token: &str) -> (Uuid, Uuid) {
+async fn create_released_skill(
+    app: &TestApp,
+    admin_token: &str,
+    slug: &str,
+    visibility: &str,
+) -> (Uuid, Uuid) {
     let (status, resource) = app
         .post(
             "/api/resources",
             Some(admin_token),
             json!({
                 "kind": "skill",
-                "slug": "incident-summary",
+                "slug": slug,
                 "name": "Incident summary",
                 "description": "Summarize incidents",
                 "version": "0.1.0",
-                "visibility": "shared",
+                "visibility": visibility,
                 "payload": {
                     "files": [{
                         "path": "SKILL.md",
-                        "content": "---\nname: incident-summary\ndescription: Summarize incidents with evidence.\n---\n\n# Incident summary\n"
+                        "content": format!("---\nname: {slug}\ndescription: Summarize incidents with evidence.\n---\n\n# Incident summary\n")
                     }]
                 },
                 "changelog": null
@@ -144,7 +149,8 @@ async fn fetch(app: &TestApp, installation_id: Uuid, body: Value) -> Value {
 #[tokio::test]
 async fn smart_fetch_negotiates_delta_objects_and_tombstones() {
     let (app, admin_token, installation_id) = configured_app().await;
-    let (resource_id, version_id) = create_released_skill(&app, &admin_token).await;
+    let (resource_id, version_id) =
+        create_released_skill(&app, &admin_token, "incident-summary", "shared").await;
 
     let initial = fetch(&app, installation_id, json!({})).await;
     assert_eq!(initial["schema_version"], 1);
@@ -241,4 +247,30 @@ async fn smart_fetch_negotiates_delta_objects_and_tombstones() {
         resource_id.to_string()
     );
     assert_ne!(removed["commit"]["id"], initial["commit"]["id"]);
+}
+
+#[tokio::test]
+async fn global_change_rows_do_not_disclose_never_visible_private_resources() {
+    let (app, admin_token, _) = configured_app().await;
+    let (status, initial) = app.get("/api/v1/resources/changes", Some(RAW_TOKEN)).await;
+    assert_eq!(status, StatusCode::OK, "{initial}");
+    let cursor = initial["next_cursor"].as_str().expect("initial cursor");
+
+    let (private_resource_id, _) =
+        create_released_skill(&app, &admin_token, "private-incident-summary", "private").await;
+    let (status, changes) = app
+        .get(
+            &format!("/api/v1/resources/changes?cursor={cursor}"),
+            Some(RAW_TOKEN),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{changes}");
+    assert!(changes["changes"]
+        .as_array()
+        .expect("change list")
+        .is_empty());
+    let serialized = changes.to_string();
+    assert!(!serialized.contains(&private_resource_id.to_string()));
+    assert!(!serialized.contains("private-incident-summary"));
+    assert_ne!(changes["next_cursor"], initial["next_cursor"]);
 }

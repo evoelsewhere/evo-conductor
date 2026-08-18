@@ -79,6 +79,11 @@
   --color-accent-soft: color-mix(in srgb, var(--color-accent) 13%, transparent);
   --color-overlay: rgba(0, 0, 0, 0.62);
 
+  /* Loading feedback stays neutral and never follows the project accent. */
+  --skeleton-base: #2f2e2c;
+  --skeleton-highlight: #3a3835;
+  --skeleton-sweep: #4a4743;
+
   --color-gradient-primary: linear-gradient(135deg, #667eea 0%, #8b5cf6 100%);
 
   --accent-blue: #60a5fa;
@@ -163,6 +168,11 @@
   --color-accent: #4c66d6;
   --color-accent-soft: color-mix(in srgb, var(--color-accent) 10%, transparent);
   --color-overlay: rgba(0, 0, 0, 0.4);
+
+  /* Loading feedback stays neutral and never follows the project accent. */
+  --skeleton-base: #ededed;
+  --skeleton-highlight: #fafafa;
+  --skeleton-sweep: #d7d7d7;
 
   --color-gradient-primary: linear-gradient(135deg, #667eea 0%, #8b5cf6 100%);
 
@@ -339,6 +349,29 @@ body:has([data-shell]) {
   color: var(--color-error) !important;
 }
 
+@keyframes conductor-skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--skeleton-base) 18%,
+    var(--skeleton-highlight) 42%,
+    var(--skeleton-sweep) 50%,
+    var(--skeleton-highlight) 58%,
+    var(--skeleton-base) 82%
+  );
+  background-size: 240% 100%;
+  animation: conductor-skeleton-shimmer 2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -347,5 +380,10 @@ body:has([data-shell]) {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .skeleton-shimmer {
+    animation: none !important;
+    background: var(--skeleton-base);
   }
 }

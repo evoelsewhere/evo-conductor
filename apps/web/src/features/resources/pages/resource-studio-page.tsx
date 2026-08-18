@@ -37,6 +37,13 @@ import {
 } from "@/shared/constants/resource-studio"
 import { RESOURCE_KIND_USAGE_PATHS } from "@/shared/constants/resource-monitoring"
 import { PageFrame } from "@/shared/components/page-frame"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
+import { useAuthStore } from "@/shared/stores/auth"
 import { ResourceStudioWorkbench } from "@/features/resources/components/resource-studio-workbench"
 import { ResourceDetailMonitoring } from "@/features/resources/components/resource-detail-monitoring"
 import { ResourceModeSelector } from "@/features/resources/components/resource-mode-selector"
@@ -48,7 +55,7 @@ import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { MultiSelect } from "@/shared/ui/multi-select"
 import { Select } from "@/shared/ui/select"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import { Textarea } from "@/shared/ui/textarea"
 
 export function ResourceStudioPage() {
@@ -57,6 +64,7 @@ export function ResourceStudioPage() {
   }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const can = useAuthStore((state) => state.can)
   const [tab, setTab] = useState<ResourceStudioTab>(RESOURCE_STUDIO_TAB.SOURCE)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState("")
@@ -71,19 +79,73 @@ export function ResourceStudioPage() {
     queryFn: () => api.resources(),
   })
   const resource = resources.data?.find((item) => item.id === resourceId)
+  const permissionTarget = resource
+    ? {
+        ownerId: resource.owner_user_id,
+        resourceKind: resource.kind,
+        lifecycle: resource.status,
+      }
+    : undefined
+  const canAuthor = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_AUTHOR, permissionTarget)),
+  )
+  const canRelease = Boolean(
+    resource &&
+      mayRequest(
+        bestAuthorizationDecision([
+          can(PERMISSION.RESOURCE_RELEASE_NON_EXECUTABLE, permissionTarget),
+          can(PERMISSION.RESOURCE_RELEASE_RESTRICTED, permissionTarget),
+        ]),
+      ),
+  )
+  const canManageLifecycle = Boolean(
+    resource && mayRequest(can(PERMISSION.RESOURCE_LIFECYCLE_MANAGE, permissionTarget)),
+  )
+  const canMonitor = Boolean(
+    resource &&
+      mayRequest(
+        bestAuthorizationDecision([
+          can(PERMISSION.RESOURCE_MONITORING_AGGREGATE_READ, permissionTarget),
+          can(PERMISSION.RESOURCE_MONITORING_MEMBER_DETAIL_READ, permissionTarget),
+        ]),
+      ),
+  )
+  const canReadMemberMonitoring = Boolean(
+    resource &&
+      mayRequest(
+        can(PERMISSION.RESOURCE_MONITORING_MEMBER_DETAIL_READ, permissionTarget),
+      ),
+  )
   const draft = useQuery({
     queryKey: [RESOURCE_QUERY_KEY, resourceId, "draft"],
     queryFn: () => api.resourceDraft(resourceId),
-    enabled: Boolean(resource),
+    enabled: Boolean(resource && canAuthor),
   })
   const versions = useQuery({
     queryKey: [RESOURCE_QUERY_KEY, resourceId, "versions"],
     queryFn: () => api.resourceVersions(resourceId),
-    enabled: Boolean(resource),
+    enabled: Boolean(resource && canAuthor),
   })
-  const targetModes = resource && ["agent", "skill"].includes(resource.kind)
+  const resourcesLoading = useMinimumLoading(resources.isLoading && !resources.data)
+  const draftInitialLoading = useMinimumLoading(
+    !resourcesLoading &&
+      tab === RESOURCE_STUDIO_TAB.SOURCE &&
+      draft.isLoading &&
+      !draft.data,
+  )
+  const versionsInitialLoading = useMinimumLoading(
+    !resourcesLoading &&
+      tab === RESOURCE_STUDIO_TAB.VERSIONS &&
+      versions.isLoading &&
+      !versions.data,
+  )
+  const supportsTargetModes = Boolean(
+    resource && ["agent", "skill"].includes(resource.kind),
+  )
+  const targetModes = supportsTargetModes && draft.data
     ? modesFromDraft(draft.data?.files)
     : null
+  const targetModesLoading = Boolean(supportsTargetModes && draftInitialLoading)
 
   useEffect(() => {
     if (!draft.data?.files.length) return
@@ -228,10 +290,10 @@ export function ResourceStudioPage() {
     setDirty(false)
   }
 
-  if (resources.isLoading) {
+  if (resourcesLoading) {
     return (
       <PageFrame title="Resource Studio" subtitle="Loading governed source…">
-        <SkeletonRows rows={8} />
+        <ResourceStudioRouteSkeleton />
       </PageFrame>
     )
   }
@@ -245,6 +307,13 @@ export function ResourceStudioPage() {
               : "This resource does not exist or is outside your project."
           }
         />
+      </PageFrame>
+    )
+  }
+  if (!canAuthor) {
+    return (
+      <PageFrame title="Resource Studio" subtitle="Governed source editor">
+        <ErrorState message="Forbidden. Only a project admin or the owning Contributor can edit this resource." />
       </PageFrame>
     )
   }
@@ -296,29 +365,33 @@ export function ResourceStudioPage() {
           />
           <Button
             variant="outline"
-            disabled={dirty || draft.isLoading || importArchive.isPending}
+            disabled={dirty || !draft.data || importArchive.isPending}
             onClick={() => importInput.current?.click()}
           >
             <Upload className="size-3.5" />
             {importArchive.isPending ? "Importing…" : "Import ZIP"}
           </Button>
-          <Button
-            variant="gradient"
-            disabled={dirty || draft.isLoading || resource.status === "archived"}
-            onClick={() => setShowRelease(true)}
-          >
-            <Rocket className="size-3.5" />
-            Release
-          </Button>
+          {canRelease && (
+            <Button
+              variant="gradient"
+              disabled={dirty || !draft.data || resource.status === "archived"}
+              onClick={() => setShowRelease(true)}
+            >
+              <Rocket className="size-3.5" />
+              Release
+            </Button>
+          )}
         </div>
       }
     >
       <div className="mb-4 flex gap-1 border-b border-(--border-soft)">
         {([
           [RESOURCE_STUDIO_TAB.SOURCE, "Source & validation"],
-          [RESOURCE_STUDIO_TAB.VERSIONS, `Versions (${versions.data?.length ?? 0})`],
+          [RESOURCE_STUDIO_TAB.VERSIONS, `Versions (${versions.isLoading ? "…" : versions.data?.length ?? 0})`],
           [RESOURCE_STUDIO_TAB.MONITORING, "Monitoring"],
-        ] as const).map(([value, label]) => (
+        ] as const)
+          .filter(([value]) => value !== RESOURCE_STUDIO_TAB.MONITORING || canMonitor)
+          .map(([value, label]) => (
           <button
             key={value}
             type="button"
@@ -346,7 +419,9 @@ export function ResourceStudioPage() {
 
       {tab === RESOURCE_STUDIO_TAB.SOURCE ? (
         <>
-          {targetModes && (
+          {targetModesLoading ? (
+            <ResourceModePanelSkeleton />
+          ) : targetModes ? (
             <section className="mb-4 rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
               <div className="mb-3">
                 <h2 className="text-sm font-semibold text-(--color-text)">
@@ -374,11 +449,11 @@ export function ResourceStudioPage() {
                 />
               )}
             </section>
-          )}
+          ) : null}
           <ResourceStudioWorkbench
           resource={resource}
           draft={draft.data}
-          loading={draft.isLoading}
+          loading={draftInitialLoading}
           loadError={draft.error}
           actionError={
             save.error ??
@@ -392,7 +467,9 @@ export function ResourceStudioPage() {
           editorValue={editorValue}
           dirty={dirty}
           saving={save.isPending}
-          busyAction={
+          draftRefreshing={draft.isFetching}
+          entrySubmitting={createFile.isPending || moveEntry.isPending}
+          actionsBusy={
             createFile.isPending ||
             moveEntry.isPending ||
             deleteEntry.isPending ||
@@ -427,8 +504,10 @@ export function ResourceStudioPage() {
         <ResourceVersionHistory
           resource={resource}
           draftRevision={draft.data?.revision ?? resource.draft_revision}
-          loading={versions.isLoading}
+          loading={versionsInitialLoading}
           versions={versions.data}
+          error={versions.error}
+          canManageLifecycle={canManageLifecycle}
           onVersionDeprecated={(version) => {
             setReleaseResult(`Deprecated v${version.version}. Its immutable history remains available.`)
             void queryClient.invalidateQueries({
@@ -450,11 +529,18 @@ export function ResourceStudioPage() {
           }}
         />
       ) : (
-        <ResourceDetailMonitoring resource={resource} />
+        canMonitor ? (
+          <ResourceDetailMonitoring
+            resource={resource}
+            showMemberDetail={canReadMemberMonitoring}
+          />
+        ) : (
+          <ErrorState message="Resource monitoring is not available for your current permissions." />
+        )
       )}
 
       <ReleaseDialog
-        open={showRelease}
+        open={showRelease && canRelease}
         resource={resource}
         draftRevision={draft.data?.revision ?? resource.draft_revision}
         onClose={() => setShowRelease(false)}
@@ -504,6 +590,11 @@ function ReleaseDialog({
   onClose: () => void
   onReleased: (message: string) => void
 }) {
+  const authorization = useAuthStore((state) => state.authorization)
+  const can = useAuthStore((state) => state.can)
+  const canReadMemberPrivate = mayRequest(
+    can(PERMISSION.MEMBER_PRIVATE_READ_ANY),
+  )
   const [channel, setChannel] = useState<ReleaseChannel>(RELEASE_CHANNEL.PUBLISHED)
   const [mode, setMode] = useState<VersionMode>(VERSION_MODE.AUTO)
   const [manualVersion, setManualVersion] = useState("")
@@ -511,10 +602,18 @@ function ReleaseDialog({
   const [minimumVersion, setMinimumVersion] = useState("")
   const [betaMembers, setBetaMembers] = useState<string[]>([])
   const members = useQuery({
-    queryKey: ["members", "release-audience"],
+    queryKey: [
+      "members",
+      "release-audience",
+      authorization?.current_role,
+      authorization?.policy_revision,
+    ],
     queryFn: () => api.members({ status: "active", limit: 100 }),
     enabled: open && channel === RELEASE_CHANNEL.BETA,
   })
+  const membersInitialLoading = useMinimumLoading(
+    members.isLoading && !members.data,
+  )
   const release = useMutation({
     mutationFn: () => {
       const body: ReleaseResourceRequest = {
@@ -551,7 +650,8 @@ function ReleaseDialog({
             disabled={
               release.isPending ||
               (mode === VERSION_MODE.MANUAL && !manualVersion.trim()) ||
-              (channel === RELEASE_CHANNEL.BETA && betaMembers.length === 0)
+              (channel === RELEASE_CHANNEL.BETA &&
+                (membersInitialLoading || Boolean(members.error) || betaMembers.length === 0))
             }
             onClick={() => release.mutate()}
           >
@@ -632,16 +732,33 @@ function ReleaseDialog({
         {channel === RELEASE_CHANNEL.BETA && (
           <div className="sm:col-span-2">
             <Label htmlFor="beta-members">Beta members</Label>
-            <MultiSelect
-              id="beta-members"
-              className="mt-1.5"
-              value={betaMembers}
-              onChange={setBetaMembers}
-              options={(members.data?.items ?? []).map((member) => ({
-                value: member.id,
-                label: `${member.display_name} · ${member.email}`,
-              }))}
-            />
+            {membersInitialLoading ? (
+              <LoadingState label="Loading eligible beta members" className="mt-1.5">
+                <Skeleton className="h-9 w-full" />
+              </LoadingState>
+            ) : members.error ? (
+              <ErrorState
+                className="mt-1.5"
+                message={
+                  members.error instanceof Error
+                    ? members.error.message
+                    : "Eligible beta members could not be loaded"
+                }
+              />
+            ) : (
+              <MultiSelect
+                id="beta-members"
+                className="mt-1.5"
+                value={betaMembers}
+                onChange={setBetaMembers}
+                options={(members.data?.items ?? []).map((member) => ({
+                  value: member.id,
+                  label: canReadMemberPrivate && "email" in member
+                    ? `${member.display_name} · ${member.email}`
+                    : member.display_name,
+                }))}
+              />
+            )}
             <p className="mt-1.5 flex items-center gap-1 text-[0.68rem] text-(--color-text-subtle)">
               <Users className="size-3" /> Beta targeting narrows access; it never grants project access.
             </p>
@@ -659,6 +776,62 @@ function ReleaseDialog({
         </div>
       </div>
     </Dialog>
+  )
+}
+
+function ResourceStudioRouteSkeleton() {
+  return (
+    <LoadingState label="Loading Resource Studio" className="space-y-4">
+      <div className="flex gap-2 border-b border-(--border-soft) pb-2">
+        <Skeleton className="h-7 w-32" />
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-7 w-24" />
+      </div>
+      <section className="rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="mt-2 h-3 w-[32rem] max-w-full" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      </section>
+      <div className="flex h-[calc(100dvh-13rem)] min-h-[560px] flex-col overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card)">
+        <div className="flex h-12 items-center justify-between border-b border-(--border-soft) px-3">
+          <Skeleton className="h-3.5 w-40" />
+          <div className="flex gap-1"><Skeleton className="h-7 w-16" /><Skeleton className="size-7" /><Skeleton className="size-7" /></div>
+        </div>
+        <div className="flex min-h-0 flex-1">
+          <div className="min-w-0 flex-1 space-y-3 p-5">
+            {Array.from({ length: 12 }, (_, index) => (
+              <Skeleton key={index} className="h-3" style={{ width: `${44 + ((index * 13) % 45)}%` }} />
+            ))}
+          </div>
+          <aside className="hidden w-72 shrink-0 space-y-3 border-l border-(--border-soft) p-3 lg:block">
+            <Skeleton className="h-8 w-full" />
+            {Array.from({ length: 8 }, (_, index) => (
+              <Skeleton key={index} className="h-3" style={{ width: `${52 + ((index * 7) % 35)}%` }} />
+            ))}
+          </aside>
+        </div>
+      </div>
+    </LoadingState>
+  )
+}
+
+function ResourceModePanelSkeleton() {
+  return (
+    <LoadingState
+      label="Loading EvoFlux availability"
+      announce={false}
+      className="mb-4 rounded-xl border border-(--border-card) bg-(--bg-card) p-4"
+    >
+      <Skeleton className="h-4 w-36" />
+      <Skeleton className="mt-2 h-3 w-[34rem] max-w-full" />
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-16 w-full" />
+      </div>
+    </LoadingState>
   )
 }
 

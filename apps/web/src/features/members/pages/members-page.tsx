@@ -16,10 +16,11 @@ import {
   Users,
   X,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useDeferredValue, useMemo, useState } from "react"
 
 import {
   api,
+  type MemberListItem,
   type PrimaryRole,
   type User,
   type UserStatus,
@@ -29,11 +30,18 @@ import {
   MEMBER_LIST_PAGE_SIZE,
   MEMBER_STATUS_TONES,
   PRIMARY_ROLE,
+  PRIMARY_ROLE_LABELS,
   PRIMARY_ROLE_OPTIONS,
   USER_STATUS,
   USER_STATUS_FILTER_OPTIONS,
 } from "@/shared/constants/member"
 import { useAuthStore } from "@/shared/stores/auth"
+import {
+  PERMISSION,
+  bestAuthorizationDecision,
+  mayRequest,
+} from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { BadgeList } from "@/shared/ui/badge-list"
 import { Button, buttonVariants } from "@/shared/ui/button"
@@ -53,7 +61,7 @@ import {
   MenuSeparator,
 } from "@/shared/ui/menu"
 import { Select } from "@/shared/ui/select"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -66,7 +74,10 @@ import {
 
 export function MembersPage() {
   const actor = useAuthStore((s) => s.user)
-  const isAdmin = actor?.primary_role === PRIMARY_ROLE.ADMIN
+  const authorization = useAuthStore((s) => s.authorization)
+  const can = useAuthStore((s) => s.can)
+  const canManageMembers = mayRequest(can(PERMISSION.MEMBER_MANAGE))
+  const canReadTaxonomy = mayRequest(can(PERMISSION.TAXONOMY_READ))
   const qc = useQueryClient()
 
   const [q, setQ] = useState("")
@@ -75,6 +86,7 @@ export function MembersPage() {
   const [tag, setTag] = useState("")
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [page, setPage] = useState(1)
+  const deferredQuery = useDeferredValue(q.trim())
   const limit = MEMBER_LIST_PAGE_SIZE
 
   const [showAdd, setShowAdd] = useState(false)
@@ -85,30 +97,46 @@ export function MembersPage() {
     member: User
   } | null>(null)
 
-  const { data: tags = [] } = useQuery({
+  const tagsQuery = useQuery({
     queryKey: ["tags"],
     queryFn: () => api.tags(),
-    enabled:
-      actor?.primary_role === PRIMARY_ROLE.ADMIN ||
-      actor?.primary_role === PRIMARY_ROLE.CONTRIBUTE,
+    enabled: canReadTaxonomy,
   })
-  const { data: subRoles = [] } = useQuery({
+  const subRolesQuery = useQuery({
     queryKey: ["sub-roles"],
     queryFn: () => api.subRoles(),
-    enabled: isAdmin,
+    enabled: canManageMembers,
   })
+  const tags = tagsQuery.data ?? []
+  const subRoles = subRolesQuery.data ?? []
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["members", q, status, role, tag, page],
+  const { data, isLoading, isFetching, isPlaceholderData, error } = useQuery({
+    queryKey: [
+      "members",
+      authorization?.current_role,
+      authorization?.policy_revision,
+      deferredQuery,
+      status,
+      role,
+      tag,
+      page,
+    ],
     queryFn: () =>
       api.members({
-        q: q || undefined,
+        q: deferredQuery || undefined,
         status: status || undefined,
         role: role || undefined,
         tag: tag || undefined,
         page,
         limit,
       }),
+    placeholderData: (previousData, previousQuery) => {
+      const previousKey = previousQuery?.queryKey
+      return previousKey?.[1] === authorization?.current_role &&
+        previousKey?.[2] === authorization?.policy_revision
+        ? previousData
+        : undefined
+    },
   })
   const portfolio = useQuery({
     queryKey: ["members", "portfolio-summary"],
@@ -127,6 +155,7 @@ export function MembersPage() {
         disabled: disabled.total,
       }
     },
+    enabled: canManageMembers,
   })
 
   const tagName = useMemo(() => {
@@ -147,6 +176,9 @@ export function MembersPage() {
   const subRoleOptions = useMemo(
     () => subRoles.map((r) => ({ value: r.id, label: r.name })),
     [subRoles],
+  )
+  const taxonomyError = [tagsQuery.error, subRolesQuery.error].find(
+    (value): value is Error => value instanceof Error,
   )
 
   const approve = useMutation({
@@ -186,15 +218,26 @@ export function MembersPage() {
     enable.error,
     resetPw.error,
   ].find((value): value is Error => value instanceof Error)
-  const memberSummary = portfolio.data ?? { total: 0, active: 0, pending: 0, disabled: 0 }
+  const initialLoading = useMinimumLoading(isLoading && !data)
+  const portfolioLoading = useMinimumLoading(portfolio.isLoading && !portfolio.data)
+  const tagsLoading = useMinimumLoading(tagsQuery.isLoading && !tagsQuery.data)
+  const subRolesLoading = useMinimumLoading(
+    subRolesQuery.isLoading && !subRolesQuery.data,
+  )
+  const refreshing = isFetching && Boolean(data)
+  const fatalListError = Boolean(error && !data && !initialLoading)
 
   return (
     <PageFrame
       title="Members"
-      subtitle="Manage invitations, SSO approvals, account status, and project access."
+      subtitle={
+        canManageMembers
+          ? "Manage invitations, SSO approvals, account status, and project access."
+          : "Browse the active member directory. Private account and usage details stay restricted."
+      }
       className="max-w-7xl"
       action={
-        isAdmin ? (
+        canManageMembers ? (
           <Button variant="gradient" onClick={() => setShowAdd(true)}>
             <Plus className="size-3.5" />
             Add member
@@ -209,7 +252,31 @@ export function MembersPage() {
         />
       )}
 
-      <MemberPortfolioSummary summary={memberSummary} loading={portfolio.isLoading} />
+      {canManageMembers && portfolio.error && !portfolioLoading && (
+        <ErrorState
+          className="mb-4"
+          message={
+            portfolio.error instanceof Error
+              ? `Member summary: ${portfolio.error.message}`
+              : "Member summary failed to load"
+          }
+        />
+      )}
+
+      {canManageMembers && (portfolioLoading || portfolio.data) && (
+        <MemberPortfolioSummary
+          summary={portfolio.data ?? { total: 0, active: 0, pending: 0, disabled: 0 }}
+          loading={portfolioLoading}
+          refreshing={portfolio.isFetching && Boolean(portfolio.data)}
+        />
+      )}
+
+      {taxonomyError && !tagsLoading && !subRolesLoading && (
+        <ErrorState
+          className="mb-4"
+          message={`Member access options: ${taxonomyError.message}`}
+        />
+      )}
 
       <div className="mb-4 rounded-xl border border-(--border-card) bg-(--bg-card)">
         <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
@@ -217,7 +284,7 @@ export function MembersPage() {
             <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-(--color-text-subtle)" />
             <Input
               className="pl-9"
-              placeholder="Search members by name or email"
+              placeholder={canManageMembers ? "Search members by name or email" : "Search members by name"}
               value={q}
               onChange={(e) => {
                 setQ(e.target.value)
@@ -242,7 +309,7 @@ export function MembersPage() {
         {filtersOpen && (
           <div className="border-t border-(--border-soft) p-4">
             <div className="grid gap-4 sm:grid-cols-3">
-              {isAdmin && (
+              {canManageMembers && (
                 <FilterField label="Account status">
                   <Select
                     value={status || "__any__"}
@@ -275,19 +342,28 @@ export function MembersPage() {
                   ]}
                 />
               </FilterField>
-              <FilterField label="Tag">
-                <Select
-                  value={tag || "__any__"}
-                  onValueChange={(v) => {
-                    setTag(v === "__any__" ? "" : v)
-                    setPage(1)
-                  }}
-                  options={[
-                    { value: "__any__", label: "Any tag" },
-                    ...tagOptions,
-                  ]}
-                />
-              </FilterField>
+              {canManageMembers && (
+                <FilterField label="Tag">
+                  <Select
+                    value={tag || "__any__"}
+                    onValueChange={(v) => {
+                      setTag(v === "__any__" ? "" : v)
+                      setPage(1)
+                    }}
+                    options={[
+                      {
+                        value: "__any__",
+                        label: tagsLoading ? "Loading tags…" : "Any tag",
+                      },
+                      ...tagOptions,
+                    ]}
+                    disabled={
+                      tagsLoading || Boolean(tagsQuery.error)
+                    }
+                    aria-busy={tagsLoading}
+                  />
+                </FilterField>
+              )}
             </div>
             {activeFilterCount > 0 && (
               <Button
@@ -309,7 +385,7 @@ export function MembersPage() {
         )}
       </div>
 
-      {error && (
+      {error && !initialLoading && (
         <ErrorState
           className="mb-4"
           message={error instanceof Error ? error.message : "Failed to load"}
@@ -323,45 +399,66 @@ export function MembersPage() {
         />
       )}
 
-      {isLoading ? (
-        <TableWrap>
-          <SkeletonRows rows={6} />
-        </TableWrap>
-      ) : items.length === 0 ? (
+      {refreshing && (
+        <p className="mb-2 text-right text-xs text-(--color-text-subtle)" role="status" aria-live="polite">
+          Updating members…
+        </p>
+      )}
+
+      {initialLoading ? (
+        <MemberTableSkeleton canManageMembers={canManageMembers} />
+      ) : fatalListError ? null : items.length === 0 ? (
         <EmptyState
           title="No members match"
           description="Adjust filters, or add a member with a temporary password."
         />
       ) : (
         <>
+          <div
+            aria-busy={isPlaceholderData || undefined}
+            className={isPlaceholderData ? "pointer-events-none opacity-70" : undefined}
+            inert={isPlaceholderData ? true : undefined}
+          >
           <TableWrap>
             <Table>
               <TableHead>
                 <tr>
                   <TableTh>Member</TableTh>
                   <TableTh>Access profile</TableTh>
-                  <TableTh>Last seen</TableTh>
-                  <TableTh>Status</TableTh>
-                  {isAdmin && <TableTh />}
+                  {canManageMembers && <TableTh>Last seen</TableTh>}
+                  {canManageMembers && <TableTh>Status</TableTh>}
+                  {canManageMembers && <TableTh />}
                 </tr>
               </TableHead>
               <TableBody>
-                {items.map((m) => (
-                  <TableRow
-                    key={m.id}
-                  >
+                {items.map((m) => {
+                  const managed = isManagedMember(m)
+                  const canOpenPrivate = mayRequest(
+                    bestAuthorizationDecision([
+                      can(PERMISSION.MEMBER_PRIVATE_READ_SELF, { targetId: m.id }),
+                      can(PERMISSION.MEMBER_PRIVATE_READ_ANY, { targetId: m.id }),
+                    ]),
+                  )
+                  return (
+                  <TableRow key={m.id}>
                     <TableTd>
-                      <Link
-                        to="/app/members/$userId"
-                        params={{ userId: m.id }}
-                        className="font-medium hover:text-(--color-accent) hover:underline"
-                      >
-                        {m.display_name}
-                      </Link>
-                      <div className="text-xs text-(--color-text-subtle)">
-                        {m.email}
-                      </div>
-                      {isAdmin && m.sub_role_ids.length > 0 && (
+                      {canOpenPrivate ? (
+                        <Link
+                          to="/app/members/$userId"
+                          params={{ userId: m.id }}
+                          className="font-medium hover:text-(--color-accent) hover:underline"
+                        >
+                          {m.display_name}
+                        </Link>
+                      ) : (
+                        <span className="font-medium">{m.display_name}</span>
+                      )}
+                      {canManageMembers && managed && (
+                        <div className="text-xs text-(--color-text-subtle)">
+                          {m.email}
+                        </div>
+                      )}
+                      {canManageMembers && managed && m.sub_role_ids.length > 0 && (
                         <BadgeList
                           className="mt-1"
                           max={2}
@@ -371,14 +468,20 @@ export function MembersPage() {
                     </TableTd>
                     <TableTd>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge tone="accent" className="capitalize">{m.primary_role}</Badge>
-                        <BadgeList className="max-w-48" max={2} items={m.tag_ids.map(tagName)} />
+                        <Badge tone="accent">
+                          {PRIMARY_ROLE_LABELS[m.primary_role]}
+                        </Badge>
+                        {canManageMembers && managed && (
+                          <BadgeList className="max-w-48" max={2} items={m.tag_ids.map(tagName)} />
+                        )}
                       </div>
-                      <div className="mt-1 text-[0.68rem] text-(--color-text-subtle)">
-                        {m.sub_role_ids.length} sub-roles · {m.tag_ids.length} tags
-                      </div>
+                      {canManageMembers && managed && (
+                        <div className="mt-1 text-[0.68rem] text-(--color-text-subtle)">
+                          {m.sub_role_ids.length} sub-roles · {m.tag_ids.length} tags
+                        </div>
+                      )}
                     </TableTd>
-                    <TableTd>
+                    {canManageMembers && managed && <TableTd>
                       <div className="text-xs text-(--color-text-muted)">
                         {m.last_seen_at ? formatLastSeen(m.last_seen_at) : "Never"}
                       </div>
@@ -390,14 +493,14 @@ export function MembersPage() {
                         )}
                         {m.must_change_password ? "Password change required" : "Account ready"}
                       </div>
-                    </TableTd>
-                    <TableTd>
+                    </TableTd>}
+                    {canManageMembers && managed && <TableTd>
                       <span className="inline-flex items-center gap-1.5 capitalize text-(--color-text-muted)">
                         <StatusDot tone={MEMBER_STATUS_TONES[m.status]} />
                         {m.status}
                       </span>
-                    </TableTd>
-                    {isAdmin && (
+                    </TableTd>}
+                    {canManageMembers && managed && (
                       <TableTd>
                         <div className="flex justify-end gap-1">
                           <Link
@@ -444,7 +547,8 @@ export function MembersPage() {
                       </TableTd>
                     )}
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           </TableWrap>
@@ -457,7 +561,7 @@ export function MembersPage() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={page <= 1}
+                disabled={refreshing || page <= 1}
                 onClick={() => setPage((p) => p - 1)}
               >
                 Prev
@@ -465,12 +569,13 @@ export function MembersPage() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={page >= totalPages}
+                disabled={refreshing || page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
                 Next
               </Button>
             </div>
+          </div>
           </div>
         </>
       )}
@@ -480,6 +585,10 @@ export function MembersPage() {
           title="Add member"
           tags={tagOptions}
           subRoles={subRoleOptions}
+          taxonomyLoading={
+            tagsLoading || subRolesLoading
+          }
+          taxonomyError={taxonomyError?.message}
           onClose={() => setShowAdd(false)}
           onCreated={(pw) => {
             setShowAdd(false)
@@ -494,6 +603,10 @@ export function MembersPage() {
           user={editUser}
           tags={tagOptions}
           subRoles={subRoleOptions}
+          taxonomyLoading={
+            tagsLoading || subRolesLoading
+          }
+          taxonomyError={taxonomyError?.message}
           onClose={() => setEditUser(null)}
           onSaved={() => {
             setEditUser(null)
@@ -530,9 +643,11 @@ export function MembersPage() {
 function MemberPortfolioSummary({
   summary,
   loading,
+  refreshing,
 }: {
   summary: { total: number; active: number; pending: number; disabled: number }
   loading: boolean
+  refreshing: boolean
 }) {
   const items = [
     { label: "Total members", value: summary.total, hint: "All project identities", icon: Users, tone: "text-(--color-accent) bg-(--color-accent-soft)" },
@@ -541,18 +656,62 @@ function MemberPortfolioSummary({
     { label: "Disabled", value: summary.disabled, hint: "Sessions and tokens revoked", icon: UserX, tone: "text-(--color-text-subtle) bg-(--bg-key)" },
   ]
   return (
-    <section className="mb-4 grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-2 xl:grid-cols-4" aria-label="Member portfolio status">
+    <section className="relative mb-4 grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-2 xl:grid-cols-4" aria-label="Member portfolio status">
+      {(loading || refreshing) && (
+        <span className="sr-only" role="status" aria-live="polite">
+          {loading ? "Loading member portfolio…" : "Updating member portfolio…"}
+        </span>
+      )}
       {items.map(({ label, value, hint, icon: Icon, tone }) => (
         <div key={label} className="flex items-start gap-3 border-b border-(--border-soft) p-4 last:border-b-0 sm:border-r xl:border-b-0">
           <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}><Icon className="size-4" /></span>
           <div>
             <div className="text-xs font-medium text-(--color-text-muted)">{label}</div>
-            <div className="mt-1 text-xl font-semibold tabular-nums">{loading ? "—" : value.toLocaleString()}</div>
+            <div className="mt-1 text-xl font-semibold tabular-nums">
+              {loading ? <Skeleton className="h-6 w-12" /> : value.toLocaleString()}
+            </div>
             <p className="mt-0.5 text-[0.68rem] text-(--color-text-subtle)">{hint}</p>
           </div>
         </div>
       ))}
     </section>
+  )
+}
+
+function MemberTableSkeleton({ canManageMembers }: { canManageMembers: boolean }) {
+  return (
+    <LoadingState label="Loading members">
+      <TableWrap>
+        <Table>
+          <TableHead>
+            <tr>
+              <TableTh>Member</TableTh>
+              <TableTh>Access profile</TableTh>
+              {canManageMembers && <TableTh>Last seen</TableTh>}
+              {canManageMembers && <TableTh>Status</TableTh>}
+              {canManageMembers && <TableTh />}
+            </tr>
+          </TableHead>
+          <TableBody>
+            {Array.from({ length: 6 }, (_, row) => (
+              <TableRow key={row}>
+                <TableTd>
+                  <Skeleton className="h-4 w-32" />
+                  {canManageMembers && <Skeleton className="mt-1.5 h-3 w-44 max-w-full" />}
+                </TableTd>
+                <TableTd>
+                  <Skeleton className="h-5 w-20" />
+                  {canManageMembers && <Skeleton className="mt-1.5 h-3 w-28" />}
+                </TableTd>
+                {canManageMembers && <TableTd><Skeleton className="h-3.5 w-16" /><Skeleton className="mt-2 h-3 w-28" /></TableTd>}
+                {canManageMembers && <TableTd><Skeleton className="h-5 w-16" /></TableTd>}
+                {canManageMembers && <TableTd><Skeleton className="ml-auto h-8 w-20" /></TableTd>}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableWrap>
+    </LoadingState>
   )
 }
 
@@ -606,12 +765,16 @@ function MemberDialog({
   title,
   tags,
   subRoles,
+  taxonomyLoading,
+  taxonomyError,
   onClose,
   onCreated,
 }: {
   title: string
   tags: MultiSelectOption[]
   subRoles: MultiSelectOption[]
+  taxonomyLoading: boolean
+  taxonomyError?: string
   onClose: () => void
   onCreated: (tempPassword: string) => void
 }) {
@@ -655,22 +818,34 @@ function MemberDialog({
           />
         </Field>
         <Field label="Sub-roles" hint="Job function within the project.">
-          <MultiSelect
-            options={subRoles}
-            value={subRoleIds}
-            onChange={setSubRoleIds}
-            placeholder="Search sub-roles…"
-            emptyLabel="No sub-roles defined yet. Create them under Roles."
-          />
+          {taxonomyLoading ? (
+            <LoadingState label="Loading access profile options"><Skeleton className="h-9 w-full" /></LoadingState>
+          ) : taxonomyError ? (
+            <ErrorState message={`Sub-role options unavailable: ${taxonomyError}`} />
+          ) : (
+            <MultiSelect
+              options={subRoles}
+              value={subRoleIds}
+              onChange={setSubRoleIds}
+              placeholder="Search sub-roles…"
+              emptyLabel="No sub-roles defined yet. Create them under Roles."
+            />
+          )}
         </Field>
         <Field label="Tags" hint="Squad, stream, or any grouping you filter by.">
-          <MultiSelect
-            options={tags}
-            value={tagIds}
-            onChange={setTagIds}
-            placeholder="Search tags…"
-            emptyLabel="No tags defined yet. Create them under Tags."
-          />
+          {taxonomyLoading ? (
+            <LoadingState label="Loading tag options" announce={false}><Skeleton className="h-9 w-full" /></LoadingState>
+          ) : taxonomyError ? (
+            <ErrorState message={`Tag options unavailable: ${taxonomyError}`} />
+          ) : (
+            <MultiSelect
+              options={tags}
+              value={tagIds}
+              onChange={setTagIds}
+              placeholder="Search tags…"
+              emptyLabel="No tags defined yet. Create them under Tags."
+            />
+          )}
         </Field>
         {error && <ErrorState message={error} />}
         <div className="flex justify-end gap-2 pt-2">
@@ -679,7 +854,12 @@ function MemberDialog({
           </Button>
           <Button
             variant="gradient"
-            disabled={!email.includes("@") || !displayName.trim() || create.isPending}
+            disabled={
+              !email.includes("@") ||
+              !displayName.trim() ||
+              create.isPending ||
+              Boolean(taxonomyError)
+            }
             onClick={() => create.mutate()}
           >
             Create & show password
@@ -694,12 +874,16 @@ function EditMemberDialog({
   user,
   tags,
   subRoles,
+  taxonomyLoading,
+  taxonomyError,
   onClose,
   onSaved,
 }: {
   user: User
   tags: MultiSelectOption[]
   subRoles: MultiSelectOption[]
+  taxonomyLoading: boolean
+  taxonomyError?: string
   onClose: () => void
   onSaved: () => void
 }) {
@@ -744,22 +928,34 @@ function EditMemberDialog({
           />
         </Field>
         <Field label="Sub-roles" hint="Job function within the project.">
-          <MultiSelect
-            options={subRoles}
-            value={subRoleIds}
-            onChange={setSubRoleIds}
-            placeholder="Search sub-roles…"
-            emptyLabel="No sub-roles defined yet. Create them under Roles."
-          />
+          {taxonomyLoading ? (
+            <LoadingState label="Loading access profile options"><Skeleton className="h-9 w-full" /></LoadingState>
+          ) : taxonomyError ? (
+            <ErrorState message={`Sub-role options unavailable: ${taxonomyError}`} />
+          ) : (
+            <MultiSelect
+              options={subRoles}
+              value={subRoleIds}
+              onChange={setSubRoleIds}
+              placeholder="Search sub-roles…"
+              emptyLabel="No sub-roles defined yet. Create them under Roles."
+            />
+          )}
         </Field>
         <Field label="Tags" hint="Squad, stream, or any grouping you filter by.">
-          <MultiSelect
-            options={tags}
-            value={tagIds}
-            onChange={setTagIds}
-            placeholder="Search tags…"
-            emptyLabel="No tags defined yet. Create them under Tags."
-          />
+          {taxonomyLoading ? (
+            <LoadingState label="Loading tag options" announce={false}><Skeleton className="h-9 w-full" /></LoadingState>
+          ) : taxonomyError ? (
+            <ErrorState message={`Tag options unavailable: ${taxonomyError}`} />
+          ) : (
+            <MultiSelect
+              options={tags}
+              value={tagIds}
+              onChange={setTagIds}
+              placeholder="Search tags…"
+              emptyLabel="No tags defined yet. Create them under Tags."
+            />
+          )}
         </Field>
         {error && <ErrorState message={error} />}
         <div className="flex justify-end gap-2 pt-2">
@@ -768,7 +964,7 @@ function EditMemberDialog({
           </Button>
           <Button
             variant="gradient"
-            disabled={!displayName.trim() || save.isPending}
+            disabled={!displayName.trim() || save.isPending || Boolean(taxonomyError)}
             onClick={() => save.mutate()}
           >
             Save
@@ -776,6 +972,15 @@ function EditMemberDialog({
         </div>
       </div>
     </Dialog>
+  )
+}
+
+function isManagedMember(member: MemberListItem): member is User {
+  return (
+    "email" in member &&
+    "status" in member &&
+    "sub_role_ids" in member &&
+    "tag_ids" in member
   )
 }
 

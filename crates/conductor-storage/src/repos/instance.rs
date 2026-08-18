@@ -7,6 +7,9 @@ use sqlx::Row;
 use sqlx::{Any, Pool};
 use uuid::Uuid;
 
+use crate::core::error::{
+    InvalidPersistedPrincipal, PersistedPrincipalField, PersistedSecurityReason, StorageResult,
+};
 use crate::core::mapping::parse_dt;
 
 #[derive(Clone)]
@@ -47,10 +50,41 @@ impl InstanceRepo {
     }
 
     pub async fn project_id(&self) -> Result<Option<Uuid>, sqlx::Error> {
-        let value = sqlx::query_scalar::<_, String>("SELECT id FROM instance LIMIT 1")
-            .fetch_optional(&self.pool)
-            .await?;
+        let value = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM instance ORDER BY created_at ASC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
         Ok(value.and_then(|value| Uuid::parse_str(&value).ok()))
+    }
+
+    /// Load the singleton project identity for an authorization decision.
+    /// A configured-but-corrupt UUID is security state, not "not configured".
+    pub async fn authorization_project_id(&self) -> StorageResult<Option<Uuid>> {
+        let mut values = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM instance ORDER BY created_at ASC LIMIT 2",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        if values.len() > 1 {
+            return Err(sqlx::Error::Protocol(
+                "authorization requires exactly one project identity".into(),
+            )
+            .into());
+        }
+        values
+            .pop()
+            .map(|value| {
+                Uuid::parse_str(&value).map_err(|_| {
+                    InvalidPersistedPrincipal::new(
+                        None,
+                        PersistedPrincipalField::ProjectId,
+                        PersistedSecurityReason::InvalidUuid,
+                    )
+                    .into()
+                })
+            })
+            .transpose()
     }
 
     pub async fn storage_settings(&self) -> Result<StorageSettings, sqlx::Error> {
@@ -490,7 +524,10 @@ impl InstanceRepo {
         )
         .bind(logo.map(|value| value.key.as_str()))
         .bind(logo.map(|value| value.sha256.as_str()))
-        .bind(logo.map(|value| i64::try_from(value.size).unwrap_or(i64::MAX)))
+        .bind(
+            logo.map(|value| i64::try_from(value.size).unwrap_or(i64::MAX))
+                .unwrap_or(0),
+        )
         .bind(logo.map(|value| value.media_type.as_str()))
         .bind(Utc::now().to_rfc3339())
         .execute(&self.pool)

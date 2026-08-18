@@ -201,6 +201,7 @@ async fn manages_draft_files_with_revision_conflicts_and_root_protection() {
         )
         .await;
     assert_eq!(status, StatusCode::CONFLICT, "{conflict}");
+    assert_eq!(conflict["error_code"], "draft_revision_conflict");
 }
 
 #[tokio::test]
@@ -269,4 +270,68 @@ async fn regular_members_cannot_inspect_plugin_packages() {
         )
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn owning_contributor_can_author_plugin_draft_but_cannot_release_or_archive_it() {
+    let (app, _, _) = configured_app().await;
+    let contributor = app.seed_user(PrimaryRole::Contribute).await;
+    let contributor_token = app.token_for(&contributor).await;
+    let archive = plugin_archive(serde_json::json!({
+        "$schema": PLUGIN_SCHEMA,
+        "name": PLUGIN_NAME,
+        "version": "0.4.2",
+        "description": "Contributor-owned executable draft",
+        "extensions": {}
+    }));
+
+    let (status, created) = app
+        .post_bytes(
+            "/api/resources/plugins/import?name=Contributor%20Plugin&visibility=shared",
+            Some(&contributor_token),
+            "application/zip",
+            archive,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let resource_id = created["resource"]["id"].as_str().expect("resource id");
+
+    let (status, body) = app
+        .post(
+            &format!("/api/resources/{resource_id}/release"),
+            Some(&contributor_token),
+            serde_json::json!({
+                "channel": "published",
+                "version_mode": "auto",
+                "draft_revision": 0,
+                "changelog": null,
+                "beta_member_ids": [],
+                "minimum_evoflux_version": null
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let version_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM resource_versions WHERE resource_id = ?")
+            .bind(resource_id)
+            .fetch_one(app.state.db.pool())
+            .await
+            .expect("count immutable versions");
+    assert_eq!(version_count, 0);
+
+    let (status, body) = app
+        .post(
+            &format!("/api/resources/{resource_id}/archive"),
+            Some(&contributor_token),
+            serde_json::json!({}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let stored_status: String = sqlx::query_scalar("SELECT status FROM resources WHERE id = ?")
+        .bind(resource_id)
+        .fetch_one(app.state.db.pool())
+        .await
+        .expect("load resource status");
+    assert_eq!(stored_status, "draft");
 }

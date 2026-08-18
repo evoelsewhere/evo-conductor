@@ -53,7 +53,10 @@
 - Backpressure: a lagging receiver is instructed to smart-fetch the current member-specific commit; no file payload is buffered in SSE
 - Lifecycle: heartbeat, token-expiry close, secret-revocation close, member-disable close, and server-drain signal
 - Admission control: configurable global and per-secret semaphores; overload returns `503` or `429` with `Retry-After`
-- Presence: the dashboard derives online members from active realtime owners in the local process
+- Presence: the dashboard derives recently seen clients and members from project-scoped installation heartbeats; the current threshold is three missed 60-second heartbeats (180 seconds)
+- Live runtime: active SSE owners and streams are reported separately and are explicitly scoped to the current Conductor process
+- Host metrics: CPU and RAM describe the Conductor host only; unsupported CPU warm-up, GPU, and VRAM values remain null instead of being fabricated as zero
+- Feedback: administrators receive a project aggregate while contributors receive only the aggregate for resources they own; dashboard feedback never includes member identity or comments
 - Horizontal scale boundary: the current hub is single-process. Multiple replicas require a shared broker plus transactional outbox; PostgreSQL and NATS JetStream are the recommended production path
 
 The complete client contract and scale-out design are in [evoflux-integration.md](evoflux-integration.md). Git-style object negotiation and atomic checkout are normative in [resource-fetch-protocol.md](resource-fetch-protocol.md).

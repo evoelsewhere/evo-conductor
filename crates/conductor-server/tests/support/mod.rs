@@ -21,13 +21,19 @@ use axum::http::{HeaderMap, Request, StatusCode};
 use axum::Router;
 use conductor_auth::JwtService;
 use conductor_domain::core::constants::auth::{AUTH_SCHEME_BEARER, DEFAULT_JWT_TTL_HOURS};
-use conductor_domain::{CreateMemberRequest, UserStatus};
-use conductor_domain::{PrimaryRole, User};
+use conductor_domain::{
+    CreateMemberRequest, LocalStorageSettings, PrimaryRole, StorageSettings, User,
+};
+use conductor_server::core::artifacts::ArtifactStore;
+use conductor_server::core::authorization::AuthorizationService;
+use conductor_server::core::host_metrics::HostMetricsProvider;
 use conductor_server::{build_router, AppState, Config, RealtimeConfig};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -36,6 +42,7 @@ use uuid::Uuid;
 const TEST_DB_NAME_PREFIX: &str = "conductor_test_";
 const TEST_EMAIL_DOMAIN: &str = "example.test";
 const TEST_JWT_SECRET_PREFIX: &str = "test-secret-";
+const TEST_ARTIFACT_DIR_PREFIX: &str = "evo-conductor-http-test-artifacts-";
 const TEST_BIND_HOST: &str = "127.0.0.1";
 /// Zero: the fixture never binds a socket, it calls the router directly.
 const TEST_BIND_PORT: u16 = 0;
@@ -68,7 +75,7 @@ async fn seed_active_user(db: &conductor_storage::Db, role: PrimaryRole) -> User
         .await
         .expect("create_invited");
     db.users()
-        .set_status(user.id, UserStatus::Active)
+        .activate_invited_on_password_login(user.id)
         .await
         .expect("activate seeded user")
 }
@@ -77,15 +84,138 @@ pub struct TestApp {
     pub router: Router,
     pub state: AppState,
     pub jwt: JwtService,
+    artifact_root: TestArtifactRoot,
+}
+
+struct TestArtifactRoot {
+    path: PathBuf,
+}
+
+impl TestArtifactRoot {
+    fn unique() -> Self {
+        Self {
+            path: std::env::temp_dir().join(format!(
+                "{TEST_ARTIFACT_DIR_PREFIX}{}",
+                Uuid::new_v4().simple()
+            )),
+        }
+    }
+
+    fn snapshot(&self) -> BTreeMap<PathBuf, Vec<u8>> {
+        let mut snapshot = BTreeMap::new();
+        collect_artifact_files(&self.path, &self.path, &mut snapshot);
+        snapshot
+    }
+}
+
+impl Drop for TestArtifactRoot {
+    fn drop(&mut self) {
+        let temporary_root = std::env::temp_dir();
+        let valid_name = self
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix(TEST_ARTIFACT_DIR_PREFIX))
+            .is_some_and(|suffix| {
+                suffix.len() == 32 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+            });
+        if self.path.parent() != Some(temporary_root.as_path()) || !valid_name {
+            eprintln!(
+                "refusing to remove unexpected test artifact root {}",
+                self.path.display()
+            );
+            return;
+        }
+
+        match std::fs::remove_dir_all(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => eprintln!(
+                "failed to remove test artifact root {}: {error}",
+                self.path.display()
+            ),
+        }
+    }
+}
+
+fn collect_artifact_files(
+    root: &Path,
+    directory: &Path,
+    snapshot: &mut BTreeMap<PathBuf, Vec<u8>>,
+) {
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => panic!("read artifact directory {}: {error}", directory.display()),
+    };
+    for entry in entries {
+        let entry = entry.expect("read artifact directory entry");
+        let path = entry.path();
+        let file_type = entry.file_type().expect("read artifact file type");
+        assert!(
+            !file_type.is_symlink(),
+            "artifact fixture contains a symlink"
+        );
+        if file_type.is_dir() {
+            collect_artifact_files(root, &path, snapshot);
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .expect("artifact path belongs to fixture root")
+                .to_path_buf();
+            snapshot.insert(
+                relative,
+                std::fs::read(&path).expect("read artifact object"),
+            );
+        }
+    }
 }
 
 /// A running application backed by an empty, isolated database.
 pub async fn test_app() -> TestApp {
-    let database_url = test_database_url();
+    test_app_with_authorization(AuthorizationService::default()).await
+}
 
-    let state = AppState::new(&database_url, RealtimeConfig::default())
+pub async fn test_app_with_authorization(authorization: AuthorizationService) -> TestApp {
+    test_app_with_dependencies(authorization, None, RealtimeConfig::default()).await
+}
+
+pub async fn test_app_with_host_metrics(host_metrics: Arc<dyn HostMetricsProvider>) -> TestApp {
+    test_app_with_dependencies(
+        AuthorizationService::default(),
+        Some(host_metrics),
+        RealtimeConfig::default(),
+    )
+    .await
+}
+
+pub async fn test_app_with_realtime_config(realtime: RealtimeConfig) -> TestApp {
+    test_app_with_dependencies(AuthorizationService::default(), None, realtime).await
+}
+
+async fn test_app_with_dependencies(
+    authorization: AuthorizationService,
+    host_metrics: Option<Arc<dyn HostMetricsProvider>>,
+    realtime: RealtimeConfig,
+) -> TestApp {
+    let database_url = test_database_url();
+    let artifact_root = TestArtifactRoot::unique();
+    let artifacts = ArtifactStore::from_settings(StorageSettings {
+        local: LocalStorageSettings {
+            root: Some(artifact_root.path.to_string_lossy().into_owned()),
+        },
+        ..StorageSettings::default()
+    })
+    .await
+    .expect("configure isolated test object storage");
+
+    let mut state = AppState::new_with_artifact_store(&database_url, realtime.clone(), artifacts)
         .await
         .expect("connect test database");
+    state.authorization = authorization;
+    if let Some(host_metrics) = host_metrics {
+        state.set_host_metrics_provider(host_metrics);
+    }
 
     // Fact 1: without this every authenticated request returns 428.
     let secret = format!("{TEST_JWT_SECRET_PREFIX}{}", Uuid::new_v4().simple());
@@ -96,17 +226,49 @@ pub async fn test_app() -> TestApp {
         host: TEST_BIND_HOST.into(),
         port: TEST_BIND_PORT,
         web_dist: PathBuf::from(UNUSED_WEB_DIST),
-        realtime: RealtimeConfig::default(),
+        realtime,
     };
 
     TestApp {
         router: build_router(state.clone(), &config),
         state,
         jwt: JwtService::new(secret, DEFAULT_JWT_TTL_HOURS),
+        artifact_root,
     }
 }
 
 impl TestApp {
+    /// Snapshot every physical object under this fixture's isolated store.
+    /// Relative paths and bytes make both object creation and replacement
+    /// observable without a production-only write counter or global env hook.
+    pub fn artifact_snapshot(&self) -> BTreeMap<PathBuf, Vec<u8>> {
+        self.artifact_root.snapshot()
+    }
+
+    /// Seed the singleton project identity required by project-scoped
+    /// authorization without marking setup complete or creating an admin.
+    ///
+    /// Most authorization tests exercise protected routes directly, while the
+    /// default fixture intentionally remains unconfigured for bootstrap tests.
+    pub async fn seed_project_identity(&self) -> Uuid {
+        let project_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO instance (
+                id, project_name, display_name, bind_host, bind_port,
+                setup_completed, jwt_secret, created_at, updated_at
+            ) VALUES (?, 'Test project', 'Test project', '127.0.0.1', 0,
+                      0, 'test-project-secret',
+                      '2026-08-17T00:00:00Z', '2026-08-17T00:00:00Z')
+            "#,
+        )
+        .bind(project_id.to_string())
+        .execute(self.state.db.pool())
+        .await
+        .expect("seed project identity");
+        project_id
+    }
+
     pub async fn seed_user(&self, role: PrimaryRole) -> User {
         seed_active_user(&self.state.db, role).await
     }

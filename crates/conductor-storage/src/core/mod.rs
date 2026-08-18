@@ -3,5 +3,12 @@
 
 pub mod constants;
 pub mod dialect;
+pub mod error;
 pub mod mapping;
 pub mod url;
+
+pub use error::{
+    InvalidPersistedCredential, InvalidPersistedPrincipal, InvalidPersistedResource,
+    PersistedCredentialField, PersistedPrincipalField, PersistedResourceField,
+    PersistedSecurityReason, StorageError, StorageResult,
+};

@@ -11,6 +11,7 @@ import { PageFrame } from "@/shared/components/page-frame"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
 import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/components/stat-card"
 import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import {
   TELEMETRY_QUERY_KEYS,
   TELEMETRY_FALLBACK_LABELS,
@@ -20,6 +21,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Badge } from "@/shared/ui/badge"
 import { ErrorState } from "@/shared/ui/empty-state"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function MemberRequestDetailPage() {
   const { userId, requestId } = useParams({ strict: false }) as { userId: string; requestId: string }
@@ -29,14 +31,17 @@ export function MemberRequestDetailPage() {
   })
   const request = detail.data?.request
   const events = detail.data?.events ?? []
+  const initialLoading = useMinimumLoading(detail.isLoading && !detail.data)
 
   return (
     <PageFrame title="Request detail" subtitle={request ? `${request.model ?? TELEMETRY_FALLBACK_LABELS.model} · ${new Date(request.started_at).toLocaleString()}` : "Model calls and tool executions for one EvoFlux request."}>
       <Link to="/app/members/$userId/activity" params={{ userId }} className="mb-3 inline-flex items-center gap-1 text-xs text-(--color-text-muted) hover:text-(--color-text)"><ArrowLeft className="size-3.5" />All activity</Link>
       <MemberNav userId={userId} />
-      {detail.error && <ErrorState className="mb-4" message={detail.error.message} />}
-      {detail.isLoading ? (
-        <StatCardGridSkeleton count={4} />
+      {detail.error && !initialLoading && (
+        <ErrorState className="mb-4" message={detail.error.message} />
+      )}
+      {initialLoading ? (
+        <MemberRequestDetailSkeleton />
       ) : request && (
         <>
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-(--border-card) bg-(--bg-card) px-4 py-3">
@@ -81,5 +86,41 @@ export function MemberRequestDetailPage() {
         </>
       )}
     </PageFrame>
+  )
+}
+
+function MemberRequestDetailSkeleton() {
+  return (
+    <LoadingState label="Loading request detail" className="grid gap-4">
+      <div className="flex items-center gap-3 rounded-xl border border-(--border-card) bg-(--bg-card) px-4 py-3">
+        <Skeleton className="size-8 rounded-full" />
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="mt-1.5 h-3 w-24" />
+        </div>
+        <Skeleton className="h-3 w-48 max-w-[35%]" />
+      </div>
+      <StatCardGridSkeleton count={5} />
+      <Card>
+        <CardHeader>
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="mt-2 h-3 w-72 max-w-full" />
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-5">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="grid gap-2 border-l border-(--border-soft) pl-6">
+              <div className="flex items-center justify-between gap-3">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-5 w-16" />
+              </div>
+              <Skeleton className="h-3 w-64 max-w-full" />
+              <Skeleton className="h-3 w-3/4" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </LoadingState>
   )
 }

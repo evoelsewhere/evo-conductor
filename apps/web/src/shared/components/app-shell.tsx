@@ -22,6 +22,7 @@ import {
   Sparkles,
   Sun,
   Tags,
+  UserRound,
   Users,
   X,
   type LucideIcon,
@@ -35,8 +36,10 @@ import { SettingsDialog } from "@/features/settings/components/settings-dialog"
 import { useIsDesktop } from "@/shared/hooks/use-media-query"
 import { cn } from "@/shared/lib/utils"
 import { useAuthStore } from "@/shared/stores/auth"
+import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { useThemeStore, type ThemeMode } from "@/shared/stores/theme"
 import { useUiStore } from "@/shared/stores/ui"
+import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { Avatar } from "@/shared/ui/avatar"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
@@ -75,7 +78,6 @@ function isActivePath(pathname: string, to: string, end: boolean) {
 
 export function AppShell() {
   const hydrateUi = useUiStore((s) => s.hydrate)
-  const hydrateAuth = useAuthStore((s) => s.hydrate)
   const isDesktop = useIsDesktop()
   const collapsed = useUiStore((s) => s.sidebarCollapsed)
   const mobileOpen = useUiStore((s) => s.mobileNavOpen)
@@ -84,18 +86,28 @@ export function AppShell() {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const user = useAuthStore((s) => s.user)
-  const isAdmin = user?.primary_role === "admin"
+  const authorization = useAuthStore((s) => s.authorization)
+  const authorizationStatus = useAuthStore((s) => s.authorizationStatus)
+  const authorizationError = useAuthStore((s) => s.authorizationError)
+  const refreshAuthorization = useAuthStore((s) => s.refreshAuthorization)
+  const clearAuth = useAuthStore((s) => s.clear)
+  const can = useAuthStore((s) => s.can)
+  const canManageMembers = mayRequest(can(PERMISSION.MEMBER_MANAGE))
+  const canReadSettings = mayRequest(can(PERMISSION.PROJECT_SETTINGS_READ))
 
   const { data: pending } = useQuery({
     queryKey: ["pending-count"],
     queryFn: () => api.pendingCount(),
-    enabled: isAdmin,
+    enabled: authorizationStatus === "ready" && canManageMembers,
     refetchInterval: 30_000,
   })
 
   const { data: branding } = useQuery({
     queryKey: ["project"],
     queryFn: () => api.project(),
+    enabled:
+      authorizationStatus === "ready" &&
+      mayRequest(can(PERMISSION.PROJECT_BRANDING_READ)),
   })
 
   const brand = useMemo(() => {
@@ -110,19 +122,31 @@ export function AppShell() {
   }, [branding])
 
   const navGroups = useMemo((): NavGroup[] => {
-    const canListMembers =
-      user?.primary_role === "admin" || user?.primary_role === "contribute"
+    const canListMembers = mayRequest(can(PERMISSION.MEMBER_DIRECTORY_READ))
+    const canReadDashboard = mayRequest(can(PERMISSION.PROJECT_DASHBOARD_READ))
+    const canReadResources = mayRequest(can(PERMISSION.RESOURCE_CONSUME))
+    const canReadTelemetry = mayRequest(can(PERMISSION.TELEMETRY_PROJECT_READ))
+    const canReadTaxonomy = mayRequest(can(PERMISSION.TAXONOMY_READ))
+    const canReadOwnTokens = mayRequest(
+      can(PERMISSION.CONNECTION_TOKEN_READ_SELF, { ownerId: user?.id }),
+    )
 
-    const workspaceItems: NavItemDef[] = [
-      { to: "/app", label: "Overview", icon: LayoutDashboard, end: true },
-    ]
+    const workspaceItems: NavItemDef[] = []
+    if (canReadDashboard) {
+      workspaceItems.push({
+        to: "/app",
+        label: "Dashboard",
+        icon: LayoutDashboard,
+        end: true,
+      })
+    }
     if (canListMembers) {
       workspaceItems.push({
         to: "/app/members",
         label: "Members",
         icon: Users,
         end: false,
-        badge: isAdmin ? pending?.count : undefined,
+        badge: canManageMembers ? pending?.count : undefined,
       })
     }
     const resourceItems: NavItemDef[] = [
@@ -130,7 +154,7 @@ export function AppShell() {
       { to: "/app/resources/skills", label: "Skills", icon: Sparkles, end: false },
       { to: "/app/resources/agents", label: "Agents", icon: Bot, end: false },
     ]
-    if (canListMembers) {
+    if (canReadTelemetry) {
       resourceItems.push({
         to: "/app/resources/usage",
         label: "Usage",
@@ -138,18 +162,26 @@ export function AppShell() {
         end: false,
       })
     }
-    workspaceItems.push({
-      to: "/app/resources",
-      label: "Resources",
-      icon: Boxes,
-      end: true,
-      children: resourceItems,
-    })
+    if (canReadResources) {
+      workspaceItems.push({
+        to: "/app/resources",
+        label: "Resources",
+        icon: Boxes,
+        end: true,
+        children: resourceItems,
+      })
+    }
 
-    const accessItems: NavItemDef[] = [
-      { to: "/app/secrets", label: "Secrets", icon: KeyRound, end: false },
-    ]
-    if (canListMembers) {
+    const accessItems: NavItemDef[] = []
+    if (canReadOwnTokens) {
+      accessItems.push({
+        to: "/app/secrets",
+        label: "Connection tokens",
+        icon: KeyRound,
+        end: false,
+      })
+    }
+    if (canReadTaxonomy) {
       accessItems.unshift({
         to: "/app/tags",
         label: "Tags",
@@ -157,7 +189,7 @@ export function AppShell() {
         end: false,
       })
     }
-    if (isAdmin) {
+    if (canReadTaxonomy) {
       accessItems.unshift({
         to: "/app/roles",
         label: "Roles",
@@ -171,12 +203,11 @@ export function AppShell() {
       { id: "access", label: "Access", items: accessItems },
     ]
     return groups
-  }, [isAdmin, pending?.count, user?.primary_role])
+  }, [authorization, can, canManageMembers, pending?.count, user?.id])
 
   useEffect(() => {
     hydrateUi()
-    hydrateAuth()
-  }, [hydrateUi, hydrateAuth])
+  }, [hydrateUi])
 
   // Keep the group that owns the active route open so deep links are not hidden.
   useEffect(() => {
@@ -202,6 +233,39 @@ export function AppShell() {
   useEffect(() => {
     if (isDesktop) setMobileNav(false)
   }, [isDesktop, setMobileNav])
+
+  if (authorizationStatus !== "ready") {
+    return (
+      <div className="grid min-h-dvh place-items-center px-4">
+        <div className="w-full max-w-lg rounded-xl border border-(--border-card) bg-(--bg-card) p-5">
+          <h1 className="text-base font-semibold">Project permissions</h1>
+          <p className="mt-2 text-sm text-(--color-text-muted)">
+            {authorizationStatus === "loading"
+              ? "Loading the current server policy…"
+              : authorizationError ?? "The current server policy is unavailable."}
+          </p>
+          {authorizationStatus === "error" && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                onClick={() => void refreshAuthorization().catch(() => undefined)}
+              >
+                Retry
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  clearAuth()
+                  window.location.assign("/login")
+                }}
+              >
+                Sign in again
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <TooltipProvider delay={400}>
@@ -235,7 +299,7 @@ export function AppShell() {
           </main>
         </div>
 
-        {isAdmin && (
+        {canReadSettings && (
           <SettingsDialog
             open={settingsOpen}
             onClose={() => setSettingsOpen(false)}
@@ -308,9 +372,7 @@ function Topbar({ brand }: { brand: BrandProps }) {
             <span className="max-w-40 truncate text-xs text-(--color-text-muted)">
               {user.email}
             </span>
-            <Badge tone="accent" className="capitalize">
-              {user.primary_role}
-            </Badge>
+            <Badge tone="accent">{PRIMARY_ROLE_LABELS[user.primary_role]}</Badge>
           </div>
         )}
         <ThemeToggle />
@@ -664,7 +726,8 @@ const themeOptions = [
 function UserFooter({ collapsed }: { collapsed: boolean }) {
   const user = useAuthStore((s) => s.user)
   const clear = useAuthStore((s) => s.clear)
-  const isAdmin = user?.primary_role === "admin"
+  const can = useAuthStore((s) => s.can)
+  const canReadSettings = mayRequest(can(PERMISSION.PROJECT_SETTINGS_READ))
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
   const setMobileNav = useUiStore((s) => s.setMobileNav)
   const themeMode = useThemeStore((s) => s.mode)
@@ -720,14 +783,24 @@ function UserFooter({ collapsed }: { collapsed: boolean }) {
               {user.email}
             </div>
           </div>
-          <Badge tone="accent" className="ml-auto shrink-0 capitalize">
-            {user.primary_role}
+          <Badge tone="accent" className="ml-auto shrink-0">
+            {PRIMARY_ROLE_LABELS[user.primary_role]}
           </Badge>
         </div>
 
         <MenuSeparator />
 
-        {isAdmin && (
+        <MenuItem
+          onClick={() => {
+            setMobileNav(false)
+            window.location.assign(`/app/members/${user.id}`)
+          }}
+        >
+          <UserRound className="size-4 opacity-80" strokeWidth={1.7} />
+          My profile
+        </MenuItem>
+
+        {canReadSettings && (
           <MenuItem
             onClick={() => {
               setSettingsOpen(true)

@@ -39,6 +39,7 @@ pub const INDEXES: &[&str] = &[
     "idx_tag_assignments_entity",
     "idx_tag_assignments_tag",
     "idx_user_sub_roles_role",
+    "idx_connection_secrets_token_hash",
     "idx_client_installations_user_seen",
     "idx_client_installations_instance_seen",
     "idx_client_registration_replay_window",

@@ -4,8 +4,8 @@ import { useState } from "react"
 import type {
   ClientInstallationSummary,
   ManagedResource,
+  MemberListItem,
   ResourceVersion,
-  User,
 } from "@/shared/api/client"
 import type { ResourceKind } from "@/shared/constants/resource"
 import {
@@ -16,6 +16,7 @@ import {
   RESOURCE_USAGE_STATUS_OPTIONS,
 } from "@/shared/constants/resource-usage"
 import { Button } from "@/shared/ui/button"
+import { ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Select } from "@/shared/ui/select"
 
@@ -50,18 +51,36 @@ export const EMPTY_RESOURCE_USAGE_FILTERS: ResourceUsageFilterState = {
 export function ResourceUsageFilters({
   value,
   members,
+  membersLoading = false,
+  membersError,
   installations,
+  installationsLoading = false,
+  installationsError,
   resources,
+  resourcesLoading = false,
+  resourcesError,
   versions,
+  versionsLoading = false,
+  versionsError,
   lockedKind,
+  allowMemberDetail,
   onChange,
 }: {
   value: ResourceUsageFilterState
-  members: User[]
+  members: MemberListItem[]
+  membersLoading?: boolean
+  membersError?: string
   installations: ClientInstallationSummary[]
+  installationsLoading?: boolean
+  installationsError?: string
   resources: ManagedResource[]
+  resourcesLoading?: boolean
+  resourcesError?: string
   versions: ResourceVersion[]
+  versionsLoading?: boolean
+  versionsError?: string
   lockedKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
+  allowMemberDetail: boolean
   onChange: (value: ResourceUsageFilterState) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -90,22 +109,33 @@ export function ResourceUsageFilters({
   return (
     <div className="rounded-xl border border-(--border-card) bg-(--bg-card)">
       <div className="flex flex-col gap-2 p-3 lg:flex-row lg:items-center">
-        <Select
-          value={value.memberId}
-          onValueChange={(next) =>
-            onChange({
-              ...value,
-              memberId: next,
-              installationId: RESOURCE_USAGE_ALL_FILTER,
-            })
-          }
-          options={[
-            { value: RESOURCE_USAGE_ALL_FILTER, label: "All members" },
-            ...members.map((member) => ({ value: member.id, label: member.display_name })),
-          ]}
-          aria-label="Filter by member"
-          className="lg:w-48"
-        />
+        {allowMemberDetail && (
+          <Select
+            value={value.memberId}
+            onValueChange={(next) =>
+              onChange({
+                ...value,
+                memberId: next,
+                installationId: RESOURCE_USAGE_ALL_FILTER,
+              })
+            }
+            options={[
+              {
+                value: RESOURCE_USAGE_ALL_FILTER,
+                label: membersLoading
+                  ? "Loading members…"
+                  : membersError
+                    ? "Members unavailable"
+                    : "All members",
+              },
+              ...members.map((member) => ({ value: member.id, label: member.display_name })),
+            ]}
+            disabled={membersLoading || Boolean(membersError)}
+            aria-busy={membersLoading}
+            aria-label="Filter by member"
+            className="lg:w-48"
+          />
+        )}
         {!lockedKind && (
           <Select
             value={value.resourceKind}
@@ -132,9 +162,18 @@ export function ResourceUsageFilters({
             })
           }
           options={[
-            { value: RESOURCE_USAGE_ALL_FILTER, label: "All resources" },
+            {
+              value: RESOURCE_USAGE_ALL_FILTER,
+              label: resourcesLoading
+                ? "Loading resources…"
+                : resourcesError
+                  ? "Resources unavailable"
+                  : "All resources",
+            },
             ...visibleResources.map((resource) => ({ value: resource.id, label: resource.name })),
           ]}
+          disabled={resourcesLoading || Boolean(resourcesError)}
+          aria-busy={resourcesLoading}
           aria-label="Filter by resource"
           className="lg:min-w-48 lg:flex-1"
         />
@@ -173,28 +212,54 @@ export function ResourceUsageFilters({
             </Button>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <Select
-              value={value.installationId}
-              onValueChange={(next) => set("installationId", next)}
-              options={[
-                { value: RESOURCE_USAGE_ALL_FILTER, label: "All installations" },
-                ...installations.map((installation) => ({
-                  value: installation.id,
-                  label: `${installation.display_name} · ${installation.platform}`,
-                })),
-              ]}
-              disabled={value.memberId === RESOURCE_USAGE_ALL_FILTER}
-              aria-label="Filter by EvoFlux installation"
-            />
+            {allowMemberDetail && (
+              <Select
+                value={value.installationId}
+                onValueChange={(next) => set("installationId", next)}
+                  options={[
+                    {
+                      value: RESOURCE_USAGE_ALL_FILTER,
+                      label: installationsLoading
+                        ? "Loading installations…"
+                        : installationsError
+                          ? "Installations unavailable"
+                        : "All installations",
+                    },
+                  ...installations.map((installation) => ({
+                    value: installation.id,
+                    label: `${installation.display_name} · ${installation.platform}`,
+                  })),
+                ]}
+                disabled={
+                  value.memberId === RESOURCE_USAGE_ALL_FILTER ||
+                  installationsLoading ||
+                  Boolean(installationsError)
+                }
+                aria-busy={installationsLoading}
+                aria-label="Filter by EvoFlux installation"
+              />
+            )}
             <Select value={value.primaryRole} onValueChange={(next) => set("primaryRole", next)} options={[...RESOURCE_USAGE_ROLE_OPTIONS]} aria-label="Filter by role" />
             <Select
               value={value.versionId}
               onValueChange={(next) => set("versionId", next)}
               options={[
-                { value: RESOURCE_USAGE_ALL_FILTER, label: "All versions" },
+                {
+                  value: RESOURCE_USAGE_ALL_FILTER,
+                  label: versionsLoading
+                    ? "Loading versions…"
+                    : versionsError
+                      ? "Versions unavailable"
+                      : "All versions",
+                },
                 ...versions.map((version) => ({ value: version.id, label: `v${version.version} · ${version.status}` })),
               ]}
-              disabled={value.resourceId === RESOURCE_USAGE_ALL_FILTER}
+              disabled={
+                value.resourceId === RESOURCE_USAGE_ALL_FILTER ||
+                versionsLoading ||
+                Boolean(versionsError)
+              }
+              aria-busy={versionsLoading}
               aria-label="Filter by resource version"
             />
             <Select value={value.relation} onValueChange={(next) => set("relation", next)} options={[...RESOURCE_USAGE_RELATION_OPTIONS]} aria-label="Filter by attribution relation" />
@@ -208,6 +273,19 @@ export function ResourceUsageFilters({
             )}
           </div>
         </div>
+      )}
+      {[membersError, installationsError, resourcesError, versionsError].some(Boolean) && (
+        <ErrorState
+          className="m-3 mt-0"
+          message={[
+            membersError && `Members: ${membersError}`,
+            installationsError && `Installations: ${installationsError}`,
+            resourcesError && `Resources: ${resourcesError}`,
+            versionsError && `Versions: ${versionsError}`,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        />
       )}
     </div>
   )

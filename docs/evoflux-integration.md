@@ -257,7 +257,9 @@ The implemented single-process path has these properties:
 
 - One Tokio task per active HTTP stream, suspended while idle.
 - One bounded broadcast ring shared by all clients; default capacity is 512 events.
-- No database polling loop per client.
+- No catalog polling loop per client. Each stream revalidates its connection
+  secret and current owner policy once per application heartbeat so missed
+  revocation signals still fail closed.
 - A slow receiver does not block publishers or other receivers. It receives a resync instruction and smart-fetches the current commit after lagging.
 - Global and per-secret semaphores reject overload before allocating a stream.
 - A separate handshake semaphore bounds concurrent authentication during reconnect storms; opening SSE performs no catalog snapshot read.

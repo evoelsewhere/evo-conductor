@@ -7,11 +7,14 @@ use chrono::{TimeZone, Utc};
 use conductor_auth::{
     begin_authorization, default_scopes, exchange_code, hash_password_async, verify_password_async,
 };
-use conductor_domain::{AuthSession, ChangePasswordRequest, ConductorError, User, UserStatus};
+use conductor_domain::{
+    grants_for_role, AuthSession, ChangePasswordRequest, ConductorError, PermissionGrant,
+    PermissionKey, PrimaryRole, User, UserStatus, V1_POLICY_REVISION,
+};
 use conductor_storage::repos::SsoLoginError;
 use serde::{Deserialize, Serialize};
 
-use crate::core::error::ApiResult;
+use crate::core::error::{ApiError, ApiResult};
 use crate::core::state::AppState;
 use crate::http::extractors::AuthUser;
 
@@ -25,6 +28,41 @@ pub struct LoginRequest {
 pub struct SsoStartResponse {
     pub authorization_url: String,
     pub provider: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthorizationProjection {
+    pub schema_version: u8,
+    pub policy_revision: &'static str,
+    pub current_role: PrimaryRole,
+    pub current_grants: Vec<PermissionGrant>,
+    pub fixed_roles: Vec<FixedRolePolicy>,
+    pub permission_metadata: Vec<PermissionMetadata>,
+    pub condition_metadata: Vec<ConditionMetadata>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FixedRolePolicy {
+    pub role: PrimaryRole,
+    pub grants: Vec<PermissionGrant>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PermissionMetadata {
+    pub key: PermissionKey,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConditionMetadata {
+    pub kind: &'static str,
+    pub evaluation: ConditionEvaluation,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConditionEvaluation {
+    UiTargetContext,
+    ServerOnly,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +113,60 @@ pub async fn login(
 
 pub async fn me(AuthUser(user): AuthUser) -> ApiResult<Json<User>> {
     Ok(Json(user))
+}
+
+pub async fn authorization_me(
+    AuthUser(user): AuthUser,
+) -> ApiResult<Json<AuthorizationProjection>> {
+    let current_role = user.primary_role;
+    Ok(Json(AuthorizationProjection {
+        schema_version: 1,
+        policy_revision: V1_POLICY_REVISION,
+        current_role,
+        current_grants: grants_for_role(current_role),
+        fixed_roles: PrimaryRole::ALL
+            .into_iter()
+            .map(|role| FixedRolePolicy {
+                role,
+                grants: grants_for_role(role),
+            })
+            .collect(),
+        permission_metadata: PermissionKey::ALL
+            .iter()
+            .copied()
+            .map(|key| PermissionMetadata { key })
+            .collect(),
+        condition_metadata: vec![
+            ConditionMetadata {
+                kind: "any",
+                evaluation: ConditionEvaluation::UiTargetContext,
+            },
+            ConditionMetadata {
+                kind: "self",
+                evaluation: ConditionEvaluation::UiTargetContext,
+            },
+            ConditionMetadata {
+                kind: "owner",
+                evaluation: ConditionEvaluation::UiTargetContext,
+            },
+            ConditionMetadata {
+                kind: "resource_kind_in",
+                evaluation: ConditionEvaluation::UiTargetContext,
+            },
+            ConditionMetadata {
+                kind: "lifecycle_in",
+                evaluation: ConditionEvaluation::UiTargetContext,
+            },
+            ConditionMetadata {
+                kind: "same_project",
+                evaluation: ConditionEvaluation::ServerOnly,
+            },
+            ConditionMetadata {
+                kind: "effective_audience",
+                evaluation: ConditionEvaluation::ServerOnly,
+            },
+        ],
+    }))
 }
 
 pub async fn change_password(
@@ -207,10 +299,13 @@ pub async fn sso_callback(
     {
         Ok(user) => user,
         Err(SsoLoginError::IdentityConflict) => {
-            return Err(ConductorError::Conflict(
-                "this email is already linked to a different SSO identity".into(),
-            )
-            .into())
+            return Err(ApiError::conflict(
+                "sso_identity_conflict",
+                "this email is already linked to a different SSO identity",
+            ))
+        }
+        Err(SsoLoginError::InvalidPersistedPrincipal(error)) => {
+            return Err(conductor_storage::StorageError::InvalidPersistedPrincipal(error).into())
         }
         Err(SsoLoginError::Database(error)) => return Err(error.into()),
     };

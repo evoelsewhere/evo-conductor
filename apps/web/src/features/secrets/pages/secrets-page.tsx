@@ -8,6 +8,9 @@ import {
   type SecretScope,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
+import { useAuthStore } from "@/shared/stores/auth"
 import {
   SECRET_SCOPE,
   SECRET_SCOPE_OPTIONS,
@@ -20,7 +23,7 @@ import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { Select } from "@/shared/ui/select"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -40,6 +43,14 @@ const expirationOptions = [
 
 export function SecretsPage() {
   const qc = useQueryClient()
+  const userId = useAuthStore((state) => state.user?.id)
+  const can = useAuthStore((state) => state.can)
+  const canIssue = mayRequest(
+    can(PERMISSION.CONNECTION_TOKEN_ISSUE_SELF, { ownerId: userId }),
+  )
+  const canRevoke = mayRequest(
+    can(PERMISSION.CONNECTION_TOKEN_REVOKE_SELF, { ownerId: userId }),
+  )
   const { data = [], isLoading, error } = useQuery({
     queryKey: ["secrets"],
     queryFn: () => api.secrets(),
@@ -47,6 +58,7 @@ export function SecretsPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [pendingRevoke, setPendingRevoke] = useState<ConnectionSecret | null>(null)
+  const initialLoading = useMinimumLoading(isLoading)
 
   const revoke = useMutation({
     mutationFn: (id: string) => api.revokeSecret(id),
@@ -61,10 +73,10 @@ export function SecretsPage() {
       title="Connection secrets"
       subtitle="Issue least-privilege, expiring tokens for EvoFlux clients."
       action={
-        <Button variant="gradient" onClick={() => setShowCreate(true)}>
+        canIssue ? <Button variant="gradient" onClick={() => setShowCreate(true)}>
           <Plus className="size-3.5" />
-          New secret
-        </Button>
+          New token
+        </Button> : undefined
       }
     >
       {createdToken && (
@@ -99,7 +111,7 @@ export function SecretsPage() {
         </div>
       )}
 
-      {(error || revoke.error) && (
+      {((error && !initialLoading) || revoke.error) && (
         <ErrorState
           className="mb-4"
           message={
@@ -112,20 +124,18 @@ export function SecretsPage() {
         />
       )}
 
-      {isLoading ? (
-        <TableWrap>
-          <SkeletonRows rows={4} />
-        </TableWrap>
-      ) : data.length === 0 ? (
+      {initialLoading ? (
+        <SecretsTableSkeleton />
+      ) : error ? null : data.length === 0 ? (
         <EmptyState
           icon={KeyRound}
           title="No secrets yet"
           description="Create a scoped connection token and paste it into EvoFlux."
-          action={
+          action={canIssue ? (
             <Button variant="outline" onClick={() => setShowCreate(true)}>
-              Create first secret
+              Create first token
             </Button>
-          }
+          ) : undefined}
         />
       ) : (
         <TableWrap>
@@ -173,7 +183,7 @@ export function SecretsPage() {
                       )}
                     </TableTd>
                     <TableTd className="text-right">
-                      {!secret.revoked_at && !expired && (
+                      {canRevoke && !secret.revoked_at && !expired && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -193,7 +203,7 @@ export function SecretsPage() {
       )}
 
       <CreateSecretDialog
-        open={showCreate}
+        open={showCreate && canIssue}
         onClose={() => setShowCreate(false)}
         onCreated={(token) => {
           setShowCreate(false)
@@ -211,6 +221,39 @@ export function SecretsPage() {
         onConfirm={() => pendingRevoke && revoke.mutate(pendingRevoke.id)}
       />
     </PageFrame>
+  )
+}
+
+function SecretsTableSkeleton() {
+  return (
+    <TableWrap>
+      <LoadingState label="Loading connection secrets">
+        <Table>
+          <TableHead>
+            <tr>
+              <TableTh>Name</TableTh>
+              <TableTh>Prefix</TableTh>
+              <TableTh>Scopes</TableTh>
+              <TableTh>Last used</TableTh>
+              <TableTh>Status</TableTh>
+              <TableTh />
+            </tr>
+          </TableHead>
+          <TableBody>
+            {Array.from({ length: 4 }, (_, index) => (
+              <TableRow key={index}>
+                <TableTd><Skeleton className="h-3.5 w-28" /></TableTd>
+                <TableTd><Skeleton className="h-3 w-24" /></TableTd>
+                <TableTd><Skeleton className="h-5 w-36 rounded-full" /></TableTd>
+                <TableTd><Skeleton className="h-3 w-32" /></TableTd>
+                <TableTd><Skeleton className="h-5 w-16 rounded-full" /></TableTd>
+                <TableTd className="text-right"><Skeleton className="ml-auto size-8" /></TableTd>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </LoadingState>
+    </TableWrap>
   )
 }
 

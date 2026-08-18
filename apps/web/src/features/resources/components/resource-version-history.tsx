@@ -26,7 +26,7 @@ import {
 import { Dialog } from "@/shared/ui/dialog"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Label } from "@/shared/ui/label"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -43,6 +43,8 @@ interface ResourceVersionHistoryProps {
   draftRevision: number
   loading: boolean
   versions?: ResourceVersion[]
+  error?: Error | null
+  canManageLifecycle: boolean
   onVersionDeprecated: (version: ResourceVersion) => void
   onDraftRestored: (tree: DraftFileTree, version: ResourceVersion) => void
 }
@@ -52,6 +54,8 @@ export function ResourceVersionHistory({
   draftRevision,
   loading,
   versions,
+  error,
+  canManageLifecycle,
   onVersionDeprecated,
   onDraftRestored,
 }: ResourceVersionHistoryProps) {
@@ -90,7 +94,12 @@ export function ResourceVersionHistory({
     },
   })
 
-  if (loading) return <SkeletonRows rows={6} />
+  if (loading) {
+    return <ResourceVersionHistorySkeleton canManageLifecycle={canManageLifecycle} />
+  }
+  if (error && !versions) {
+    return <ErrorState message={error.message} />
+  }
   if (!versions?.length) {
     return (
       <EmptyState
@@ -106,6 +115,7 @@ export function ResourceVersionHistory({
 
   return (
     <>
+      {error && <ErrorState className="mb-4" message={error.message} />}
       <Card>
         <CardHeader>
           <div>
@@ -133,7 +143,7 @@ export function ResourceVersionHistory({
                   <TableTh>Lifecycle</TableTh>
                   <TableTh>Integrity</TableTh>
                   <TableTh>Released</TableTh>
-                  <TableTh className="text-right">Actions</TableTh>
+                  {canManageLifecycle && <TableTh className="text-right">Actions</TableTh>}
                 </tr>
               </TableHead>
               <TableBody>
@@ -167,7 +177,7 @@ export function ResourceVersionHistory({
                           </div>
                         )}
                       </TableTd>
-                      <TableTd>
+                      {canManageLifecycle && <TableTd>
                         <div className="flex justify-end gap-1.5">
                           <Button
                             variant="outline"
@@ -207,7 +217,7 @@ export function ResourceVersionHistory({
                             </Button>
                           )}
                         </div>
-                      </TableTd>
+                      </TableTd>}
                     </TableRow>
                   )
                 })}
@@ -218,7 +228,7 @@ export function ResourceVersionHistory({
       </Card>
 
       <Dialog
-        open={deprecating !== null}
+        open={canManageLifecycle && deprecating !== null}
         title={`Deprecate v${deprecating?.version ?? ""}?`}
         description="The immutable files and history remain available, but this version will no longer be a normal restore source."
         onClose={() => {
@@ -268,7 +278,7 @@ export function ResourceVersionHistory({
       </Dialog>
 
       <Dialog
-        open={restoring !== null}
+        open={canManageLifecycle && restoring !== null}
         title={`Restore v${restoring?.version ?? ""} to Draft?`}
         description="This replaces the current mutable Draft only. Active Beta or Published content stays unchanged until a new greater version is released."
         onClose={() => {
@@ -316,6 +326,58 @@ export function ResourceVersionHistory({
         </div>
       </Dialog>
     </>
+  )
+}
+
+function ResourceVersionHistorySkeleton({
+  canManageLifecycle,
+}: {
+  canManageLifecycle: boolean
+}) {
+  return (
+    <LoadingState label="Loading resource version history">
+      <Card>
+        <CardHeader>
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-3 w-[32rem] max-w-full" />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <TableWrap className="rounded-none border-0">
+            <Table>
+              <TableHead>
+                <tr>
+                  <TableTh>Version</TableTh>
+                  <TableTh>Lifecycle</TableTh>
+                  <TableTh>Integrity</TableTh>
+                  <TableTh>Released</TableTh>
+                  {canManageLifecycle && <TableTh className="text-right">Actions</TableTh>}
+                </tr>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 6 }, (_, index) => (
+                  <TableRow key={index}>
+                    <TableTd><Skeleton className="h-8 w-16" /></TableTd>
+                    <TableTd><Skeleton className="h-5 w-20 rounded-full" /></TableTd>
+                    <TableTd><Skeleton className="h-3 w-24" /></TableTd>
+                    <TableTd><Skeleton className="h-3 w-32" /></TableTd>
+                    {canManageLifecycle && (
+                      <TableTd>
+                        <div className="flex justify-end gap-1.5">
+                          <Skeleton className="h-7 w-20" />
+                          <Skeleton className="h-7 w-24" />
+                        </div>
+                      </TableTd>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableWrap>
+        </CardContent>
+      </Card>
+    </LoadingState>
   )
 }
 
