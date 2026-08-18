@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react"
 import type { LucideIcon } from "lucide-react"
 
-import { Skeleton } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import { cn } from "@/shared/lib/utils"
 
 export function StatCard({
@@ -85,15 +85,21 @@ export function StatCardGrid({ className, ...props }: ComponentProps<"div">) {
 export function StatCardGridSkeleton({
   count,
   className,
+  label = "Loading metrics",
+  announce = true,
 }: {
   count: number
   className?: string
+  label?: string
+  announce?: boolean
 }) {
   return (
-    <StatCardGrid className={className}>
-      {Array.from({ length: count }, (_, index) => (
-        <StatCardSkeleton key={index} />
-      ))}
-    </StatCardGrid>
+    <LoadingState label={label} announce={announce}>
+      <StatCardGrid className={className}>
+        {Array.from({ length: count }, (_, index) => (
+          <StatCardSkeleton key={index} />
+        ))}
+      </StatCardGrid>
+    </LoadingState>
   )
 }

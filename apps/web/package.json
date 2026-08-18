@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
-    "test:unit": "node --test src/features/dashboard/lib/dashboard-model.test.ts src/shared/lib/telemetry-metrics.test.ts",
+    "test:unit": "node --test src/features/dashboard/lib/dashboard-model.test.ts src/shared/hooks/use-minimum-loading.test.ts src/shared/lib/telemetry-metrics.test.ts",
     "test:e2e": "playwright test",
     "preview": "vite preview"
   },
