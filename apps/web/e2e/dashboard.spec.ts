@@ -93,6 +93,7 @@ test.describe("Dashboard mission control", () => {
     await expect.poll(() => requests.analytics.length).toBeGreaterThan(0)
     expect(requests.unexpected).toEqual([])
 
+    await expectDashboardScreenshot(page, "dashboard-admin-populated-desktop.png")
   })
 
   test("keeps member identity out of the Contributor dashboard", async ({ page }) => {
@@ -216,6 +217,7 @@ test.describe("Dashboard mission control", () => {
     await navigation.getByRole("button", { name: "Close menu" }).click()
 
     expect(requests.unexpected).toEqual([])
+    await expectDashboardScreenshot(page, "dashboard-admin-populated-mobile.png")
   })
 })
 
@@ -227,4 +229,19 @@ function cardForHeading(page: Page, heading: string) {
   return page
     .getByRole("heading", { name: heading })
     .locator("xpath=ancestor::*[@data-slot='card'][1]")
+}
+
+async function expectDashboardScreenshot(page: Page, name: string) {
+  await page.evaluate(async () => {
+    await document.fonts.ready
+  })
+  await expect(page).toHaveScreenshot(name, {
+    animations: "disabled",
+    caret: "hide",
+    fullPage: true,
+    // Keep a tiny absolute budget for SVG chart-label rasterization. A layout
+    // shift across either full-page image still exceeds this by a wide margin.
+    maxDiffPixels: 100,
+    scale: "css",
+  })
 }
