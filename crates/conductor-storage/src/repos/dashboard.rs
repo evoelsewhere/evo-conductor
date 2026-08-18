@@ -1,6 +1,9 @@
 use chrono::{DateTime, TimeDelta, Utc};
-use conductor_domain::{DashboardPresence, DashboardSummary, ResourceCounts};
-use sqlx::{Any, Pool};
+use conductor_domain::{
+    DashboardFeedbackDistribution, DashboardFeedbackScope, DashboardFeedbackSummary,
+    DashboardPresence, DashboardSummary, ResourceCounts,
+};
+use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
 
 use crate::core::dialect::DatabaseKind;
@@ -82,7 +85,7 @@ impl DashboardRepo {
         Ok(count(value))
     }
 
-    pub async fn presence(
+    async fn presence(
         &self,
         project_id: Option<Uuid>,
         observed_at: DateTime<Utc>,
@@ -111,10 +114,78 @@ impl DashboardRepo {
             observed_at,
         })
     }
+
+    async fn feedback(
+        &self,
+        project_id: Option<Uuid>,
+        owner_user_id: Option<Uuid>,
+    ) -> Result<DashboardFeedbackSummary, sqlx::Error> {
+        let scope = if owner_user_id.is_some() {
+            DashboardFeedbackScope::OwnedResources
+        } else {
+            DashboardFeedbackScope::Project
+        };
+        let Some(project_id) = project_id else {
+            return Ok(empty_feedback(scope));
+        };
+
+        let sql = feedback_sql(self.kind, owner_user_id.is_some());
+        let mut query = sqlx::query(&sql).bind(project_id.to_string());
+        if let Some(owner_user_id) = owner_user_id {
+            query = query.bind(owner_user_id.to_string());
+        }
+        let row = query.fetch_one(&self.pool).await?;
+        let feedback_count = count(row.try_get("feedback_count")?);
+        let positive_count = count(row.try_get("positive_count")?);
+        let distribution = DashboardFeedbackDistribution {
+            rating_1: count(row.try_get("rating_1")?),
+            rating_2: count(row.try_get("rating_2")?),
+            rating_3: count(row.try_get("rating_3")?),
+            rating_4: count(row.try_get("rating_4")?),
+            rating_5: count(row.try_get("rating_5")?),
+        };
+        Ok(DashboardFeedbackSummary {
+            scope,
+            count: feedback_count,
+            average_rating: feedback_average(&distribution, feedback_count),
+            positive_count,
+            positive_percent: (feedback_count > 0).then(|| {
+                round_one_decimal(f64::from(positive_count) * 100.0 / f64::from(feedback_count))
+            }),
+            distribution,
+        })
+    }
+}
+
+fn empty_feedback(scope: DashboardFeedbackScope) -> DashboardFeedbackSummary {
+    DashboardFeedbackSummary {
+        scope,
+        count: 0,
+        average_rating: None,
+        positive_count: 0,
+        positive_percent: None,
+        distribution: DashboardFeedbackDistribution::default(),
+    }
 }
 
 fn count(value: i64) -> u32 {
     value.max(0).try_into().unwrap_or(u32::MAX)
+}
+
+fn round_one_decimal(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
+fn feedback_average(distribution: &DashboardFeedbackDistribution, count: u32) -> Option<f64> {
+    if count == 0 {
+        return None;
+    }
+    let weighted_sum = f64::from(distribution.rating_1)
+        + f64::from(distribution.rating_2) * 2.0
+        + f64::from(distribution.rating_3) * 3.0
+        + f64::from(distribution.rating_4) * 4.0
+        + f64::from(distribution.rating_5) * 5.0;
+    Some(round_one_decimal(weighted_sum / f64::from(count)))
 }
 
 fn presence_sql(kind: DatabaseKind) -> String {
@@ -131,6 +202,29 @@ fn presence_sql(kind: DatabaseKind) -> String {
         kind.bind_parameter(1),
         kind.bind_parameter(2),
         kind.bind_parameter(3),
+    )
+}
+
+fn feedback_sql(kind: DatabaseKind, owner_scoped: bool) -> String {
+    let owner_clause = if owner_scoped {
+        format!(" AND r.owner_user_id = {}", kind.bind_parameter(2))
+    } else {
+        String::new()
+    };
+    format!(
+        r#"SELECT COUNT(*) AS feedback_count,
+           COUNT(CASE WHEN f.rating >= 4 THEN 1 END) AS positive_count,
+           COUNT(CASE WHEN f.rating = 1 THEN 1 END) AS rating_1,
+           COUNT(CASE WHEN f.rating = 2 THEN 1 END) AS rating_2,
+           COUNT(CASE WHEN f.rating = 3 THEN 1 END) AS rating_3,
+           COUNT(CASE WHEN f.rating = 4 THEN 1 END) AS rating_4,
+           COUNT(CASE WHEN f.rating = 5 THEN 1 END) AS rating_5
+           FROM resource_feedback f
+           JOIN resources r ON r.id = f.resource_id
+           WHERE r.project_id = {}
+             AND f.rating BETWEEN 1 AND 5{}"#,
+        kind.bind_parameter(1),
+        owner_clause,
     )
 }
 
