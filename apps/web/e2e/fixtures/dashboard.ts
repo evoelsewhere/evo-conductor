@@ -12,6 +12,15 @@ export interface DashboardRequestLog {
 export interface DashboardScenarioOptions {
   summary?: Record<string, unknown>
   analytics?: Record<string, unknown>
+  summaryGate?: Promise<void>
+  analyticsGate?: Promise<void>
+  summaryFailure?: DashboardScenarioFailure
+  analyticsFailure?: DashboardScenarioFailure
+}
+
+interface DashboardScenarioFailure {
+  status: number
+  message: string
 }
 
 const PERMISSIONS = [
@@ -446,6 +455,14 @@ export async function installDashboardScenario(
         return json(route, { count: 2 })
       case "/api/dashboard":
         log.dashboard.push(route.request().url())
+        await options.summaryGate
+        if (options.summaryFailure) {
+          return json(
+            route,
+            { error: options.summaryFailure.message },
+            options.summaryFailure.status,
+          )
+        }
         return json(
           route,
           options.summary ??
@@ -455,6 +472,14 @@ export async function installDashboardScenario(
         )
       case "/api/analytics/resource-usage":
         log.analytics.push(route.request().url())
+        await options.analyticsGate
+        if (options.analyticsFailure) {
+          return json(
+            route,
+            { error: options.analyticsFailure.message },
+            options.analyticsFailure.status,
+          )
+        }
         // Contributor responses are redacted by the real server. Keeping member
         // rows here deliberately proves the UI permission gate is defense in depth.
         return json(route, options.analytics ?? POPULATED_DASHBOARD_ANALYTICS)
