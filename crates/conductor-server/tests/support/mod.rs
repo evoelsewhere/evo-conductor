@@ -26,12 +26,14 @@ use conductor_domain::{
 };
 use conductor_server::core::artifacts::ArtifactStore;
 use conductor_server::core::authorization::AuthorizationService;
+use conductor_server::core::host_metrics::HostMetricsProvider;
 use conductor_server::{build_router, AppState, Config, RealtimeConfig};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -175,6 +177,17 @@ pub async fn test_app() -> TestApp {
 }
 
 pub async fn test_app_with_authorization(authorization: AuthorizationService) -> TestApp {
+    test_app_with_dependencies(authorization, None).await
+}
+
+pub async fn test_app_with_host_metrics(host_metrics: Arc<dyn HostMetricsProvider>) -> TestApp {
+    test_app_with_dependencies(AuthorizationService::default(), Some(host_metrics)).await
+}
+
+async fn test_app_with_dependencies(
+    authorization: AuthorizationService,
+    host_metrics: Option<Arc<dyn HostMetricsProvider>>,
+) -> TestApp {
     let database_url = test_database_url();
     let artifact_root = TestArtifactRoot::unique();
     let artifacts = ArtifactStore::from_settings(StorageSettings {
@@ -191,6 +204,9 @@ pub async fn test_app_with_authorization(authorization: AuthorizationService) ->
             .await
             .expect("connect test database");
     state.authorization = authorization;
+    if let Some(host_metrics) = host_metrics {
+        state.set_host_metrics_provider(host_metrics);
+    }
 
     // Fact 1: without this every authenticated request returns 428.
     let secret = format!("{TEST_JWT_SECRET_PREFIX}{}", Uuid::new_v4().simple());
