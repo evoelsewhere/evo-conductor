@@ -1,4 +1,5 @@
-use conductor_domain::{DashboardSummary, ResourceCounts};
+use chrono::{DateTime, TimeDelta, Utc};
+use conductor_domain::{DashboardPresence, DashboardSummary, ResourceCounts};
 use sqlx::{Any, Pool};
 use uuid::Uuid;
 
@@ -78,6 +79,57 @@ impl DashboardRepo {
             .bind(resource_kind)
             .fetch_one(&self.pool)
             .await?;
-        Ok(value.max(0).try_into().unwrap_or(u32::MAX))
+        Ok(count(value))
     }
+
+    pub async fn presence(
+        &self,
+        project_id: Option<Uuid>,
+        observed_at: DateTime<Utc>,
+        threshold_seconds: u32,
+    ) -> Result<DashboardPresence, sqlx::Error> {
+        let Some(project_id) = project_id else {
+            return Ok(DashboardPresence {
+                clients_seen_recently: 0,
+                members_seen_recently: 0,
+                threshold_seconds,
+                observed_at,
+            });
+        };
+        let cutoff = observed_at - TimeDelta::seconds(i64::from(threshold_seconds));
+        let sql = presence_sql(self.kind);
+        let (clients, members): (i64, i64) = sqlx::query_as(&sql)
+            .bind(project_id.to_string())
+            .bind(cutoff.to_rfc3339())
+            .bind(observed_at.to_rfc3339())
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(DashboardPresence {
+            clients_seen_recently: count(clients),
+            members_seen_recently: count(members),
+            threshold_seconds,
+            observed_at,
+        })
+    }
+}
+
+fn count(value: i64) -> u32 {
+    value.max(0).try_into().unwrap_or(u32::MAX)
+}
+
+fn presence_sql(kind: DatabaseKind) -> String {
+    format!(
+        r#"
+        SELECT COUNT(DISTINCT c.id), COUNT(DISTINCT c.user_id)
+        FROM client_installations c
+        JOIN users u ON u.id = c.user_id
+        WHERE c.instance_id = {}
+          AND u.status = 'active'
+          AND c.last_seen_at >= {}
+          AND c.last_seen_at <= {}
+        "#,
+        kind.bind_parameter(1),
+        kind.bind_parameter(2),
+        kind.bind_parameter(3),
+    )
 }
