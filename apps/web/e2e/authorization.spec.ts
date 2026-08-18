@@ -216,7 +216,7 @@ test("REQ-004 projects role changes into the console without stale authority", a
           sidebar.getByRole("link", { name: "Members", exact: true }),
         ).toBeVisible()
         await expect(
-          sidebar.getByRole("link", { name: "Overview", exact: true }),
+          sidebar.getByRole("link", { name: "Dashboard", exact: true }),
         ).toBeVisible()
         await expect(
           targetPage

@@ -25,7 +25,7 @@ import { MemberActivityPage } from "@/features/members/pages/member-activity-pag
 import { MemberDetailPage } from "@/features/members/pages/member-detail-page"
 import { MemberRequestDetailPage } from "@/features/members/pages/member-request-detail-page"
 import { MemberToolsPage } from "@/features/members/pages/member-tools-page"
-import { OverviewPage } from "@/features/dashboard/pages/overview-page"
+import { DashboardPage } from "@/features/dashboard/pages/dashboard-page"
 import { ResourcesPage } from "@/features/resources/pages/resources-page"
 import { ResourceGovernancePage } from "@/features/resources/pages/resource-governance-page"
 import { ResourceStudioPage } from "@/features/resources/pages/resource-studio-page"
@@ -178,10 +178,10 @@ function PermissionBoundary({
   return children
 }
 
-function OverviewRoutePage() {
+function DashboardRoutePage() {
   return (
     <PermissionBoundary permissions={[PERMISSION.PROJECT_DASHBOARD_READ]}>
-      <OverviewPage />
+      <DashboardPage />
     </PermissionBoundary>
   )
 }
@@ -229,10 +229,10 @@ function useParamsForPermission(): { userId: string } {
   return { userId: userId ?? "" }
 }
 
-const overviewRoute = createRoute({
+const dashboardRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/",
-  component: OverviewRoutePage,
+  component: DashboardRoutePage,
   beforeLoad: () => {
     const authorizationState = useAuthStore.getState()
     if (
@@ -429,7 +429,7 @@ const routeTree = rootRoute.addChildren([
   pendingRoute,
   changePasswordRoute,
   appRoute.addChildren([
-    overviewRoute,
+    dashboardRoute,
     membersRoute,
     memberDetailRoute,
     memberActivityRoute,

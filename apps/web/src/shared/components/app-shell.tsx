@@ -135,7 +135,7 @@ export function AppShell() {
     if (canReadDashboard) {
       workspaceItems.push({
         to: "/app",
-        label: "Overview",
+        label: "Dashboard",
         icon: LayoutDashboard,
         end: true,
       })
