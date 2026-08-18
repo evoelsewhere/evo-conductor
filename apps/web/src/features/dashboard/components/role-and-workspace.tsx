@@ -26,28 +26,32 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card"
-import { Skeleton } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function RoleAndWorkspace({
   roles,
   summary,
   loading,
+  summaryLoading = false,
   analyticsHref,
   canReadMembers,
   canReadTaxonomy,
   canReadSettings,
   onOpenSettings,
   className,
+  announceLoading = true,
 }: {
   roles: ResourceUsageRole[]
   summary: DashboardSummary | undefined
   loading: boolean
+  summaryLoading?: boolean
   analyticsHref: (filters?: Record<string, string>) => string
   canReadMembers: boolean
   canReadTaxonomy: boolean
   canReadSettings: boolean
   onOpenSettings: () => void
   className?: string
+  announceLoading?: boolean
 }) {
   const roleTotal = roles.reduce((sum, item) => sum + item.requests, 0)
   const resourceTotal = dashboardResourceTotal(summary)
@@ -71,11 +75,11 @@ export function RoleAndWorkspace({
             <Badge>Recorded at ingestion</Badge>
           </div>
           {loading ? (
-            <div aria-label="Loading role usage" className="mt-3 grid gap-2">
+            <LoadingState label="Loading role usage" announce={announceLoading} className="mt-3 grid gap-2">
               <Skeleton className="h-2 w-full" />
               <Skeleton className="h-6 w-full" />
               <Skeleton className="h-6 w-full" />
-            </div>
+            </LoadingState>
           ) : roleTotal > 0 ? (
             <>
               <div
@@ -129,33 +133,49 @@ export function RoleAndWorkspace({
           )}
         </section>
 
-        <FeedbackPanel feedback={summary?.feedback} />
+        <FeedbackPanel
+          feedback={summary?.feedback}
+          loading={summaryLoading}
+          announceLoading={false}
+        />
 
         <div className="border-t border-(--border-soft) pt-4">
           <h3 className="text-xs font-semibold">Workspace pulse</h3>
-          <dl className="mt-2 grid gap-2 text-xs">
-            <WorkspaceDatum
-              label="Published catalog · 4 kinds"
-              value={summary ? resourceTotal.toLocaleString() : "—"}
-              icon={Boxes}
-            />
-            <WorkspaceDatum
-              label="Unrevoked connection tokens"
-              value={summary ? summary.secrets_active.toLocaleString() : "—"}
-              icon={KeyRound}
-            />
-            <WorkspaceDatum
-              label="Authentication"
-              value={
-                summary
-                  ? summary.sso_enabled
-                    ? "SSO enabled"
-                    : "Password only"
-                  : "—"
-              }
-              icon={Radio}
-            />
-          </dl>
+          {summaryLoading ? (
+            <LoadingState label="Loading workspace pulse" announce={false} className="mt-2 grid gap-2">
+              {Array.from({ length: 3 }, (_, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Skeleton className="size-6" />
+                  <Skeleton className="h-3 flex-1" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              ))}
+            </LoadingState>
+          ) : (
+            <dl className="mt-2 grid gap-2 text-xs">
+              <WorkspaceDatum
+                label="Published catalog · 4 kinds"
+                value={summary ? resourceTotal.toLocaleString() : "—"}
+                icon={Boxes}
+              />
+              <WorkspaceDatum
+                label="Unrevoked connection tokens"
+                value={summary ? summary.secrets_active.toLocaleString() : "—"}
+                icon={KeyRound}
+              />
+              <WorkspaceDatum
+                label="Authentication"
+                value={
+                  summary
+                    ? summary.sso_enabled
+                      ? "SSO enabled"
+                      : "Password only"
+                    : "—"
+                }
+                icon={Radio}
+              />
+            </dl>
+          )}
         </div>
 
         <div className="border-t border-(--border-soft) pt-4">
@@ -228,8 +248,12 @@ export function RoleAndWorkspace({
 
 function FeedbackPanel({
   feedback,
+  loading = false,
+  announceLoading = true,
 }: {
   feedback: DashboardSummary["feedback"] | undefined
+  loading?: boolean
+  announceLoading?: boolean
 }) {
   const distribution = feedback
     ? [
@@ -250,15 +274,37 @@ function FeedbackPanel({
         <h3 id="dashboard-feedback" className="text-xs font-semibold">
           Feedback
         </h3>
-        <Badge>
-          {feedback?.scope === "project"
-            ? "Project scope"
-            : feedback?.scope === "owned_resources"
-              ? "Owned resources"
-              : "Not reported"}
-        </Badge>
+        {loading ? (
+          <Skeleton className="h-5 w-20" />
+        ) : (
+          <Badge>
+            {feedback?.scope === "project"
+              ? "Project scope"
+              : feedback?.scope === "owned_resources"
+                ? "Owned resources"
+                : "Not reported"}
+          </Badge>
+        )}
       </div>
-      {feedback ? (
+      {loading ? (
+        <LoadingState label="Loading feedback" announce={announceLoading} className="mt-3 grid gap-3">
+          <div className="grid grid-cols-3 gap-2">
+            {Array.from({ length: 3 }, (_, index) => (
+              <div key={index} className="rounded-lg border border-(--border-soft) px-2 py-2">
+                <Skeleton className="h-2.5 w-12" />
+                <Skeleton className="mt-2 h-4 w-16 max-w-full" />
+              </div>
+            ))}
+          </div>
+          {Array.from({ length: 5 }, (_, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <Skeleton className="h-2.5 w-9" />
+              <Skeleton className="h-1.5 flex-1 rounded-full" />
+              <Skeleton className="h-2.5 w-5" />
+            </div>
+          ))}
+        </LoadingState>
+      ) : feedback ? (
         <div className="mt-3 grid gap-3">
           <div className="grid grid-cols-3 gap-2">
             <FeedbackDatum

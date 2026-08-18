@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/shared/ui/card"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
-import { Skeleton } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function TelemetryReadiness({
   hasConnections,
@@ -134,31 +134,108 @@ export function PartialErrorPanel({
 
 export function DashboardSkeleton() {
   return (
-    <div aria-label="Loading dashboard" className="grid gap-4">
+    <LoadingState label="Loading dashboard" className="grid gap-4">
       <StatCardGridSkeleton
         count={6}
         className="lg:grid-cols-3 2xl:grid-cols-6"
       />
-      <div className="grid gap-4 xl:grid-cols-12">
-        <Skeleton className="h-80 xl:col-span-7" />
-        <Skeleton className="h-80 xl:col-span-5" />
+      <div className="grid items-start gap-4 xl:grid-cols-12">
+        <div className="min-w-0 xl:col-span-7" style={{ alignSelf: "start" }}>
+          <DashboardPanelSkeleton variant="chart" />
+        </div>
+        <DashboardPanelSkeleton className="xl:col-span-5" variant="operations" />
       </div>
-      <div className="grid gap-4 xl:grid-cols-12">
-        <Skeleton className="h-72 xl:col-span-9" />
-        <Skeleton className="h-72 xl:col-span-3" />
+      <div className="grid items-start gap-4 xl:grid-cols-12">
+        <div className="min-w-0 xl:col-span-8" style={{ alignSelf: "start" }}>
+          <DashboardPanelSkeleton variant="signals" />
+        </div>
+        <DashboardPanelSkeleton className="xl:col-span-4" variant="workspace" />
+      </div>
+    </LoadingState>
+  )
+}
+
+export function ChartSkeletons({ announce = true }: { announce?: boolean }) {
+  return (
+    <LoadingState
+      label="Loading governed analytics"
+      announce={announce}
+      className="grid gap-4 md:grid-cols-2"
+    >
+      <DashboardChartSkeleton />
+      <DashboardChartSkeleton />
+    </LoadingState>
+  )
+}
+
+function DashboardChartSkeleton() {
+  return (
+    <div className="rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="mt-2 h-3 w-52 max-w-full" />
+      <div className="mt-5 grid h-52 grid-cols-8 items-end gap-2 border-b border-l border-(--border-soft) px-3 pb-3">
+        {[42, 68, 51, 82, 63, 74, 58, 88].map((height, index) => (
+          <Skeleton
+            key={index}
+            className="w-full rounded-b-none"
+            style={{ height: `${height}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-3 flex justify-center gap-4">
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="h-3 w-20" />
       </div>
     </div>
   )
 }
 
-export function ChartSkeletons() {
+function DashboardPanelSkeleton({
+  className,
+  variant,
+}: {
+  className?: string
+  variant: "chart" | "operations" | "signals" | "workspace"
+}) {
+  if (variant === "chart") {
+    return (
+      <div
+        data-dashboard-skeleton-panel={variant}
+        className={`grid gap-4 md:grid-cols-2 ${className ?? ""}`}
+      >
+        <DashboardChartSkeleton />
+        <DashboardChartSkeleton />
+      </div>
+    )
+  }
+
+  const rows = variant === "operations" ? 7 : variant === "signals" ? 4 : 6
   return (
     <div
-      aria-label="Loading governed analytics"
-      className="grid gap-4 md:grid-cols-2"
+      data-dashboard-skeleton-panel={variant}
+      className={`rounded-xl border border-(--border-card) bg-(--bg-card) p-4 ${className ?? ""}`}
     >
-      <Skeleton className="h-80" />
-      <Skeleton className="h-80" />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-3 w-56 max-w-full" />
+        </div>
+        <Skeleton className="h-6 w-20" />
+      </div>
+      <div
+        className={
+          variant === "signals"
+            ? "mt-5 grid gap-5 sm:grid-cols-2 2xl:grid-cols-4"
+            : "mt-5 grid gap-3"
+        }
+      >
+        {Array.from({ length: rows }, (_, index) => (
+          <div key={index} className="grid gap-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

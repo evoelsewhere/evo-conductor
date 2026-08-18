@@ -14,6 +14,7 @@ import {
 import { api } from "@/shared/api/client"
 import { MILLISECONDS_PER_DAY, UsageRangePreset } from "@/shared/constants/telemetry"
 import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { useAuthStore } from "@/shared/stores/auth"
 
 export function useDashboardData() {
@@ -105,10 +106,11 @@ export function useDashboardData() {
   )
   const isRefreshing =
     summary.isFetching || analytics.isFetching || pending.isFetching
-  const isInitialLoading =
+  const isInitialLoading = useMinimumLoading(
     !summary.data &&
-    !analytics.data &&
-    (summary.isLoading || analytics.isLoading)
+      !analytics.data &&
+      (summary.isLoading || analytics.isLoading),
+  )
 
   function refreshDashboard() {
     setRangeAnchor(Date.now())

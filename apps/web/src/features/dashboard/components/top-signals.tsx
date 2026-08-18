@@ -25,7 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card"
-import { Skeleton } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function TopSignals({
   members,
@@ -36,6 +36,7 @@ export function TopSignals({
   loading,
   analyticsHref,
   className,
+  announceLoading = true,
 }: {
   members: ResourceUsageMember[]
   resources: ResourceUsageBreakdown[]
@@ -45,6 +46,7 @@ export function TopSignals({
   loading: boolean
   analyticsHref: (filters?: Record<string, string>) => string
   className?: string
+  announceLoading?: boolean
 }) {
   return (
     <Card className={className}>
@@ -72,9 +74,20 @@ export function TopSignals({
         )}
       >
         {loading ? (
-          Array.from({ length: showMembers ? 4 : 3 }, (_, index) => (
-            <SignalSkeleton key={index} />
-          ))
+          <LoadingState
+            label="Loading top signals"
+            announce={announceLoading}
+            className={cn(
+              "col-span-full grid gap-5",
+              showMembers
+                ? "sm:grid-cols-2 2xl:grid-cols-4"
+                : "sm:grid-cols-2 2xl:grid-cols-3",
+            )}
+          >
+            {Array.from({ length: showMembers ? 4 : 3 }, (_, index) => (
+              <SignalSkeleton key={index} />
+            ))}
+          </LoadingState>
         ) : (
           <>
             {showMembers && <MemberSignals items={members} />}
@@ -90,7 +103,7 @@ export function TopSignals({
 
 function SignalSkeleton() {
   return (
-    <div aria-label="Loading top signal" className="grid gap-2">
+    <div className="grid gap-2">
       <Skeleton className="h-3 w-20" />
       <Skeleton className="h-9 w-full" />
       <Skeleton className="h-9 w-full" />

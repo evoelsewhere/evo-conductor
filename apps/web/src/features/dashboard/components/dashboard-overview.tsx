@@ -19,16 +19,20 @@ import type {
   DashboardSummary,
   ResourceUsageAnalytics,
 } from "@/shared/api/client"
-import { StatCard } from "@/shared/components/stat-card"
+import { StatCard, StatCardSkeleton } from "@/shared/components/stat-card"
 import { terminalRequestSuccessRate } from "@/shared/lib/telemetry-metrics"
 import { StatusDot } from "@/shared/ui/badge"
 
 export function DashboardMetricGrid({
   summary,
   analytics,
+  summaryLoading = false,
+  analyticsLoading = false,
 }: {
   summary: DashboardSummary | undefined
   analytics: ResourceUsageAnalytics | undefined
+  summaryLoading?: boolean
+  analyticsLoading?: boolean
 }) {
   const totals = analytics?.totals
   const successRate = terminalRequestSuccessRate(
@@ -42,87 +46,97 @@ export function DashboardMetricGrid({
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-      <StatCard
-        label="SSE streams · this node"
-        value={formatOptionalCount(activeStreams)}
-        hint={
-          activeOwners == null
-            ? "Realtime state not reported"
-            : `${activeOwners.toLocaleString()} active owners`
-        }
-        icon={Wifi}
-        tone={(activeStreams ?? 0) > 0 ? "accent" : "neutral"}
-      />
-      <StatCard
-        label="Governed requests"
-        value={analytics ? (totals?.requests ?? 0).toLocaleString() : "—"}
-        hint={
-          analytics
-            ? `${(totals?.resource_uses ?? 0).toLocaleString()} attributed resource uses`
-            : "Selected-range analytics unavailable"
-        }
-        icon={Gauge}
-        tone={analytics ? "accent" : "neutral"}
-      />
-      <StatCard
-        label="Success rate"
-        value={analytics && successRate != null ? `${successRate}%` : "—"}
-        hint={
-          analytics
-            ? `${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked`
-            : "Selected-range analytics unavailable"
-        }
-        icon={CheckCircle2}
-        tone={
-          successRate == null
-            ? "neutral"
-            : successRate >= 90
-              ? "success"
-              : "warning"
-        }
-      />
-      <StatCard
-        label="Average request duration"
-        value={
-          analytics && (totals?.requests ?? 0) > 0
-            ? formatDuration(totals?.average_duration_ms ?? 0)
-            : "—"
-        }
-        hint={
-          analytics && (totals?.requests ?? 0) === 0
-            ? "No terminal requests in this range"
-            : analytics
-              ? "Terminal governed requests"
-              : "Selected-range analytics unavailable"
-        }
-        icon={Clock3}
-      />
-      <StatCard
-        label="Estimated cost"
-        value={
-          analytics
-            ? formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)
-            : "—"
-        }
-        hint={
-          analytics
-            ? `${totals?.unpriced_model_calls ?? 0} unpriced model calls`
-            : "Selected-range analytics unavailable"
-        }
-        icon={CircleDollarSign}
-        tone={(totals?.unpriced_model_calls ?? 0) > 0 ? "warning" : "neutral"}
-      />
-      <StatCard
-        label="Delivery attention"
-        value={analytics ? attention.toLocaleString() : "—"}
-        hint={
-          analytics
-            ? `${pending.toLocaleString()} pending resource states · ${totals?.installed_installations ?? 0} installed clients`
-            : "Current delivery state unavailable"
-        }
-        icon={AlertTriangle}
-        tone={!analytics ? "neutral" : attention > 0 ? "warning" : "success"}
-      />
+      {summaryLoading ? (
+        <StatCardSkeleton />
+      ) : (
+        <StatCard
+          label="SSE streams · this node"
+          value={formatOptionalCount(activeStreams)}
+          hint={
+            activeOwners == null
+              ? "Realtime state not reported"
+              : `${activeOwners.toLocaleString()} active owners`
+          }
+          icon={Wifi}
+          tone={(activeStreams ?? 0) > 0 ? "accent" : "neutral"}
+        />
+      )}
+      {analyticsLoading ? (
+        Array.from({ length: 5 }, (_, index) => <StatCardSkeleton key={index} />)
+      ) : (
+        <>
+          <StatCard
+            label="Governed requests"
+            value={analytics ? (totals?.requests ?? 0).toLocaleString() : "—"}
+            hint={
+              analytics
+                ? `${(totals?.resource_uses ?? 0).toLocaleString()} attributed resource uses`
+                : "Selected-range analytics unavailable"
+            }
+            icon={Gauge}
+            tone={analytics ? "accent" : "neutral"}
+          />
+          <StatCard
+            label="Success rate"
+            value={analytics && successRate != null ? `${successRate}%` : "—"}
+            hint={
+              analytics
+                ? `${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked`
+                : "Selected-range analytics unavailable"
+            }
+            icon={CheckCircle2}
+            tone={
+              successRate == null
+                ? "neutral"
+                : successRate >= 90
+                  ? "success"
+                  : "warning"
+            }
+          />
+          <StatCard
+            label="Average request duration"
+            value={
+              analytics && (totals?.requests ?? 0) > 0
+                ? formatDuration(totals?.average_duration_ms ?? 0)
+                : "—"
+            }
+            hint={
+              analytics && (totals?.requests ?? 0) === 0
+                ? "No terminal requests in this range"
+                : analytics
+                  ? "Terminal governed requests"
+                  : "Selected-range analytics unavailable"
+            }
+            icon={Clock3}
+          />
+          <StatCard
+            label="Estimated cost"
+            value={
+              analytics
+                ? formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)
+                : "—"
+            }
+            hint={
+              analytics
+                ? `${totals?.unpriced_model_calls ?? 0} unpriced model calls`
+                : "Selected-range analytics unavailable"
+            }
+            icon={CircleDollarSign}
+            tone={(totals?.unpriced_model_calls ?? 0) > 0 ? "warning" : "neutral"}
+          />
+          <StatCard
+            label="Delivery attention"
+            value={analytics ? attention.toLocaleString() : "—"}
+            hint={
+              analytics
+                ? `${pending.toLocaleString()} pending resource states · ${totals?.installed_installations ?? 0} installed clients`
+                : "Current delivery state unavailable"
+            }
+            icon={AlertTriangle}
+            tone={!analytics ? "neutral" : attention > 0 ? "warning" : "success"}
+          />
+        </>
+      )}
     </div>
   )
 }

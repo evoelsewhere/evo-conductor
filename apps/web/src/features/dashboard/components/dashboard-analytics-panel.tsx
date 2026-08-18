@@ -20,22 +20,24 @@ export function DashboardAnalyticsPanel({
   isLoading,
   error,
   analyticsHref,
+  announceLoading = true,
 }: {
   analytics: ResourceUsageAnalytics | undefined
   summary: DashboardSummary | undefined
   isLoading: boolean
   error: Error | null
   analyticsHref: string
+  announceLoading?: boolean
 }) {
   return (
     <div className="min-w-0 xl:col-span-7">
-      {analytics && hasDashboardTelemetry(analytics) ? (
+      {isLoading ? (
+        <ChartSkeletons announce={announceLoading} />
+      ) : analytics && hasDashboardTelemetry(analytics) ? (
         <div className="grid min-w-0 gap-4 md:grid-cols-2">
           <RequestOutcomeChart daily={analytics.daily} />
           <TokenCostChart daily={analytics.daily} />
         </div>
-      ) : isLoading ? (
-        <ChartSkeletons />
       ) : error ? (
         <Card>
           <CardContent>

@@ -15,6 +15,7 @@ import { TopSignals } from "@/features/dashboard/components/top-signals"
 import { useDashboardData } from "@/features/dashboard/hooks/use-dashboard-data"
 import { dashboardResourceTotal } from "@/features/dashboard/lib/dashboard-model"
 import { PageFrame } from "@/shared/components/page-frame"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { useUiStore } from "@/shared/stores/ui"
 
 export function DashboardPage() {
@@ -38,6 +39,8 @@ export function DashboardPage() {
     summary,
     updatedAt,
   } = useDashboardData()
+  const summaryLoading = useMinimumLoading(summary.isLoading && !summary.data)
+  const analyticsLoading = useMinimumLoading(analytics.isLoading && !analytics.data)
 
   return (
     <PageFrame
@@ -61,17 +64,29 @@ export function DashboardPage() {
       {isInitialLoading ? (
         <DashboardSkeleton />
       ) : (
-        <div className="grid gap-4">
-          {(summary.error || analytics.error || pending.error) && (
+        <div
+          className="grid gap-4"
+          aria-busy={
+            isRefreshing && !summaryLoading && !analyticsLoading
+              ? true
+              : undefined
+          }
+        >
+          <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {summaryLoading || analyticsLoading ? "Loading dashboard sections…" : ""}
+          </span>
+          {((summary.error && !summaryLoading) ||
+            (analytics.error && !analyticsLoading) ||
+            pending.error) && (
             <PartialErrorPanel
-              summaryError={summary.error}
-              analyticsError={analytics.error}
+              summaryError={summaryLoading ? null : summary.error}
+              analyticsError={analyticsLoading ? null : analytics.error}
               pendingError={canManageMembers ? pending.error : null}
               onRetry={refreshDashboard}
             />
           )}
 
-          {attention.length > 0 && (
+          {!analyticsLoading && attention.length > 0 && (
             <DashboardAttentionRail
               items={attention}
               overviewHref={overviewHref}
@@ -81,20 +96,25 @@ export function DashboardPage() {
           <DashboardMetricGrid
             summary={summary.data}
             analytics={analytics.data}
+            summaryLoading={summaryLoading}
+            analyticsLoading={analyticsLoading}
           />
 
           <div className="grid items-start gap-4 xl:grid-cols-12">
             <DashboardAnalyticsPanel
               analytics={analytics.data}
               summary={summary.data}
-              isLoading={analytics.isLoading}
+              isLoading={analyticsLoading}
               error={analytics.error}
               analyticsHref={overviewHref()}
+              announceLoading={false}
             />
             <LiveOperations
               className="xl:col-span-5"
               summary={summary.data}
               analytics={analytics.data}
+              loading={summaryLoading}
+              announceLoading={false}
             />
           </div>
 
@@ -106,23 +126,27 @@ export function DashboardPage() {
               models={analytics.data?.models ?? []}
               tools={analytics.data?.tools ?? []}
               showMembers={canReadMemberTelemetry}
-              loading={analytics.isLoading && !analytics.data}
+              loading={analyticsLoading}
               analyticsHref={analyticsHref}
+              announceLoading={false}
             />
             <RoleAndWorkspace
               className="xl:col-span-4"
               roles={analytics.data?.roles ?? []}
               summary={summary.data}
-              loading={analytics.isLoading && !analytics.data}
+              loading={analyticsLoading}
+              summaryLoading={summaryLoading}
               analyticsHref={analyticsHref}
               canReadMembers={canReadMembers}
               canReadTaxonomy={canReadTaxonomy}
               canReadSettings={canReadSettings}
               onOpenSettings={() => setSettingsOpen(true)}
+              announceLoading={false}
             />
           </div>
 
-          {summary.data &&
+          {!summaryLoading &&
+            summary.data &&
             summary.data.members_total <= 1 &&
             summary.data.secrets_active === 0 &&
             dashboardResourceTotal(summary.data) === 0 && (
