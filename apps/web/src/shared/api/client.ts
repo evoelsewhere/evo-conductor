@@ -640,6 +640,41 @@ export interface DashboardSummary {
     workflows: number
   }
   sso_enabled: boolean
+  presence: {
+    clients_seen_recently: number
+    members_seen_recently: number
+    threshold_seconds: number
+    observed_at: string
+  }
+  realtime: {
+    active_owners: number
+    active_streams: number
+    scope: "this_node"
+  }
+  host_metrics: {
+    cpu_usage_percent?: number | null
+    memory_used_bytes?: number | null
+    memory_total_bytes?: number | null
+    gpu_usage_percent?: number | null
+    vram_used_bytes?: number | null
+    vram_total_bytes?: number | null
+    sampled_at: string
+    scope: "conductor_host"
+  }
+  feedback: {
+    scope: "project" | "owned_resources"
+    count: number
+    average_rating?: number | null
+    positive_count: number
+    positive_percent?: number | null
+    distribution: {
+      rating_1: number
+      rating_2: number
+      rating_3: number
+      rating_4: number
+      rating_5: number
+    }
+  }
 }
 
 export interface SubRole {
