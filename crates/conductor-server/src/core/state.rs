@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use crate::core::artifacts::ArtifactStore;
 use crate::core::authorization::AuthorizationService;
 use crate::core::config::RealtimeConfig;
+use crate::core::host_metrics::{HostMetricsProvider, SystemHostMetricsProvider};
 use crate::http::realtime::RealtimeHub;
 
 #[derive(Clone)]
@@ -29,6 +30,7 @@ pub struct AppState {
     pub realtime: RealtimeHub,
     pub artifacts: ArtifactStore,
     pub authorization: AuthorizationService,
+    pub host_metrics: Arc<dyn HostMetricsProvider>,
 }
 
 impl AppState {
@@ -92,7 +94,16 @@ impl AppState {
             realtime: RealtimeHub::new(realtime_config),
             artifacts,
             authorization: AuthorizationService::default(),
+            host_metrics: Arc::new(SystemHostMetricsProvider::default()),
         })
+    }
+
+    /// Replace the Conductor-host sampler before building the router.
+    /// Production uses `SystemHostMetricsProvider`; deterministic HTTP tests
+    /// inject a fixed implementation through this seam.
+    #[doc(hidden)]
+    pub fn set_host_metrics_provider(&mut self, provider: Arc<dyn HostMetricsProvider>) {
+        self.host_metrics = provider;
     }
 
     pub async fn set_jwt_secret(&self, secret: impl Into<String>) {
