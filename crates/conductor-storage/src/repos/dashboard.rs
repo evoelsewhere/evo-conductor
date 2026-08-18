@@ -1,16 +1,19 @@
 use conductor_domain::{DashboardSummary, ResourceCounts};
 use sqlx::{Any, Pool};
 
+use crate::core::dialect::DatabaseKind;
+
 use super::InstanceRepo;
 
 #[derive(Clone)]
 pub struct DashboardRepo {
     pool: Pool<Any>,
+    kind: DatabaseKind,
 }
 
 impl DashboardRepo {
-    pub fn new(pool: Pool<Any>) -> Self {
-        Self { pool }
+    pub fn new(pool: Pool<Any>, kind: DatabaseKind) -> Self {
+        Self { pool, kind }
     }
 
     pub async fn summary(&self) -> Result<DashboardSummary, sqlx::Error> {
@@ -34,26 +37,10 @@ impl DashboardRepo {
                 .fetch_one(&self.pool)
                 .await?;
 
-        let agents: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM resources WHERE kind = 'agent' AND status = 'published'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let skills: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM resources WHERE kind = 'skill' AND status = 'published'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let plugins: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM resources WHERE kind = 'plugin' AND status = 'published'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let workflows: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM resources WHERE kind = 'workflow' AND status = 'published'",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let agents = self.published_resource_count("agent").await?;
+        let skills = self.published_resource_count("skill").await?;
+        let plugins = self.published_resource_count("plugin").await?;
+        let workflows = self.published_resource_count("workflow").await?;
 
         let sso = InstanceRepo::new(self.pool.clone()).sso_config().await?;
 
@@ -63,12 +50,24 @@ impl DashboardRepo {
             members_online: members_online as u32,
             secrets_active: secrets_active as u32,
             resources: ResourceCounts {
-                agents: agents as u32,
-                skills: skills as u32,
-                plugins: plugins as u32,
-                workflows: workflows as u32,
+                agents,
+                skills,
+                plugins,
+                workflows,
             },
             sso_enabled: sso.enabled,
         })
+    }
+
+    async fn published_resource_count(&self, resource_kind: &str) -> Result<u32, sqlx::Error> {
+        let sql = format!(
+            "SELECT COUNT(*) FROM resources WHERE kind = {} AND status = 'published'",
+            self.kind.bind_parameter(1),
+        );
+        let value: i64 = sqlx::query_scalar(&sql)
+            .bind(resource_kind)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(value.max(0).try_into().unwrap_or(u32::MAX))
     }
 }

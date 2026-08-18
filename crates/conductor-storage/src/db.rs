@@ -108,7 +108,7 @@ impl Db {
     }
 
     pub fn dashboard(&self) -> DashboardRepo {
-        DashboardRepo::new(self.pool.clone())
+        DashboardRepo::new(self.pool.clone(), self.kind)
     }
 
     pub fn analytics_views(&self) -> AnalyticsViewRepo {
