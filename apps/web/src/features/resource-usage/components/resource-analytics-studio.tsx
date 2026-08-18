@@ -53,6 +53,7 @@ import {
   bestAuthorizationDecision,
   mayRequest,
 } from "@/shared/lib/authorization"
+import { terminalRequestSuccessRate } from "@/shared/lib/telemetry-metrics"
 import { cn } from "@/shared/lib/utils"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Badge } from "@/shared/ui/badge"
@@ -358,10 +359,10 @@ export function ResourceAnalyticsStudio({
   }, [allowMemberDetail, dashboard, storageKey])
 
   const totals = visibleData?.totals
-  const completed = (totals?.successes ?? 0) + (totals?.errors ?? 0)
-  const successRate = completed
-    ? Math.round(((totals?.successes ?? 0) / completed) * 100)
-    : 0
+  const successRate = terminalRequestSuccessRate(
+    totals?.successes,
+    totals?.requests,
+  )
   const pricingCoverage = totals?.model_calls
     ? Math.max(
         0,
@@ -607,10 +608,10 @@ export function ResourceAnalyticsStudio({
         />
         <InsightMetric
           label="Reliability"
-          value={completed ? `${successRate}%` : "—"}
+          value={successRate == null ? "—" : `${successRate}%`}
           hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked`}
           icon={Sparkles}
-          tone={completed && successRate < 90 ? "warning" : "success"}
+          tone={successRate != null && successRate < 90 ? "warning" : "success"}
         />
         <InsightMetric
           label="Cost coverage"
