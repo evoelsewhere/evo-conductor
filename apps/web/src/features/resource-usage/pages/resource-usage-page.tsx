@@ -61,7 +61,6 @@ import {
   RESOURCE_USAGE_OVERVIEW_ACTIVITY_LIMIT,
   RESOURCE_USAGE_PAGE_SIZE,
   RESOURCE_USAGE_PATHS,
-  RESOURCE_USAGE_PERCENT_SCALE,
   RESOURCE_USAGE_QUERY_KEY,
   RESOURCE_USAGE_RESOURCES_QUERY_KEY,
   RESOURCE_USAGE_VERSIONS_QUERY_KEY,
@@ -78,6 +77,7 @@ import { Button, buttonVariants } from "@/shared/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { useAuthStore } from "@/shared/stores/auth"
+import { terminalRequestSuccessRate } from "@/shared/lib/telemetry-metrics"
 
 const PAGE_COPY: Record<ResourceUsageView, { title: string; subtitle: string }> = {
   [RESOURCE_USAGE_VIEW.OVERVIEW]: {
@@ -241,7 +241,8 @@ export function ResourceUsagePage({
 
 function OverviewPanel({ data, loading, activityPath, showMemberDetail }: { data?: ResourceUsageAnalytics; loading: boolean; activityPath: string; showMemberDetail: boolean }) {
   const totals = data?.totals
-  const successRate = calculateSuccessRate(totals?.successes ?? 0, totals?.errors ?? 0)
+  const successRate =
+    terminalRequestSuccessRate(totals?.successes, totals?.requests) ?? 0
   const averageCost = totals?.requests
     ? Math.round(totals.estimated_cost_usd_micros / totals.requests)
     : 0
@@ -416,11 +417,6 @@ function ResourceActivityEmpty() {
 
 function ResourceUsageEmpty({ title, description }: { title: string; description: string }) {
   return <EmptyState title={title} description={description} className="border-0 py-12" />
-}
-
-function calculateSuccessRate(successes: number, errors: number) {
-  const completed = successes + errors
-  return completed ? Math.round((successes / completed) * RESOURCE_USAGE_PERCENT_SCALE) : 0
 }
 
 function optional(value: string) {
