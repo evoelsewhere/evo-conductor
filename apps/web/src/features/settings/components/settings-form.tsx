@@ -21,13 +21,14 @@ import { BrandLogo } from "@/shared/components/logo"
 import { mayRequest, PERMISSION } from "@/shared/lib/authorization"
 import { cn } from "@/shared/lib/utils"
 import { useAuthStore } from "@/shared/stores/auth"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { Badge, StatusDot } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { Select } from "@/shared/ui/select"
-import { Spinner } from "@/shared/ui/spinner"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import { SwitchField } from "@/shared/ui/switch"
 import { Textarea } from "@/shared/ui/textarea"
 
@@ -349,12 +350,10 @@ export function SettingsForm() {
     uploadLogo.mutate(file)
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-8">
-        <Spinner />
-      </div>
-    )
+  const initialLoading = useMinimumLoading(isLoading && !data)
+
+  if (initialLoading) {
+    return <SettingsFormSkeleton />
   }
 
   if (error || !data) {
@@ -1037,6 +1036,96 @@ export function SettingsForm() {
         </div>
       </div>
     </div>
+  )
+}
+
+function SettingsFormSkeleton() {
+  return (
+    <LoadingState
+      label="Loading project settings"
+      className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]"
+    >
+      <>
+        <aside className="shrink-0 border-b border-(--border-soft) bg-(--bg-key)/35 p-4 lg:border-r lg:border-b-0 lg:p-5">
+          <div className="mb-4 hidden items-center gap-3 rounded-xl border border-(--border-soft) bg-(--bg-card) p-3 lg:flex">
+            <Skeleton className="size-10 shrink-0 rounded-lg" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-3.5 w-32 max-w-full" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+          </div>
+
+          <div className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+            {tabs.map((item, index) => (
+              <div
+                key={item.id}
+                className="flex shrink-0 items-center gap-3 rounded-lg px-3 py-2.5"
+              >
+                <Skeleton className="size-8 shrink-0" />
+                <div className="space-y-1.5">
+                  <Skeleton className="h-3.5 w-20" />
+                  <Skeleton
+                    className={cn(
+                      "hidden h-2.5 lg:block",
+                      index % 2 === 0 ? "w-28" : "w-24",
+                    )}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 hidden space-y-3 border-t border-(--border-soft) pt-4 lg:block">
+            {Array.from({ length: 3 }, (_, index) => (
+              <div key={index} className="flex items-center gap-2.5 px-1">
+                <Skeleton className="size-3.5" />
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="ml-auto h-3 w-12" />
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6 lg:px-9 lg:py-7">
+          <div className="mx-auto max-w-3xl space-y-5">
+            <header className="space-y-2 border-b border-(--border-soft) pb-5">
+              <Skeleton className="h-2.5 w-24" />
+              <Skeleton className="h-6 w-44" />
+              <Skeleton className="h-3.5 w-full max-w-xl" />
+            </header>
+
+            <div className="space-y-4 rounded-xl border border-(--border-soft) bg-(--bg-card)/65 p-4 sm:p-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[0, 1].map((index) => (
+                  <div key={index} className="space-y-2">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-2.5 w-4/5" />
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-2.5 w-2/3" />
+              </div>
+              <div className="flex items-center gap-4 rounded-lg border border-(--border-soft) p-3">
+                <Skeleton className="size-14 shrink-0 rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3.5 w-36" />
+                  <Skeleton className="h-3 w-52 max-w-full" />
+                </div>
+                <Skeleton className="h-8 w-24" />
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-(--border-soft) pt-4">
+              <Skeleton className="h-9 w-28" />
+            </div>
+          </div>
+        </div>
+      </>
+    </LoadingState>
   )
 }
 

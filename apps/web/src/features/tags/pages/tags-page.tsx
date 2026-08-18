@@ -5,6 +5,7 @@ import { useState } from "react"
 import { api, type Tag } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
 import { Card, CardHeader, CardList, CardTitle } from "@/shared/ui/card"
@@ -12,7 +13,7 @@ import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function TagsPage() {
   const can = useAuthStore((state) => state.can)
@@ -24,6 +25,7 @@ export function TagsPage() {
   })
   const [editor, setEditor] = useState<Tag | "new" | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Tag | null>(null)
+  const initialLoading = useMinimumLoading(isLoading)
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteTag(id),
@@ -52,7 +54,7 @@ export function TagsPage() {
           This shared taxonomy is read-only. You can select existing tags when managing an owned resource.
         </p>
       )}
-      {error && (
+      {error && !initialLoading && (
         <ErrorState
           className="mb-4"
           message={error instanceof Error ? error.message : "Failed to load"}
@@ -69,9 +71,9 @@ export function TagsPage() {
           </div>
         </CardHeader>
 
-        {isLoading ? (
-          <SkeletonRows rows={3} />
-        ) : data.length === 0 ? (
+        {initialLoading ? (
+          <TagListSkeleton showActions={canManage} />
+        ) : error ? null : data.length === 0 ? (
           <div className="p-4">
             <EmptyState
               icon={Tags}
@@ -145,6 +147,32 @@ export function TagsPage() {
         onConfirm={() => pendingDelete && remove.mutate(pendingDelete.id)}
       />
     </PageFrame>
+  )
+}
+
+function TagListSkeleton({ showActions }: { showActions: boolean }) {
+  const widths = [40, 32, 46]
+
+  return (
+    <LoadingState label="Loading tags">
+      <div className="divide-y divide-(--border-soft)">
+        {widths.map((width) => (
+          <div key={width} className="flex items-center gap-3 px-4 py-3">
+            <Skeleton className="size-2.5 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-3.5" style={{ width: `${width}%` }} />
+              <Skeleton className="h-2.5" style={{ width: `${width + 10}%` }} />
+            </div>
+            {showActions && (
+              <div className="flex gap-1">
+                <Skeleton className="size-8" />
+                <Skeleton className="size-8" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </LoadingState>
   )
 }
 

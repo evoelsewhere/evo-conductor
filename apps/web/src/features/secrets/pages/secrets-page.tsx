@@ -9,6 +9,7 @@ import {
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { useAuthStore } from "@/shared/stores/auth"
 import {
   SECRET_SCOPE,
@@ -22,7 +23,7 @@ import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { Select } from "@/shared/ui/select"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -57,6 +58,7 @@ export function SecretsPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [pendingRevoke, setPendingRevoke] = useState<ConnectionSecret | null>(null)
+  const initialLoading = useMinimumLoading(isLoading)
 
   const revoke = useMutation({
     mutationFn: (id: string) => api.revokeSecret(id),
@@ -109,7 +111,7 @@ export function SecretsPage() {
         </div>
       )}
 
-      {(error || revoke.error) && (
+      {((error && !initialLoading) || revoke.error) && (
         <ErrorState
           className="mb-4"
           message={
@@ -122,11 +124,9 @@ export function SecretsPage() {
         />
       )}
 
-      {isLoading ? (
-        <TableWrap>
-          <SkeletonRows rows={4} />
-        </TableWrap>
-      ) : data.length === 0 ? (
+      {initialLoading ? (
+        <SecretsTableSkeleton />
+      ) : error ? null : data.length === 0 ? (
         <EmptyState
           icon={KeyRound}
           title="No secrets yet"
@@ -221,6 +221,39 @@ export function SecretsPage() {
         onConfirm={() => pendingRevoke && revoke.mutate(pendingRevoke.id)}
       />
     </PageFrame>
+  )
+}
+
+function SecretsTableSkeleton() {
+  return (
+    <TableWrap>
+      <LoadingState label="Loading connection secrets">
+        <Table>
+          <TableHead>
+            <tr>
+              <TableTh>Name</TableTh>
+              <TableTh>Prefix</TableTh>
+              <TableTh>Scopes</TableTh>
+              <TableTh>Last used</TableTh>
+              <TableTh>Status</TableTh>
+              <TableTh />
+            </tr>
+          </TableHead>
+          <TableBody>
+            {Array.from({ length: 4 }, (_, index) => (
+              <TableRow key={index}>
+                <TableTd><Skeleton className="h-3.5 w-28" /></TableTd>
+                <TableTd><Skeleton className="h-3 w-24" /></TableTd>
+                <TableTd><Skeleton className="h-5 w-36 rounded-full" /></TableTd>
+                <TableTd><Skeleton className="h-3 w-32" /></TableTd>
+                <TableTd><Skeleton className="h-5 w-16 rounded-full" /></TableTd>
+                <TableTd className="text-right"><Skeleton className="ml-auto size-8" /></TableTd>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </LoadingState>
+    </TableWrap>
   )
 }
 

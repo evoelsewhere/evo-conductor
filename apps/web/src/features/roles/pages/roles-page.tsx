@@ -11,6 +11,7 @@ import {
   mayRequest,
   permissionLabel,
 } from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
@@ -19,7 +20,7 @@ import { ConfirmDialog, Dialog } from "@/shared/ui/dialog"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -34,12 +35,13 @@ export function RolesPage() {
   const authorization = useAuthStore((state) => state.authorization)
   const can = useAuthStore((state) => state.can)
   const qc = useQueryClient()
-  const { data = [], isLoading } = useQuery({
+  const { data = [], isLoading, error } = useQuery({
     queryKey: ["sub-roles"],
     queryFn: () => api.subRoles(),
   })
   const [editor, setEditor] = useState<SubRole | "new" | null>(null)
   const [pendingDelete, setPendingDelete] = useState<SubRole | null>(null)
+  const initialLoading = useMinimumLoading(isLoading)
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteSubRole(id),
@@ -137,8 +139,14 @@ export function RolesPage() {
           </div>
         </CardHeader>
 
-        {isLoading ? (
-          <SkeletonRows rows={3} />
+        {initialLoading ? (
+          <SubRoleListSkeleton showActions={canManage} />
+        ) : error ? (
+          <div className="p-4">
+            <ErrorState
+              message={error instanceof Error ? error.message : "Failed to load sub-roles"}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div className="p-4">
             <EmptyState
@@ -212,6 +220,32 @@ export function RolesPage() {
         onConfirm={() => pendingDelete && remove.mutate(pendingDelete.id)}
       />
     </PageFrame>
+  )
+}
+
+function SubRoleListSkeleton({ showActions }: { showActions: boolean }) {
+  const widths = [36, 44, 32]
+
+  return (
+    <LoadingState label="Loading sub-roles">
+      <div className="divide-y divide-(--border-soft)">
+        {widths.map((width) => (
+          <div key={width} className="flex items-center gap-3 px-4 py-3">
+            <Skeleton className="size-2.5 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-3.5" style={{ width: `${width}%` }} />
+              <Skeleton className="h-2.5" style={{ width: `${width + 12}%` }} />
+            </div>
+            {showActions && (
+              <div className="flex gap-1">
+                <Skeleton className="size-8" />
+                <Skeleton className="size-8" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </LoadingState>
   )
 }
 

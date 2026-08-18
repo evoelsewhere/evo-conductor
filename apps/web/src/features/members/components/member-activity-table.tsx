@@ -15,6 +15,7 @@ import {
   TableTh,
   TableWrap,
 } from "@/shared/ui/table"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function MemberActivityTable({
   userId,
@@ -91,5 +92,53 @@ export function MemberActivityTable({
         </TableBody>
       </Table>
     </TableWrap>
+  )
+}
+
+export function MemberActivityTableSkeleton({
+  rows = 6,
+  density = "detailed",
+  className,
+  announce = true,
+}: {
+  rows?: number
+  density?: "compact" | "detailed"
+  className?: string
+  announce?: boolean
+}) {
+  const compact = density === "compact"
+  return (
+    <LoadingState label="Loading member activity" announce={announce}>
+      <TableWrap className={cn(compact && "rounded-none border-0", className)}>
+        <Table>
+          <TableHead>
+            <tr>
+              <TableTh>{compact ? "Time" : "Started"}</TableTh>
+              <TableTh>Model</TableTh>
+              {!compact && <TableTh>Input</TableTh>}
+              {!compact && <TableTh>Output</TableTh>}
+              <TableTh>{compact ? "Tokens" : "Total"}</TableTh>
+              <TableTh>Tools</TableTh>
+              {!compact && <TableTh>Duration</TableTh>}
+              <TableTh>Status</TableTh>
+            </tr>
+          </TableHead>
+          <TableBody>
+            {Array.from({ length: rows }, (_, row) => (
+              <TableRow key={row}>
+                <TableTd><Skeleton className="h-4 w-28" /><Skeleton className="mt-1.5 h-3 w-20" /></TableTd>
+                <TableTd><Skeleton className="h-4 w-24" /><Skeleton className="mt-1.5 h-3 w-16" /></TableTd>
+                {!compact && <TableTd><Skeleton className="h-3.5 w-14" /></TableTd>}
+                {!compact && <TableTd><Skeleton className="h-3.5 w-14" /></TableTd>}
+                <TableTd><Skeleton className="h-3.5 w-14" /></TableTd>
+                <TableTd><Skeleton className="h-3.5 w-8" /></TableTd>
+                {!compact && <TableTd><Skeleton className="h-3.5 w-14" /></TableTd>}
+                <TableTd><Skeleton className="h-5 w-16" /></TableTd>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableWrap>
+    </LoadingState>
   )
 }

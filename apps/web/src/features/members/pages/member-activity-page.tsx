@@ -7,11 +7,15 @@ import {
   DateRangeFilter,
   useUsageRange,
 } from "@/features/members/components/date-range-filter"
-import { MemberActivityTable } from "@/features/members/components/member-activity-table"
+import {
+  MemberActivityTable,
+  MemberActivityTableSkeleton,
+} from "@/features/members/components/member-activity-table"
 import { MemberNav } from "@/features/members/components/member-nav"
 import { api } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { MEMBER_QUERY_KEYS } from "@/shared/constants/member"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import {
   TELEMETRY_ACTIVITY_PAGE_SIZE,
   TELEMETRY_QUERY_KEYS,
@@ -22,8 +26,6 @@ import {
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Select } from "@/shared/ui/select"
-import { SkeletonRows } from "@/shared/ui/skeleton"
-import { TableWrap } from "@/shared/ui/table"
 
 export function MemberActivityPage() {
   const { userId } = useParams({ strict: false }) as { userId: string }
@@ -46,7 +48,11 @@ export function MemberActivityPage() {
         ...dates.range,
         limit: TELEMETRY_ACTIVITY_PAGE_SIZE,
       }),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === userId ? previousData : undefined,
   })
+  const initialLoading = useMinimumLoading(activity.isLoading && !activity.data)
+  const refreshing = activity.isFetching && Boolean(activity.data)
   const items = useMemo(() => {
     const query = modelQuery.trim().toLowerCase()
     return (activity.data?.items ?? []).filter((item) => {
@@ -75,10 +81,17 @@ export function MemberActivityPage() {
         </div>
       </div>
 
-      {activity.error && <ErrorState className="mb-4" message={activity.error.message} />}
-      {activity.isLoading ? (
-        <TableWrap><SkeletonRows rows={8} /></TableWrap>
-      ) : items.length === 0 ? (
+      {activity.error && !initialLoading && (
+        <ErrorState className="mb-4" message={activity.error.message} />
+      )}
+      {refreshing && (
+        <p className="mb-2 text-right text-xs text-(--color-text-subtle)" role="status" aria-live="polite">
+          Updating activity…
+        </p>
+      )}
+      {initialLoading ? (
+        <MemberActivityTableSkeleton rows={8} />
+      ) : activity.error && !activity.data ? null : items.length === 0 ? (
         <EmptyState title="No requests match" description="Adjust the date, model, or status filter." />
       ) : (
         <MemberActivityTable userId={userId} items={items} />
