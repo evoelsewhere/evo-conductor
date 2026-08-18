@@ -15,6 +15,7 @@ pub mod analytics;
 pub mod authorization;
 pub mod client_installation;
 pub mod core;
+pub mod dashboard;
 pub mod instance;
 pub mod resource;
 pub mod resource_semver;
@@ -44,6 +45,7 @@ pub use client_installation::{
     CollectionLevel, RegisterClientRequest, RegisterClientResponse, RegisteredInstallation,
 };
 pub use core::error::{ConductorError, Result};
+pub use dashboard::DashboardSummary;
 pub use instance::{
     AzureBlobStorageSettings, DataPolicySettings, GitAuthMode, GitStorageSettings, InstanceConfig,
     LocalStorageSettings, ProjectBranding, ProjectSettings, RealtimeSettings, S3StorageSettings,
@@ -52,7 +54,7 @@ pub use instance::{
     UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
 };
 pub use resource::{
-    CreateDraftFileRequest, CreateResourceRequest, DashboardSummary, DeleteDraftEntryRequest,
+    CreateDraftFileRequest, CreateResourceRequest, DeleteDraftEntryRequest,
     DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile, DraftFileTree,
     EffectiveResourceVersion, FileManifestEntry, ManagedResource, MoveDraftEntryRequest,
     ReleaseChannel, ReleaseResourceRequest, ReleaseResourceResult, ResourceAccessPolicy,
