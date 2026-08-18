@@ -1,7 +1,8 @@
 use chrono::{DateTime, TimeDelta, Utc};
 use conductor_domain::{
     DashboardFeedbackDistribution, DashboardFeedbackScope, DashboardFeedbackSummary,
-    DashboardPresence, DashboardSummary, ResourceCounts,
+    DashboardHostMetrics, DashboardPresence, DashboardRealtime, DashboardRealtimeScope,
+    DashboardSummary, ResourceCounts, DASHBOARD_PRESENCE_THRESHOLD_SECONDS,
 };
 use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
@@ -22,6 +23,19 @@ impl DashboardRepo {
     }
 
     pub async fn summary(&self) -> Result<DashboardSummary, sqlx::Error> {
+        self.summary_at(Utc::now(), DASHBOARD_PRESENCE_THRESHOLD_SECONDS, None)
+            .await
+    }
+
+    /// Build the persisted dashboard projection at one explicit observation
+    /// time. Supplying an owner limits the feedback aggregate to resources
+    /// owned by that member; no feedback identity or comment leaves storage.
+    pub async fn summary_at(
+        &self,
+        observed_at: DateTime<Utc>,
+        presence_threshold_seconds: u32,
+        feedback_owner_user_id: Option<Uuid>,
+    ) -> Result<DashboardSummary, sqlx::Error> {
         let instance = InstanceRepo::new(self.pool.clone()).get().await?;
         let (project_id, project_name) = match instance {
             Some(instance) => (Some(instance.id), instance.project_name),
@@ -32,11 +46,9 @@ impl DashboardRepo {
             .fetch_one(&self.pool)
             .await?;
 
-        let members_online: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM member_inventory WHERE evoflux_connected = 1")
-                .fetch_one(&self.pool)
-                .await
-                .unwrap_or(0);
+        let presence = self
+            .presence(project_id, observed_at, presence_threshold_seconds)
+            .await?;
 
         let secrets_active: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM connection_secrets WHERE revoked_at IS NULL")
@@ -55,15 +67,24 @@ impl DashboardRepo {
             None => ResourceCounts::default(),
         };
 
+        let feedback = self.feedback(project_id, feedback_owner_user_id).await?;
         let sso = InstanceRepo::new(self.pool.clone()).sso_config().await?;
 
         Ok(DashboardSummary {
             project_name,
-            members_total: members_total as u32,
-            members_online: members_online as u32,
-            secrets_active: secrets_active as u32,
+            members_total: count(members_total),
+            members_online: presence.members_seen_recently,
+            secrets_active: count(secrets_active),
             resources,
             sso_enabled: sso.enabled,
+            presence,
+            realtime: DashboardRealtime {
+                scope: DashboardRealtimeScope::ThisNode,
+                active_owners: 0,
+                active_streams: 0,
+            },
+            host_metrics: DashboardHostMetrics::unavailable(observed_at),
+            feedback,
         })
     }
 
