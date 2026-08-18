@@ -133,3 +133,172 @@ fn presence_sql(kind: DatabaseKind) -> String {
         kind.bind_parameter(3),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, TimeDelta, Utc};
+    use uuid::Uuid;
+
+    use super::presence_sql;
+    use crate::core::dialect::DatabaseKind;
+    use crate::core::url::sqlite_shared_memory_url;
+    use crate::Db;
+
+    #[test]
+    fn presence_query_uses_native_postgres_bind_markers() {
+        let sql = presence_sql(DatabaseKind::Postgres);
+        assert!(sql.contains("c.instance_id = $1"));
+        assert!(sql.contains("c.last_seen_at >= $2"));
+        assert!(sql.contains("c.last_seen_at <= $3"));
+        assert!(!sql.contains('?'));
+    }
+
+    #[tokio::test]
+    async fn presence_counts_recent_active_members_within_one_project() {
+        let db = Db::connect(&sqlite_shared_memory_url(&format!(
+            "dashboard_presence_{}",
+            Uuid::new_v4().simple()
+        )))
+        .await
+        .expect("connect dashboard test database");
+        let project_id = seed_instance(&db, "presence-project").await;
+        let other_project_id = seed_instance(&db, "other-project").await;
+        let active_a = seed_user(&db, "active-a", "active").await;
+        let active_b = seed_user(&db, "active-b", "active").await;
+        let stale = seed_user(&db, "stale", "active").await;
+        let disabled = seed_user(&db, "disabled", "disabled").await;
+        let observed_at = DateTime::parse_from_rfc3339("2026-08-18T12:00:00Z")
+            .expect("fixed timestamp")
+            .with_timezone(&Utc);
+
+        seed_installation(
+            &db,
+            project_id,
+            active_a,
+            observed_at - TimeDelta::seconds(180),
+            "active-a-boundary",
+        )
+        .await;
+        seed_installation(
+            &db,
+            project_id,
+            active_a,
+            observed_at - TimeDelta::seconds(10),
+            "active-a-second-client",
+        )
+        .await;
+        seed_installation(
+            &db,
+            project_id,
+            active_b,
+            observed_at - TimeDelta::seconds(179),
+            "active-b",
+        )
+        .await;
+        seed_installation(
+            &db,
+            project_id,
+            stale,
+            observed_at - TimeDelta::seconds(181),
+            "stale",
+        )
+        .await;
+        seed_installation(
+            &db,
+            project_id,
+            disabled,
+            observed_at - TimeDelta::seconds(1),
+            "disabled",
+        )
+        .await;
+        seed_installation(
+            &db,
+            other_project_id,
+            active_b,
+            observed_at - TimeDelta::seconds(1),
+            "other-project",
+        )
+        .await;
+
+        let presence = db
+            .dashboard()
+            .presence(Some(project_id), observed_at, 180)
+            .await
+            .expect("load heartbeat presence");
+        assert_eq!(presence.clients_seen_recently, 3);
+        assert_eq!(presence.members_seen_recently, 2);
+        assert_eq!(presence.threshold_seconds, 180);
+        assert_eq!(presence.observed_at, observed_at);
+    }
+
+    async fn seed_instance(db: &Db, label: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO instance (
+                id, project_name, display_name, bind_host, bind_port,
+                setup_completed, jwt_secret, created_at, updated_at
+            ) VALUES (?, ?, ?, '127.0.0.1', 0, 0, 'test-secret',
+                      '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')
+            "#,
+        )
+        .bind(id.to_string())
+        .bind(label)
+        .bind(label)
+        .execute(db.pool())
+        .await
+        .expect("seed instance");
+        id
+    }
+
+    async fn seed_user(db: &Db, label: &str, status: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO users (
+                id, email, display_name, primary_role, status, created_at
+            ) VALUES (?, ?, ?, 'user', ?, '2026-08-18T00:00:00Z')
+            "#,
+        )
+        .bind(id.to_string())
+        .bind(format!("{label}-{}@example.test", Uuid::new_v4().simple()))
+        .bind(label)
+        .bind(status)
+        .execute(db.pool())
+        .await
+        .expect("seed user");
+        id
+    }
+
+    async fn seed_installation(
+        db: &Db,
+        project_id: Uuid,
+        user_id: Uuid,
+        last_seen_at: DateTime<Utc>,
+        label: &str,
+    ) {
+        let id = Uuid::new_v4();
+        let timestamp = last_seen_at.to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT INTO client_installations (
+                id, instance_id, user_id, installation_key, display_name,
+                platform, evoflux_version, connected_at, last_seen_at,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'test', 'test', ?, ?, ?, ?)
+            "#,
+        )
+        .bind(id.to_string())
+        .bind(project_id.to_string())
+        .bind(user_id.to_string())
+        .bind(format!("{label}-{}", Uuid::new_v4().simple()))
+        .bind(label)
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .execute(db.pool())
+        .await
+        .expect("seed installation");
+    }
+}
