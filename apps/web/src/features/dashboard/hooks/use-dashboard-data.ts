@@ -133,7 +133,6 @@ export function useDashboardData() {
     canReadSettings,
     canReadTaxonomy,
     changeRange,
-    currentRole,
     isInitialLoading,
     isRefreshing,
     overviewHref,

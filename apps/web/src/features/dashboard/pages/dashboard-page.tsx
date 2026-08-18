@@ -10,15 +10,24 @@ import {
 } from "@/features/dashboard/components/dashboard-states"
 import { DashboardToolbar } from "@/features/dashboard/components/dashboard-toolbar"
 import { LiveOperations } from "@/features/dashboard/components/live-operations"
+import { RoleAndWorkspace } from "@/features/dashboard/components/role-and-workspace"
+import { TopSignals } from "@/features/dashboard/components/top-signals"
 import { useDashboardData } from "@/features/dashboard/hooks/use-dashboard-data"
 import { dashboardResourceTotal } from "@/features/dashboard/lib/dashboard-model"
 import { PageFrame } from "@/shared/components/page-frame"
+import { useUiStore } from "@/shared/stores/ui"
 
 export function DashboardPage() {
+  const setSettingsOpen = useUiStore((state) => state.setSettingsOpen)
   const {
     analytics,
+    analyticsHref,
     attention,
     canManageMembers,
+    canReadMembers,
+    canReadMemberTelemetry,
+    canReadSettings,
+    canReadTaxonomy,
     changeRange,
     isInitialLoading,
     isRefreshing,
@@ -86,6 +95,30 @@ export function DashboardPage() {
               className="xl:col-span-5"
               summary={summary.data}
               analytics={analytics.data}
+            />
+          </div>
+
+          <div className="grid items-start gap-4 xl:grid-cols-12">
+            <TopSignals
+              className="xl:col-span-8"
+              members={analytics.data?.members ?? []}
+              resources={analytics.data?.resources ?? []}
+              models={analytics.data?.models ?? []}
+              tools={analytics.data?.tools ?? []}
+              showMembers={canReadMemberTelemetry}
+              loading={analytics.isLoading && !analytics.data}
+              analyticsHref={analyticsHref}
+            />
+            <RoleAndWorkspace
+              className="xl:col-span-4"
+              roles={analytics.data?.roles ?? []}
+              summary={summary.data}
+              loading={analytics.isLoading && !analytics.data}
+              analyticsHref={analyticsHref}
+              canReadMembers={canReadMembers}
+              canReadTaxonomy={canReadTaxonomy}
+              canReadSettings={canReadSettings}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           </div>
 
