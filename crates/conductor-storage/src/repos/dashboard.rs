@@ -72,11 +72,7 @@ impl DashboardRepo {
         project_id: Uuid,
         resource_kind: &str,
     ) -> Result<u32, sqlx::Error> {
-        let sql = format!(
-            "SELECT COUNT(*) FROM resources WHERE project_id = {} AND kind = {} AND status = 'published'",
-            self.kind.bind_parameter(1),
-            self.kind.bind_parameter(2),
-        );
+        let sql = published_resource_count_sql(self.kind);
         let value: i64 = sqlx::query_scalar(&sql)
             .bind(project_id.to_string())
             .bind(resource_kind)
@@ -147,6 +143,8 @@ impl DashboardRepo {
         Ok(DashboardFeedbackSummary {
             scope,
             count: feedback_count,
+            // Deriving from portable integer buckets avoids PostgreSQL NUMERIC
+            // and MySQL DECIMAL decoding differences in sqlx::Any.
             average_rating: feedback_average(&distribution, feedback_count),
             positive_count,
             positive_percent: (feedback_count > 0).then(|| {
@@ -205,6 +203,14 @@ fn presence_sql(kind: DatabaseKind) -> String {
     )
 }
 
+fn published_resource_count_sql(kind: DatabaseKind) -> String {
+    format!(
+        "SELECT COUNT(*) FROM resources WHERE project_id = {} AND kind = {} AND status = 'published'",
+        kind.bind_parameter(1),
+        kind.bind_parameter(2),
+    )
+}
+
 fn feedback_sql(kind: DatabaseKind, owner_scoped: bool) -> String {
     let owner_clause = if owner_scoped {
         format!(" AND r.owner_user_id = {}", kind.bind_parameter(2))
@@ -233,7 +239,7 @@ mod tests {
     use chrono::{DateTime, TimeDelta, Utc};
     use uuid::Uuid;
 
-    use super::presence_sql;
+    use super::{feedback_sql, presence_sql, published_resource_count_sql};
     use crate::core::dialect::DatabaseKind;
     use crate::core::url::sqlite_shared_memory_url;
     use crate::Db;
@@ -245,6 +251,35 @@ mod tests {
         assert!(sql.contains("c.last_seen_at >= $2"));
         assert!(sql.contains("c.last_seen_at <= $3"));
         assert!(!sql.contains('?'));
+    }
+
+    #[test]
+    fn published_resource_query_uses_native_postgres_bind_markers() {
+        let sql = published_resource_count_sql(DatabaseKind::Postgres);
+        assert!(sql.contains("project_id = $1"));
+        assert!(sql.contains("kind = $2"));
+        assert!(!sql.contains('?'));
+    }
+
+    #[test]
+    fn feedback_query_uses_native_bind_markers_without_decimal_average() {
+        let project = feedback_sql(DatabaseKind::Postgres, false);
+        assert!(project.contains("r.project_id = $1"));
+        assert!(!project.contains("owner_user_id"));
+        assert!(!project.contains('?'));
+
+        let owned = feedback_sql(DatabaseKind::Postgres, true);
+        assert!(owned.contains("r.project_id = $1"));
+        assert!(owned.contains("r.owner_user_id = $2"));
+        assert!(!owned.contains('?'));
+
+        for kind in [
+            DatabaseKind::Sqlite,
+            DatabaseKind::Postgres,
+            DatabaseKind::Mysql,
+        ] {
+            assert!(!feedback_sql(kind, true).contains("AVG("));
+        }
     }
 
     #[tokio::test]
@@ -265,6 +300,8 @@ mod tests {
             .expect("fixed timestamp")
             .with_timezone(&Utc);
 
+        // The threshold is inclusive. Multiple clients for one user count as
+        // multiple clients but only one recently seen member.
         seed_installation(
             &db,
             project_id,
@@ -323,6 +360,62 @@ mod tests {
         assert_eq!(presence.members_seen_recently, 2);
         assert_eq!(presence.threshold_seconds, 180);
         assert_eq!(presence.observed_at, observed_at);
+    }
+
+    #[tokio::test]
+    async fn feedback_is_project_scoped_and_can_be_limited_to_owned_resources() {
+        let db = Db::connect(&sqlite_shared_memory_url(&format!(
+            "dashboard_feedback_{}",
+            Uuid::new_v4().simple()
+        )))
+        .await
+        .expect("connect dashboard test database");
+        let project_id = seed_instance(&db, "feedback-project").await;
+        let other_project_id = seed_instance(&db, "other-feedback-project").await;
+        let owner = seed_user(&db, "owner", "active").await;
+        let other_owner = seed_user(&db, "other-owner", "active").await;
+        let reviewer_a = seed_user(&db, "reviewer-a", "active").await;
+        let reviewer_b = seed_user(&db, "reviewer-b", "active").await;
+
+        let owned_a = seed_resource(&db, project_id, owner, "owned-a").await;
+        let owned_b = seed_resource(&db, project_id, owner, "owned-b").await;
+        let other_owned = seed_resource(&db, project_id, other_owner, "other-owned").await;
+        let cross_project = seed_resource(&db, other_project_id, owner, "cross-project").await;
+        seed_feedback(&db, owned_a, reviewer_a, 5, "private-a").await;
+        seed_feedback(&db, owned_b, reviewer_b, 2, "private-b").await;
+        seed_feedback(&db, other_owned, reviewer_a, 4, "private-c").await;
+        seed_feedback(&db, cross_project, reviewer_b, 1, "private-cross").await;
+
+        let project = db
+            .dashboard()
+            .feedback(Some(project_id), None)
+            .await
+            .expect("project feedback");
+        assert_eq!(
+            project.scope,
+            conductor_domain::DashboardFeedbackScope::Project
+        );
+        assert_eq!(project.count, 3);
+        assert_eq!(project.average_rating, Some(3.7));
+        assert_eq!(project.positive_count, 2);
+        assert_eq!(project.positive_percent, Some(66.7));
+        assert_eq!(project.distribution.rating_1, 0);
+
+        let owned = db
+            .dashboard()
+            .feedback(Some(project_id), Some(owner))
+            .await
+            .expect("owned-resource feedback");
+        assert_eq!(
+            owned.scope,
+            conductor_domain::DashboardFeedbackScope::OwnedResources
+        );
+        assert_eq!(owned.count, 2);
+        assert_eq!(owned.average_rating, Some(3.5));
+        assert_eq!(owned.positive_count, 1);
+        assert_eq!(owned.positive_percent, Some(50.0));
+        assert_eq!(owned.distribution.rating_2, 1);
+        assert_eq!(owned.distribution.rating_5, 1);
     }
 
     async fn seed_instance(db: &Db, label: &str) -> Uuid {
@@ -394,5 +487,47 @@ mod tests {
         .execute(db.pool())
         .await
         .expect("seed installation");
+    }
+
+    async fn seed_resource(db: &Db, project_id: Uuid, owner_user_id: Uuid, label: &str) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO resources (
+                id, project_id, kind, slug, name, version, owner_user_id,
+                visibility, status, payload, created_at, updated_at
+            ) VALUES (?, ?, 'skill', ?, ?, '1.0.0', ?, 'shared', 'published',
+                      '{}', '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')
+            "#,
+        )
+        .bind(id.to_string())
+        .bind(project_id.to_string())
+        .bind(format!("{label}-{}", Uuid::new_v4().simple()))
+        .bind(label)
+        .bind(owner_user_id.to_string())
+        .execute(db.pool())
+        .await
+        .expect("seed resource");
+        id
+    }
+
+    async fn seed_feedback(db: &Db, resource_id: Uuid, user_id: Uuid, rating: i64, comment: &str) {
+        sqlx::query(
+            r#"
+            INSERT INTO resource_feedback (
+                id, resource_id, resource_version, user_id, rating, comment,
+                created_at, updated_at
+            ) VALUES (?, ?, '1.0.0', ?, ?, ?,
+                      '2026-08-18T00:00:00Z', '2026-08-18T00:00:00Z')
+            "#,
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(resource_id.to_string())
+        .bind(user_id.to_string())
+        .bind(rating)
+        .bind(comment)
+        .execute(db.pool())
+        .await
+        .expect("seed feedback");
     }
 }
