@@ -42,4 +42,5 @@ zip = { workspace = true }
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
+libc = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
