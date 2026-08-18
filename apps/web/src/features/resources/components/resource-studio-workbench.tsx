@@ -72,7 +72,7 @@ import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 const MonacoEditor = lazy(() => import("@/shared/components/code-editor"))
 const MonacoDiffEditor = lazy(() =>
@@ -108,7 +108,9 @@ export function ResourceStudioWorkbench({
   editorValue,
   dirty,
   saving,
-  busyAction,
+  draftRefreshing,
+  entrySubmitting,
+  actionsBusy,
   validation,
   onSelectFile,
   onChange,
@@ -128,7 +130,9 @@ export function ResourceStudioWorkbench({
   editorValue: string
   dirty: boolean
   saving: boolean
-  busyAction: boolean
+  draftRefreshing: boolean
+  entrySubmitting: boolean
+  actionsBusy: boolean
   validation: ResourceValidation | null
   onSelectFile: (path: string) => void
   onChange: (value: string) => void
@@ -401,7 +405,7 @@ export function ResourceStudioWorkbench({
     if (!isDesktop) setTreeVisible(false)
   }
 
-  if (loading) return <SkeletonRows rows={10} />
+  if (loading) return <ResourceStudioWorkbenchSkeleton />
   if (loadError) {
     return (
       <ErrorState
@@ -596,7 +600,9 @@ export function ResourceStudioWorkbench({
                   dirtyPath={dirty ? selectedPath : null}
                   expandedDirectories={expandedDirectories}
                   entryEditor={entryEditor}
-                  busy={busyAction}
+                  draftRefreshing={draftRefreshing}
+                  entrySubmitting={entrySubmitting}
+                  actionsBusy={actionsBusy}
                   draftLocked={dirty}
                   canRename={Boolean(focusedPath) && !focusedIsProtected && !dirty}
                   canDelete={Boolean(focusedPath) && !focusedIsProtected && !dirty}
@@ -827,7 +833,9 @@ function FilesPanel({
   dirtyPath,
   expandedDirectories,
   entryEditor,
-  busy,
+  draftRefreshing,
+  entrySubmitting,
+  actionsBusy,
   draftLocked,
   canRename,
   canDelete,
@@ -850,7 +858,9 @@ function FilesPanel({
   dirtyPath: string | null
   expandedDirectories: Set<string>
   entryEditor: EntryEditor | null
-  busy: boolean
+  draftRefreshing: boolean
+  entrySubmitting: boolean
+  actionsBusy: boolean
   draftLocked: boolean
   canRename: boolean
   canDelete: boolean
@@ -897,17 +907,17 @@ function FilesPanel({
           {query ? `${visibleFiles} of ${totalFiles}` : `${totalFiles} files`}
         </span>
         <div className="flex items-center gap-0.5">
-          <IconButton label={draftLocked ? "Save changes before creating a file" : "New file"} onClick={onNewFile} disabled={busy || draftLocked}>
+          <IconButton label={draftLocked ? "Save changes before creating a file" : "New file"} onClick={onNewFile} disabled={actionsBusy || draftLocked}>
             <FilePlus2 />
           </IconButton>
-          <IconButton label="Rename selected entry" onClick={onRename} disabled={!canRename || busy}>
+          <IconButton label="Rename selected entry" onClick={onRename} disabled={!canRename || actionsBusy}>
             <Pencil />
           </IconButton>
-          <IconButton label="Delete selected entry" onClick={onDelete} disabled={!canDelete || busy}>
+          <IconButton label="Delete selected entry" onClick={onDelete} disabled={!canDelete || actionsBusy}>
             <Trash2 />
           </IconButton>
-          <IconButton label="Refresh draft files" onClick={onRefresh} disabled={busy}>
-            <RefreshCw className={cn(busy && "animate-spin")} />
+          <IconButton label="Refresh draft files" onClick={onRefresh} disabled={actionsBusy}>
+            <RefreshCw className={cn(draftRefreshing && "animate-spin")} />
           </IconButton>
         </div>
       </div>
@@ -931,8 +941,8 @@ function FilesPanel({
             <Button variant="ghost" size="sm" onClick={() => onEntryEditor(null)}>
               Cancel
             </Button>
-            <Button size="sm" disabled={!normalizePath(entryEditor.path) || busy} onClick={onSubmitEntry}>
-              {busy && <Loader2 className="animate-spin" />}
+            <Button size="sm" disabled={!normalizePath(entryEditor.path) || actionsBusy} onClick={onSubmitEntry}>
+              {entrySubmitting && <Loader2 className="animate-spin" />}
               {entryEditor.action === "create" ? "Create" : "Rename"}
             </Button>
           </div>
@@ -1327,6 +1337,78 @@ function EditorLoading() {
     <div className="grid h-full place-items-center text-xs text-(--color-text-subtle)">
       <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" /> Loading editor…</span>
     </div>
+  )
+}
+
+function ResourceStudioWorkbenchSkeleton() {
+  return (
+    <LoadingState
+      label="Loading Resource Studio draft"
+      className="flex h-auto min-h-[720px] flex-col overflow-visible rounded-xl border border-(--border-card) bg-(--bg-card) shadow-sm lg:h-[calc(100dvh-10.5rem)] lg:min-h-[620px] lg:overflow-hidden"
+    >
+      <header className="shrink-0 border-b border-(--border-soft)">
+        <div className="flex min-h-11 items-center justify-between gap-3 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Skeleton className="size-7" />
+            <Skeleton className="h-3.5 w-40" />
+          </div>
+          <div className="flex items-center gap-1">
+            <Skeleton className="h-7 w-16" />
+            <Skeleton className="size-7" />
+            <Skeleton className="size-7" />
+          </div>
+        </div>
+        <div className="flex min-h-8 items-center gap-2 border-t border-(--border-soft) bg-(--bg-page)/45 px-3">
+          <Skeleton className="h-5 w-14 rounded-full" />
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col overflow-visible lg:flex-row lg:overflow-hidden">
+        <main className="order-3 flex min-h-[420px] min-w-0 flex-1 flex-col bg-(--bg-card)">
+          <div className="flex items-center gap-2 border-b border-(--border-soft) px-3 py-2">
+            <Skeleton className="h-6 w-20" />
+            <Skeleton className="h-6 w-20" />
+            <Skeleton className="h-6 w-16" />
+          </div>
+          <div className="min-h-0 flex-1 space-y-3 p-5">
+            {Array.from({ length: 14 }, (_, index) => (
+              <Skeleton
+                key={index}
+                className="h-3"
+                style={{ width: `${42 + ((index * 17) % 48)}%` }}
+              />
+            ))}
+          </div>
+          <div className="flex h-7 items-center justify-between border-t border-(--border-soft) px-3">
+            <Skeleton className="h-2.5 w-32" />
+            <Skeleton className="h-2.5 w-20" />
+          </div>
+        </main>
+        <aside className="order-2 flex min-h-52 w-full shrink-0 flex-col border-b border-(--border-soft) lg:order-4 lg:w-72 lg:border-b-0 lg:border-l">
+          <div className="grid grid-cols-3 gap-1 border-b border-(--border-soft) p-1">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+          <div className="space-y-2 border-b border-(--border-soft) p-2">
+            <Skeleton className="h-7 w-full" />
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-2.5 w-12" />
+              <div className="flex gap-1"><Skeleton className="size-7" /><Skeleton className="size-7" /><Skeleton className="size-7" /></div>
+            </div>
+          </div>
+          <div className="space-y-3 p-3">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index} className="flex items-center gap-2" style={{ paddingLeft: `${(index % 3) * 12}px` }}>
+                <Skeleton className="size-3" />
+                <Skeleton className="h-3" style={{ width: `${45 + ((index * 9) % 35)}%` }} />
+              </div>
+            ))}
+          </div>
+        </aside>
+      </div>
+    </LoadingState>
   )
 }
 

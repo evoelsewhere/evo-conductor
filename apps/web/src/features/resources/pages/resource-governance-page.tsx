@@ -31,6 +31,7 @@ import {
   PERMISSION,
   mayRequest,
 } from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
@@ -40,7 +41,7 @@ import { Input } from "@/shared/ui/input"
 import { Label } from "@/shared/ui/label"
 import { MultiSelect } from "@/shared/ui/multi-select"
 import { Select } from "@/shared/ui/select"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import { Textarea } from "@/shared/ui/textarea"
 
 export type ResourceGovernanceView = "overview" | "access" | "feedback"
@@ -60,6 +61,7 @@ export function ResourceGovernancePage({
     queryKey: [RESOURCE_QUERY_KEY],
     queryFn: () => api.resources(),
   })
+  const resourcesLoading = useMinimumLoading(resources.isLoading && !resources.data)
   const resource = resources.data?.find(
     (item) => item.id === resourceId && item.kind === kind,
   )
@@ -88,10 +90,10 @@ export function ResourceGovernancePage({
 
   const catalogPath = resourceCatalogPath(resource?.kind ?? kind)
 
-  if (resources.isLoading) {
+  if (resourcesLoading) {
     return (
       <PageFrame title="Resource governance" subtitle="Loading the governed resource…">
-        <SkeletonRows rows={7} />
+        <ResourceGovernancePageSkeleton view={view} />
       </PageFrame>
     )
   }
@@ -527,13 +529,15 @@ function ResourceAccess({ resource }: { resource: ManagedResource }) {
     },
   })
 
-  const loading = access.isLoading || roles.isLoading || tags.isLoading || members.isLoading
+  const loading = useMinimumLoading(
+    access.isLoading || roles.isLoading || tags.isLoading || members.isLoading,
+  )
   const loadError = access.error ?? roles.error ?? tags.error ?? members.error
 
-  if (loadError) {
+  if (loading) return <ResourceAccessSkeleton />
+  if (loadError || !policy) {
     return <ErrorState message={loadError instanceof Error ? loadError.message : "Access policy unavailable"} />
   }
-  if (loading || !policy) return <SkeletonRows rows={6} />
 
   const noExplicitRules =
     !policy.all_members &&
@@ -712,6 +716,9 @@ function ResourceFeedback({
       average: items.reduce((total, item) => total + item.rating, 0) / items.length,
     }
   }, [feedback.data])
+  const feedbackInitialLoading = useMinimumLoading(
+    canRead && feedback.isLoading && !feedback.data,
+  )
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(24rem,1.1fr)]">
@@ -803,17 +810,26 @@ function ResourceFeedback({
                 Qualitative evidence attached to immutable resource versions.
               </p>
             </div>
-            <div className="flex gap-2">
-              <Badge>{summary.count} responses</Badge>
-              <Badge tone={summary.average && summary.average >= 4 ? "success" : "warning"}>
-                {summary.average ? `${summary.average.toFixed(1)} avg` : "No rating"}
-              </Badge>
-            </div>
+            {feedbackInitialLoading ? (
+              <LoadingState label="Loading feedback summary" className="flex gap-2">
+                <Skeleton className="h-5 w-20 rounded-full" />
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </LoadingState>
+            ) : feedback.error ? (
+              <Badge tone="neutral">Unavailable</Badge>
+            ) : (
+              <div className="flex gap-2">
+                <Badge>{summary.count} responses</Badge>
+                <Badge tone={summary.average && summary.average >= 4 ? "success" : "warning"}>
+                  {summary.average ? `${summary.average.toFixed(1)} avg` : "No rating"}
+                </Badge>
+              </div>
+            )}
           </div>
-          {feedback.error ? (
+          {feedbackInitialLoading ? (
+            <ResourceFeedbackListSkeleton announce={false} />
+          ) : feedback.error ? (
             <ErrorState message={feedback.error instanceof Error ? feedback.error.message : "Feedback unavailable"} />
-          ) : feedback.isLoading ? (
-            <SkeletonRows rows={4} />
           ) : (feedback.data?.length ?? 0) === 0 ? (
             <EmptyState
               icon={MessageSquareText}
@@ -856,6 +872,128 @@ function ResourceFeedback({
         </aside>
       )}
     </div>
+  )
+}
+
+function ResourceGovernancePageSkeleton({ view }: { view: ResourceGovernanceView }) {
+  return (
+    <LoadingState label="Loading resource governance" className="space-y-6">
+      <div className="flex gap-2 border-b border-(--border-soft) pb-2">
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-7 w-20" />
+        <Skeleton className="h-7 w-24" />
+      </div>
+      {view === "access" ? (
+        <ResourceAccessSkeletonLayout />
+      ) : view === "feedback" ? (
+        <ResourceFeedbackPageSkeletonLayout />
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {Array.from({ length: 5 }, (_, index) => (
+              <div key={index} className="rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="mt-3 h-5 w-24" />
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+            <section className="rounded-xl border border-(--border-card) bg-(--bg-card) p-5">
+              <Skeleton className="h-9 w-48" />
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-32 w-full sm:col-span-2" />
+              </div>
+            </section>
+            <aside className="space-y-4">
+              <Skeleton className="h-44 w-full rounded-xl" />
+              <Skeleton className="h-40 w-full rounded-xl" />
+            </aside>
+          </div>
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </>
+      )}
+    </LoadingState>
+  )
+}
+
+function ResourceAccessSkeleton() {
+  return (
+    <LoadingState label="Loading resource access policy">
+      <ResourceAccessSkeletonLayout />
+    </LoadingState>
+  )
+}
+
+function ResourceAccessSkeletonLayout() {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <section className="rounded-xl border border-(--border-card) bg-(--bg-card) p-5">
+        <Skeleton className="h-10 w-64 max-w-full" />
+        <Skeleton className="mt-5 h-20 w-full rounded-xl" />
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="mt-5 ml-auto h-8 w-36" />
+      </section>
+      <aside className="space-y-4">
+        <Skeleton className="h-32 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </aside>
+    </div>
+  )
+}
+
+function ResourceFeedbackPageSkeletonLayout() {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(24rem,1.1fr)]">
+      <section className="rounded-xl border border-(--border-card) bg-(--bg-card) p-5">
+        <Skeleton className="h-10 w-52 max-w-full" />
+        <div className="mt-5 space-y-4">
+          <div className="space-y-2"><Skeleton className="h-3 w-16" /><Skeleton className="h-9 w-full" /></div>
+          <div className="space-y-2"><Skeleton className="h-3 w-20" /><Skeleton className="h-32 w-full" /></div>
+          <Skeleton className="ml-auto h-8 w-32" />
+        </div>
+      </section>
+      <section className="rounded-xl border border-(--border-card) bg-(--bg-card) p-5">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <Skeleton className="h-10 w-52 max-w-full" />
+          <div className="flex gap-2"><Skeleton className="h-5 w-20 rounded-full" /><Skeleton className="h-5 w-16 rounded-full" /></div>
+        </div>
+        <div className="space-y-2">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-24 w-full rounded-lg" />
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function ResourceFeedbackListSkeleton({ announce = true }: { announce?: boolean }) {
+  return (
+    <LoadingState label="Loading member feedback" announce={announce} className="space-y-2">
+      {Array.from({ length: 4 }, (_, index) => (
+        <article
+          key={index}
+          className="rounded-lg border border-(--border-soft) bg-(--bg-page) p-3.5"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-3.5 w-28" />
+            <Skeleton className="h-3.5 w-16" />
+          </div>
+          <Skeleton className="mt-3 h-3 w-full" />
+          <Skeleton className="mt-2 h-3 w-4/5" />
+          <Skeleton className="mt-3 h-2.5 w-24" />
+        </article>
+      ))}
+    </LoadingState>
   )
 }
 

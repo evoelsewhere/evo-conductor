@@ -84,6 +84,7 @@ import {
   MenuSeparator,
 } from "@/shared/ui/menu"
 import { Select } from "@/shared/ui/select"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 type DashboardPreset = "executive" | "adoption" | "reliability" | "cost" | "custom"
 type DashboardDensity = "comfortable" | "compact"
@@ -237,6 +238,7 @@ export function ResourceAnalyticsStudio({
   query,
   onApplyQuery,
   allowMemberDetail = true,
+  announceLoading = true,
 }: {
   data?: ResourceUsageAnalytics
   loading: boolean
@@ -246,6 +248,7 @@ export function ResourceAnalyticsStudio({
   query?: AnalyticsViewDefinition["query"]
   onApplyQuery?: (query: AnalyticsViewDefinition["query"]) => void
   allowMemberDetail?: boolean
+  announceLoading?: boolean
 }) {
   const queryClient = useQueryClient()
   const actorId = useAuthStore((state) => state.user?.id)
@@ -592,42 +595,54 @@ export function ResourceAnalyticsStudio({
         )}
       </div>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <InsightMetric
-          label="Attributed requests"
-          value={(totals?.requests ?? 0).toLocaleString()}
-          hint={`${(totals?.resource_uses ?? 0).toLocaleString()} resource uses`}
-          icon={Gauge}
-        />
-        <InsightMetric
-          label="Active adoption"
-          value={(totals?.installed_members ?? 0).toLocaleString()}
-          hint={`${(totals?.installed_installations ?? 0).toLocaleString()} installations in sync`}
-          icon={CheckCircle2}
-          tone="success"
-        />
-        <InsightMetric
-          label="Reliability"
-          value={successRate == null ? "—" : `${successRate}%`}
-          hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked`}
-          icon={Sparkles}
-          tone={successRate != null && successRate < 90 ? "warning" : "success"}
-        />
-        <InsightMetric
-          label="Cost coverage"
-          value={totals?.model_calls ? `${pricingCoverage}%` : "—"}
-          hint={`${formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} estimated · ${totals?.unpriced_model_calls ?? 0} unpriced`}
-          icon={FileSpreadsheet}
-          tone="accent"
-        />
-      </div>
+      {loading ? (
+        <AnalyticsInsightSkeleton announce={announceLoading} />
+      ) : (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <InsightMetric
+            label="Attributed requests"
+            value={(totals?.requests ?? 0).toLocaleString()}
+            hint={`${(totals?.resource_uses ?? 0).toLocaleString()} resource uses`}
+            icon={Gauge}
+          />
+          <InsightMetric
+            label="Active adoption"
+            value={(totals?.installed_members ?? 0).toLocaleString()}
+            hint={`${(totals?.installed_installations ?? 0).toLocaleString()} installations in sync`}
+            icon={CheckCircle2}
+            tone="success"
+          />
+          <InsightMetric
+            label="Reliability"
+            value={successRate == null ? "—" : `${successRate}%`}
+            hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked`}
+            icon={Sparkles}
+            tone={successRate != null && successRate < 90 ? "warning" : "success"}
+          />
+          <InsightMetric
+            label="Cost coverage"
+            value={totals?.model_calls ? `${pricingCoverage}%` : "—"}
+            hint={`${formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} estimated · ${totals?.unpriced_model_calls ?? 0} unpriced`}
+            icon={FileSpreadsheet}
+            tone="accent"
+          />
+        </div>
+      )}
 
       {loading ? (
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <LoadingState label="Loading analytics widgets" announce={false} className="mt-3 grid gap-3 lg:grid-cols-2">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-64 animate-pulse rounded-xl border border-(--border-card) bg-(--bg-card)" />
+            <div key={item} className="rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="mt-2 h-3 w-56 max-w-full" />
+              <div className="mt-5 grid h-44 grid-cols-7 items-end gap-2 border-b border-l border-(--border-soft) px-3 pb-3">
+                {[45, 72, 56, 84, 63, 77, 51].map((height, index) => (
+                  <Skeleton key={index} className="w-full rounded-b-none" style={{ height: `${height}%` }} />
+                ))}
+              </div>
+            </div>
           ))}
-        </div>
+        </LoadingState>
       ) : empty ? (
         <TelemetryReadiness data={visibleData} />
       ) : (
@@ -724,6 +739,23 @@ export function ResourceAnalyticsStudio({
         </div>
       </Dialog>
     </section>
+  )
+}
+
+function AnalyticsInsightSkeleton({ announce = true }: { announce?: boolean }) {
+  return (
+    <LoadingState label="Loading analytics summary" announce={announce} className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {Array.from({ length: 4 }, (_, index) => (
+        <div key={index} className="rounded-xl border border-(--border-card) bg-(--bg-card) p-4">
+          <div className="flex items-center justify-between gap-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="size-7" />
+          </div>
+          <Skeleton className="mt-3 h-6 w-14" />
+          <Skeleton className="mt-2 h-3 w-32 max-w-full" />
+        </div>
+      ))}
+    </LoadingState>
   )
 }
 

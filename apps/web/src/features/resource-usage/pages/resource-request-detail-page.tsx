@@ -24,6 +24,7 @@ import {
   PRIMARY_ROLE_LABELS,
 } from "@/shared/constants/member"
 import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { RESOURCE_USAGE_COST_SOURCE_LABELS, RESOURCE_USAGE_PATHS } from "@/shared/constants/resource-usage"
 import {
   TELEMETRY_FALLBACK_LABELS,
@@ -34,6 +35,7 @@ import {
 import { Badge } from "@/shared/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { ErrorState } from "@/shared/ui/empty-state"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function ResourceRequestDetailPage() {
   const { userId, requestId } = useParams({ strict: false }) as { userId: string; requestId: string }
@@ -47,6 +49,8 @@ export function ResourceRequestDetailPage() {
   })
   const request = detail.data?.request
   const events = detail.data?.events ?? []
+  const detailLoading = useMinimumLoading(detail.isLoading && !detail.data)
+  const memberLoading = useMinimumLoading(member.isLoading && !member.data)
   const resources = useMemo(() => {
     const unique = new Map<string, (typeof events)[number]["resources"][number]>()
     events.flatMap((event) => event.resources).forEach((resource) => {
@@ -71,8 +75,10 @@ export function ResourceRequestDetailPage() {
     >
       <Link to={RESOURCE_USAGE_PATHS.activity} search className="mb-3 inline-flex items-center gap-1 text-xs text-(--color-text-muted) hover:text-(--color-text)"><ArrowLeft className="size-3.5" />All resource activity</Link>
       <ResourceUsageNav />
-      {detail.error && <ErrorState className="mb-4" message={detail.error.message} />}
-      {detail.isLoading ? <StatCardGridSkeleton count={5} /> : request && (
+      {detail.error && !detailLoading && (
+        <ErrorState className="mb-4" message={detail.error.message} />
+      )}
+      {detailLoading ? <ResourceRequestDetailSkeleton /> : request && (
         <>
           <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-(--border-card) bg-(--bg-card) px-4 py-3">
             <ProviderBrandIcon providerId={request.provider ?? request.model} size="sm" />
@@ -127,9 +133,21 @@ export function ResourceRequestDetailPage() {
               <Card>
                 <CardHeader><CardTitle>Member attribution</CardTitle></CardHeader>
                 <CardContent>
-                  <div className="text-sm font-medium">{member.data?.display_name ?? "Loading member…"}</div>
-                  <div className="mt-0.5 text-xs text-(--color-text-subtle)">{member.data?.email}</div>
-                  {member.data && <div className="mt-3 flex items-center justify-between"><Badge tone="accent">Current role: {PRIMARY_ROLE_LABELS[member.data.primary_role]}</Badge><Link to="/app/members/$userId" params={{ userId }} className="inline-flex items-center gap-1 text-xs text-(--color-accent)">Member profile<ExternalLink className="size-3" /></Link></div>}
+                  {memberLoading ? (
+                    <LoadingState label="Loading member attribution" className="grid gap-2">
+                      <Skeleton className="h-4 w-36" />
+                      <Skeleton className="h-3 w-48 max-w-full" />
+                      <Skeleton className="mt-1 h-6 w-full" />
+                    </LoadingState>
+                  ) : member.error ? (
+                    <ErrorState message={member.error.message} />
+                  ) : (
+                    <>
+                      <div className="text-sm font-medium">{member.data?.display_name}</div>
+                      <div className="mt-0.5 text-xs text-(--color-text-subtle)">{member.data?.email}</div>
+                      {member.data && <div className="mt-3 flex items-center justify-between"><Badge tone="accent">Current role: {PRIMARY_ROLE_LABELS[member.data.primary_role]}</Badge><Link to="/app/members/$userId" params={{ userId }} className="inline-flex items-center gap-1 text-xs text-(--color-accent)">Member profile<ExternalLink className="size-3" /></Link></div>}
+                    </>
+                  )}
                 </CardContent>
               </Card>
               <Card>
@@ -151,5 +169,56 @@ export function ResourceRequestDetailPage() {
         </>
       )}
     </PageFrame>
+  )
+}
+
+function ResourceRequestDetailSkeleton() {
+  return (
+    <LoadingState label="Loading resource activity detail" className="grid gap-4">
+      <div className="flex items-center gap-3 rounded-xl border border-(--border-card) bg-(--bg-card) px-4 py-3">
+        <Skeleton className="size-8 rounded-full" />
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="mt-1.5 h-3 w-24" />
+        </div>
+        <Skeleton className="h-3 w-48 max-w-[35%]" />
+      </div>
+      <StatCardGridSkeleton count={5} className="lg:grid-cols-5" />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
+        <Card>
+          <CardHeader>
+            <div className="min-w-0 flex-1">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="mt-2 h-3 w-72 max-w-full" />
+            </div>
+            <Skeleton className="h-5 w-16" />
+          </CardHeader>
+          <CardContent className="grid gap-5">
+            {Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="grid gap-2 border-l border-(--border-soft) pl-6">
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-5 w-16" />
+                </div>
+                <Skeleton className="h-3 w-64 max-w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <div className="grid content-start gap-4">
+          {[5, 7, 4].map((rows, panel) => (
+            <Card key={panel}>
+              <CardHeader><Skeleton className="h-4 w-32" /></CardHeader>
+              <CardContent className="grid gap-2">
+                {Array.from({ length: rows }, (_, index) => (
+                  <Skeleton key={index} className="h-3 w-full" />
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </LoadingState>
   )
 }

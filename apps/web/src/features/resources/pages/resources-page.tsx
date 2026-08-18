@@ -30,12 +30,13 @@ import {
 } from "@/shared/constants/resource"
 import { useAuthStore } from "@/shared/stores/auth"
 import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
+import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { Badge } from "@/shared/ui/badge"
 import { Button } from "@/shared/ui/button"
 import { EmptyState, ErrorState } from "@/shared/ui/empty-state"
 import { Input } from "@/shared/ui/input"
 import { Select } from "@/shared/ui/select"
-import { SkeletonRows } from "@/shared/ui/skeleton"
+import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 import { cn } from "@/shared/lib/utils"
 import {
   Table,
@@ -177,6 +178,18 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
   const successRate = completedRequests
     ? Math.round(((kindUsage.data?.totals.successes ?? 0) / completedRequests) * 100)
     : null
+  const resourcesInitialLoading = useMinimumLoading(
+    resources.isLoading && !resources.data,
+  )
+  const usageInitialLoading = useMinimumLoading(
+    Boolean(fixedKind && canMonitor && kindUsage.isLoading && !kindUsage.data),
+  )
+  const resourcesFatal = Boolean(
+    resources.error && !resources.data && !resourcesInitialLoading,
+  )
+  const usageFatal = Boolean(
+    kindUsage.error && !kindUsage.data && !usageInitialLoading,
+  )
 
   function canManage(resource: ManagedResource) {
     return mayRequest(
@@ -224,10 +237,21 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
           kind={fixedKind as Extract<ResourceKind, "plugin" | "skill" | "agent">}
         />
       )}
+      <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {resourcesInitialLoading
+          ? "Loading resource catalog…"
+          : usageInitialLoading
+            ? "Loading resource usage…"
+            : ""}
+      </span>
 
-      <CatalogSummary
-        items={
-          fixedKind && canMonitor
+      {!resourcesFatal && !usageFatal && (
+        resourcesInitialLoading || usageInitialLoading ? (
+          <CatalogSummarySkeleton count={fixedKind && canMonitor ? 4 : 3} announce={false} />
+        ) : (
+          <CatalogSummary
+            items={
+          fixedKind && canMonitor && kindUsage.data
             ? [
                 {
                   label: "Published",
@@ -269,10 +293,12 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
                   { label: "Drafts", value: drafts, hint: "Work in progress", icon: Pencil, tone: "warning" },
                   { label: "Resource types", value: catalogKinds, hint: `${scopedResources.length} resources total`, icon: Boxes, tone: "accent" },
                 ]
-        }
-      />
+            }
+          />
+        )
+      )}
 
-      {fixedKind && canMonitor && !kindUsage.isLoading && (kindUsage.data?.totals.requests ?? 0) === 0 && (
+      {fixedKind && canMonitor && !usageInitialLoading && kindUsage.isSuccess && (kindUsage.data.totals.requests ?? 0) === 0 && (
         <div className="mb-4 flex flex-col gap-3 rounded-xl border border-(--border-card) bg-(--bg-card) px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-(--color-warning)" />
@@ -355,7 +381,9 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
         </div>
       </div>
 
-      {(resources.error || kindUsage.error) && (
+      {(resources.error || kindUsage.error) &&
+        !resourcesInitialLoading &&
+        !usageInitialLoading && (
         <ErrorState
           className="mb-4"
           message={
@@ -368,11 +396,13 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
         />
       )}
 
-      {resources.isLoading ? (
-        <TableWrap>
-          <SkeletonRows rows={5} />
-        </TableWrap>
-      ) : filtered.length === 0 ? (
+      {resourcesInitialLoading ? (
+        catalogView === "grid" ? (
+          <ResourceCatalogGridSkeleton announce={false} />
+        ) : (
+          <ResourceCatalogTableSkeleton canMonitor={canMonitor} announce={false} />
+        )
+      ) : resourcesFatal ? null : filtered.length === 0 ? (
         <EmptyState
           icon={Boxes}
           title={
@@ -404,6 +434,8 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
               key={resource.id}
               resource={resource}
               usage={usageByResource.get(resource.id)}
+              usageLoading={usageInitialLoading}
+              usageUnavailable={Boolean(kindUsage.error)}
               canManage={canManage(resource)}
               onOpen={() =>
                 void navigate({
@@ -459,7 +491,11 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
                   </TableTd>
                   {canMonitor && (
                     <TableTd>
-                      <ResourceUsageCell usage={usageByResource.get(resource.id)} />
+                      <ResourceUsageCell
+                        usage={usageByResource.get(resource.id)}
+                        loading={usageInitialLoading}
+                        unavailable={Boolean(kindUsage.error)}
+                      />
                     </TableTd>
                   )}
                   <TableTd className="text-xs text-(--color-text-muted)">
@@ -541,14 +577,131 @@ function CatalogSummary({
   )
 }
 
+function CatalogSummarySkeleton({ count, announce = true }: { count: number; announce?: boolean }) {
+  return (
+    <LoadingState
+      label="Loading catalog summary"
+      announce={announce}
+      className={cn(
+        "mb-4 grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-2",
+        count >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3",
+      )}
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <div
+          key={index}
+          className="flex min-w-0 items-start gap-3 border-b border-(--border-soft) p-4 sm:border-r"
+        >
+          <Skeleton className="size-8 shrink-0 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-6 w-14" />
+            <Skeleton className="h-2.5 w-28 max-w-full" />
+          </div>
+        </div>
+      ))}
+    </LoadingState>
+  )
+}
+
+function ResourceCatalogGridSkeleton({ announce = true }: { announce?: boolean }) {
+  return (
+    <LoadingState
+      label="Loading resource catalog"
+      announce={announce}
+      className="grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+    >
+      {Array.from({ length: 6 }, (_, index) => (
+        <article
+          key={index}
+          className="flex min-h-64 flex-col rounded-xl border border-(--border-card) bg-(--bg-card) p-4"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <Skeleton className="size-9 rounded-lg" />
+            <div className="flex gap-1.5">
+              <Skeleton className="h-5 w-14 rounded-full" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-2.5 w-1/3" />
+            <Skeleton className="mt-3 h-3 w-full" />
+            <Skeleton className="h-3 w-4/5" />
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-(--border-soft) py-3">
+            {Array.from({ length: 4 }, (_, metric) => (
+              <div key={metric} className="space-y-1.5">
+                <Skeleton className="h-2.5 w-16" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+            ))}
+          </div>
+          <div className="mt-auto flex items-center justify-between pt-3">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-7 w-16" />
+          </div>
+        </article>
+      ))}
+    </LoadingState>
+  )
+}
+
+function ResourceCatalogTableSkeleton({
+  canMonitor,
+  announce = true,
+}: {
+  canMonitor: boolean
+  announce?: boolean
+}) {
+  return (
+    <LoadingState label="Loading resource catalog" announce={announce}>
+      <TableWrap>
+        <Table>
+          <TableHead>
+            <tr>
+              <TableTh>Resource</TableTh>
+              <TableTh>Type</TableTh>
+              <TableTh>Status</TableTh>
+              <TableTh>Version</TableTh>
+              <TableTh>Access</TableTh>
+              {canMonitor && <TableTh>Usage</TableTh>}
+              <TableTh>Updated</TableTh>
+              <TableTh />
+            </tr>
+          </TableHead>
+          <TableBody>
+            {Array.from({ length: 5 }, (_, index) => (
+              <TableRow key={index}>
+                <TableTd><Skeleton className="h-8 w-36" /></TableTd>
+                <TableTd><Skeleton className="h-5 w-14 rounded-full" /></TableTd>
+                <TableTd><Skeleton className="h-5 w-16 rounded-full" /></TableTd>
+                <TableTd><Skeleton className="h-3 w-12" /></TableTd>
+                <TableTd><Skeleton className="h-3 w-16" /></TableTd>
+                {canMonitor && <TableTd><Skeleton className="h-8 w-24" /></TableTd>}
+                <TableTd><Skeleton className="h-3 w-24" /></TableTd>
+                <TableTd><Skeleton className="ml-auto size-7" /></TableTd>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableWrap>
+    </LoadingState>
+  )
+}
+
 function ResourceCatalogCard({
   resource,
   usage,
+  usageLoading,
+  usageUnavailable,
   canManage,
   onOpen,
 }: {
   resource: ManagedResource
   usage?: CatalogUsage
+  usageLoading: boolean
+  usageUnavailable: boolean
   canManage: boolean
   onOpen: () => void
 }) {
@@ -577,8 +730,22 @@ function ResourceCatalogCard({
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-(--border-soft) py-3 text-xs">
         <DefinitionTerm label="Active version" value={`v${resource.version}`} />
         <DefinitionTerm label="Channel" value={resource.release_channel ?? "Draft only"} capitalize />
-        <DefinitionTerm label="Uses" value={usage ? usage.uses.toLocaleString() : "—"} />
-        <DefinitionTerm label="Reliability" value={reliability} />
+        {usageLoading ? (
+          <CatalogUsageMetricSkeleton label="Uses" />
+        ) : (
+          <DefinitionTerm
+            label="Uses"
+            value={usageUnavailable ? "Unavailable" : usage ? usage.uses.toLocaleString() : "—"}
+          />
+        )}
+        {usageLoading ? (
+          <CatalogUsageMetricSkeleton label="Reliability" />
+        ) : (
+          <DefinitionTerm
+            label="Reliability"
+            value={usageUnavailable ? "Unavailable" : reliability}
+          />
+        )}
       </dl>
       <div className="mt-auto flex items-center justify-between gap-3 pt-3">
         <span className="inline-flex min-w-0 items-center gap-1 text-[0.68rem] capitalize text-(--color-text-subtle)">
@@ -590,6 +757,18 @@ function ResourceCatalogCard({
         </Button>
       </div>
     </article>
+  )
+}
+
+function CatalogUsageMetricSkeleton({ label }: { label: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[0.65rem] text-(--color-text-subtle)">{label}</dt>
+      <dd className="mt-1.5">
+        <span className="sr-only">Loading</span>
+        <Skeleton className="h-3 w-12" />
+      </dd>
+    </div>
   )
 }
 
@@ -610,7 +789,27 @@ function DefinitionTerm({
   )
 }
 
-function ResourceUsageCell({ usage }: { usage?: CatalogUsage }) {
+function ResourceUsageCell({
+  usage,
+  loading,
+  unavailable,
+}: {
+  usage?: CatalogUsage
+  loading: boolean
+  unavailable: boolean
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-1.5">
+        <span className="sr-only">Loading resource usage</span>
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-2.5 w-28" />
+      </div>
+    )
+  }
+  if (unavailable) {
+    return <span className="text-xs text-(--color-text-subtle)">Unavailable</span>
+  }
   if (!usage) return <span className="text-xs text-(--color-text-subtle)">Awaiting signal</span>
   const completed = usage.successes + usage.errors
   const rate = completed ? Math.round((usage.successes / completed) * 100) : null
