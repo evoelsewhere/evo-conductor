@@ -177,16 +177,26 @@ pub async fn test_app() -> TestApp {
 }
 
 pub async fn test_app_with_authorization(authorization: AuthorizationService) -> TestApp {
-    test_app_with_dependencies(authorization, None).await
+    test_app_with_dependencies(authorization, None, RealtimeConfig::default()).await
 }
 
 pub async fn test_app_with_host_metrics(host_metrics: Arc<dyn HostMetricsProvider>) -> TestApp {
-    test_app_with_dependencies(AuthorizationService::default(), Some(host_metrics)).await
+    test_app_with_dependencies(
+        AuthorizationService::default(),
+        Some(host_metrics),
+        RealtimeConfig::default(),
+    )
+    .await
+}
+
+pub async fn test_app_with_realtime_config(realtime: RealtimeConfig) -> TestApp {
+    test_app_with_dependencies(AuthorizationService::default(), None, realtime).await
 }
 
 async fn test_app_with_dependencies(
     authorization: AuthorizationService,
     host_metrics: Option<Arc<dyn HostMetricsProvider>>,
+    realtime: RealtimeConfig,
 ) -> TestApp {
     let database_url = test_database_url();
     let artifact_root = TestArtifactRoot::unique();
@@ -199,10 +209,9 @@ async fn test_app_with_dependencies(
     .await
     .expect("configure isolated test object storage");
 
-    let mut state =
-        AppState::new_with_artifact_store(&database_url, RealtimeConfig::default(), artifacts)
-            .await
-            .expect("connect test database");
+    let mut state = AppState::new_with_artifact_store(&database_url, realtime.clone(), artifacts)
+        .await
+        .expect("connect test database");
     state.authorization = authorization;
     if let Some(host_metrics) = host_metrics {
         state.set_host_metrics_provider(host_metrics);
@@ -217,7 +226,7 @@ async fn test_app_with_dependencies(
         host: TEST_BIND_HOST.into(),
         port: TEST_BIND_PORT,
         web_dist: PathBuf::from(UNUSED_WEB_DIST),
-        realtime: RealtimeConfig::default(),
+        realtime,
     };
 
     TestApp {
