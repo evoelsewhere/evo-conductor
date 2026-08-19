@@ -20,6 +20,7 @@ import type {
   ResourceUsageMember,
   ResourceUsageModel,
   ResourceUsageRole,
+  ResourceUsageScope,
   ResourceUsageTool,
 } from "@/shared/api/client"
 import { ChartCard } from "@/shared/components/chart-card"
@@ -56,9 +57,22 @@ const ROLE_CONFIG = {
 } satisfies ChartConfig
 const TOOL_CONFIG = { calls: { label: "Calls", color: "var(--chart-series-6)" } } satisfies ChartConfig
 
-export function RequestOutcomeChart({ daily }: { daily: ResourceUsageDay[] }) {
+export function RequestOutcomeChart({
+  daily,
+  scope = "governed",
+}: {
+  daily: ResourceUsageDay[]
+  scope?: ResourceUsageScope
+}) {
   return (
-    <ChartCard title="Request outcomes" description="Terminal outcomes for requests that used governed resources.">
+    <ChartCard
+      title="Request outcomes"
+      description={
+        scope === "all"
+          ? "Terminal outcomes across all project activity received from EvoFlux."
+          : "Terminal outcomes for requests that used governed resources."
+      }
+    >
       <EmptyAware hasData={daily.length > 0}>
         <ChartContainer config={OUTCOME_CONFIG} className="h-64 w-full">
           <AreaChart accessibilityLayer data={daily} margin={MARGIN}>
@@ -79,9 +93,18 @@ export function RequestOutcomeChart({ daily }: { daily: ResourceUsageDay[] }) {
   )
 }
 
-export function TokenCostChart({ daily }: { daily: ResourceUsageDay[] }) {
+export function TokenCostChart({
+  daily,
+  scope = "governed",
+}: {
+  daily: ResourceUsageDay[]
+  scope?: ResourceUsageScope
+}) {
   return (
-    <ChartCard title="Tokens & estimated cost" description="Input/output totals with priced model-call trend. Token breakdowns are already included in these totals.">
+    <ChartCard
+      title="Tokens & estimated cost"
+      description={`${scope === "all" ? "All received activity" : "Governed activity"}. Input/output totals include their token breakdowns.`}
+    >
       <EmptyAware hasData={daily.length > 0}>
         <ChartContainer config={TOKEN_COST_CONFIG} className="h-64 w-full">
           <AreaChart accessibilityLayer data={daily} margin={MARGIN}>

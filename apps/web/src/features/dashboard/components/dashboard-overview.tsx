@@ -21,6 +21,7 @@ import { formatEstimatedCost } from "@/features/resource-usage/components/resour
 import type {
   DashboardSummary,
   ResourceUsageAnalytics,
+  ResourceUsageScope,
 } from "@/shared/api/client"
 import { cn } from "@/shared/lib/utils"
 import {
@@ -34,11 +35,13 @@ import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 export function DashboardMetricGrid({
   summary,
   analytics,
+  scope,
   summaryLoading = false,
   analyticsLoading = false,
 }: {
   summary: DashboardSummary | undefined
   analytics: ResourceUsageAnalytics | undefined
+  scope: ResourceUsageScope
   summaryLoading?: boolean
   analyticsLoading?: boolean
 }) {
@@ -48,7 +51,7 @@ export function DashboardMetricGrid({
     totals?.requests,
   )
   const attributionCoverage = requestAttributionCoverage(
-    totals?.requests,
+    totals?.governed_requests,
     totals?.all_requests,
   )
   const activeStreams = summary?.realtime?.active_streams
@@ -69,10 +72,12 @@ export function DashboardMetricGrid({
       loading: summaryLoading,
     },
     {
-      label: "EvoFlux requests",
-      value: analytics ? (totals?.all_requests ?? 0).toLocaleString() : "—",
+      label: scope === "all" ? "EvoFlux requests" : "Governed requests",
+      value: analytics ? (totals?.requests ?? 0).toLocaleString() : "—",
       hint: analytics
-        ? `${(totals?.requests ?? 0).toLocaleString()} governed · ${attributionCoverage ?? 0}% attributed`
+        ? scope === "all"
+          ? `${(totals?.governed_requests ?? 0).toLocaleString()} governed · ${attributionCoverage ?? 0}% coverage`
+          : `${(totals?.all_requests ?? 0).toLocaleString()} received · ${attributionCoverage ?? 0}% coverage`
         : "Selected range unavailable",
       icon: Gauge,
       tone: analytics ? "accent" : "neutral",
@@ -115,7 +120,7 @@ export function DashboardMetricGrid({
         ? formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)
         : "—",
       hint: analytics
-        ? `${totals?.unpriced_model_calls ?? 0} unpriced calls`
+        ? `${scope === "all" ? "All received" : "Governed"} · ${totals?.unpriced_model_calls ?? 0} unpriced calls`
         : "Selected range unavailable",
       icon: CircleDollarSign,
       tone: (totals?.unpriced_model_calls ?? 0) > 0 ? "warning" : "neutral",

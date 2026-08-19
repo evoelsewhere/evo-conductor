@@ -9,6 +9,7 @@ import {
   PartialErrorPanel,
 } from "@/features/dashboard/components/dashboard-states"
 import { DashboardToolbar } from "@/features/dashboard/components/dashboard-toolbar"
+import { DashboardScopeTabs } from "@/features/dashboard/components/dashboard-scope-tabs"
 import { LiveOperations } from "@/features/dashboard/components/live-operations"
 import { MemberActivityPanel } from "@/features/dashboard/components/member-activity-panel"
 import { RoleAndWorkspace } from "@/features/dashboard/components/role-and-workspace"
@@ -30,6 +31,7 @@ export function DashboardPage() {
     canReadMemberTelemetry,
     canReadSettings,
     canReadTaxonomy,
+    changeScope,
     changeRange,
     isInitialLoading,
     isRefreshing,
@@ -38,6 +40,7 @@ export function DashboardPage() {
     rangeDays,
     refreshDashboard,
     summary,
+    scope,
     updatedAt,
   } = useDashboardData()
   const summaryLoading = useMinimumLoading(summary.isLoading && !summary.data)
@@ -87,6 +90,13 @@ export function DashboardPage() {
             />
           )}
 
+          <DashboardScopeTabs
+            value={scope}
+            totals={analytics.data?.totals}
+            loading={analyticsLoading}
+            onChange={changeScope}
+          />
+
           {!analyticsLoading && attention.length > 0 && (
             <DashboardAttentionRail
               items={attention}
@@ -97,6 +107,7 @@ export function DashboardPage() {
           <DashboardMetricGrid
             summary={summary.data}
             analytics={analytics.data}
+            scope={scope}
             summaryLoading={summaryLoading}
             analyticsLoading={analyticsLoading}
           />
@@ -108,6 +119,7 @@ export function DashboardPage() {
               isLoading={analyticsLoading}
               error={analytics.error}
               analyticsHref={overviewHref()}
+              scope={scope}
               announceLoading={false}
             />
             <LiveOperations
@@ -122,6 +134,7 @@ export function DashboardPage() {
           {canReadMemberTelemetry && (
             <MemberActivityPanel
               members={analytics.data?.members ?? []}
+              scope={scope}
               loading={analyticsLoading}
               analyticsHref={analyticsHref}
               announceLoading={false}
@@ -134,6 +147,7 @@ export function DashboardPage() {
               resources={analytics.data?.resources ?? []}
               models={analytics.data?.models ?? []}
               tools={analytics.data?.tools ?? []}
+              scope={scope}
               loading={analyticsLoading}
               analyticsHref={analyticsHref}
               announceLoading={false}
@@ -142,6 +156,7 @@ export function DashboardPage() {
               className="xl:col-span-4"
               roles={analytics.data?.roles ?? []}
               summary={summary.data}
+              scope={scope}
               loading={analyticsLoading}
               summaryLoading={summaryLoading}
               analyticsHref={analyticsHref}

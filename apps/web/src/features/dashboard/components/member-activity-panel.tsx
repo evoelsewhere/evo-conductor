@@ -3,7 +3,7 @@ import { ArrowRight, Monitor } from "lucide-react"
 import { dashboardInitials } from "@/features/dashboard/lib/dashboard-formatters"
 import { formatTokens } from "@/features/members/components/usage-formatters"
 import { formatEstimatedCost } from "@/features/resource-usage/components/resource-usage-formatters"
-import type { ResourceUsageMember } from "@/shared/api/client"
+import type { ResourceUsageMember, ResourceUsageScope } from "@/shared/api/client"
 import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { Badge } from "@/shared/ui/badge"
 import { buttonVariants } from "@/shared/ui/button"
@@ -27,11 +27,13 @@ import {
 
 export function MemberActivityPanel({
   members,
+  scope,
   loading,
   analyticsHref,
   announceLoading = true,
 }: {
   members: ResourceUsageMember[]
+  scope: ResourceUsageScope
   loading: boolean
   analyticsHref: (filters?: Record<string, string>) => string
   announceLoading?: boolean
@@ -42,14 +44,16 @@ export function MemberActivityPanel({
         <div>
           <CardTitle>Member activity</CardTitle>
           <CardDescription className="mt-0.5">
-            Admin-only, server-received activity attributed to governed resources in the selected range.
+            {scope === "all"
+              ? "Admin-only activity from every project event received from EvoFlux in this range."
+              : "Admin-only activity attributed to governed resources in this range."}
           </CardDescription>
         </div>
         <a
           href={analyticsHref()}
           className={buttonVariants({ variant: "outline", size: "sm" })}
         >
-          Inspect all activity
+          {scope === "all" ? "Open governed drill-down" : "Inspect activity"}
           <ArrowRight className="size-3.5" />
         </a>
       </CardHeader>
@@ -66,7 +70,7 @@ export function MemberActivityPanel({
                       <TableTh>Member</TableTh>
                       <TableTh>Current role</TableTh>
                       <TableTh>Clients in range</TableTh>
-                      <TableTh>Requests / uses</TableTh>
+                      <TableTh>Requests / governed uses</TableTh>
                       <TableTh>Model / tool calls</TableTh>
                       <TableTh>Tokens / estimate</TableTh>
                       <TableTh>Last received</TableTh>
@@ -79,7 +83,7 @@ export function MemberActivityPanel({
                     {members.map((member) => (
                       <TableRow key={member.user_id}>
                         <TableTd>
-                          <MemberIdentity member={member} />
+                          <MemberIdentity member={member} scope={scope} />
                         </TableTd>
                         <TableTd>
                           <Badge tone="neutral">
@@ -94,7 +98,7 @@ export function MemberActivityPanel({
                             {member.requests.toLocaleString()}
                           </strong>
                           <span className="block text-xs text-(--color-text-subtle)">
-                            {member.resource_uses.toLocaleString()} uses
+                            {member.resource_uses.toLocaleString()} governed uses
                           </span>
                         </TableTd>
                         <TableTd className="tabular-nums">
@@ -135,13 +139,13 @@ export function MemberActivityPanel({
                   className="px-4 py-3"
                 >
                   <div className="flex items-center gap-3">
-                    <MemberIdentity member={member} />
+                    <MemberIdentity member={member} scope={scope} />
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                     <MobileDatum label="Role" value={PRIMARY_ROLE_LABELS[member.primary_role]} />
                     <MobileDatum label="Clients" value={member.installations.toLocaleString()} />
                     <MobileDatum label="Requests" value={member.requests.toLocaleString()} />
-                    <MobileDatum label="Resource uses" value={member.resource_uses.toLocaleString()} />
+                    <MobileDatum label="Governed uses" value={member.resource_uses.toLocaleString()} />
                     <MobileDatum label="Model / tool" value={`${member.model_calls.toLocaleString()} / ${member.tool_calls.toLocaleString()}`} />
                     <MobileDatum label="Tokens" value={formatTokens(member.total_tokens)} />
                     <MobileDatum label="Estimated cost" value={formatEstimatedCost(member.estimated_cost_usd_micros)} />
@@ -163,7 +167,9 @@ export function MemberActivityPanel({
             <Monitor className="mx-auto size-5 text-(--color-text-subtle)" />
             <p className="mt-2 text-sm font-medium">No member activity in this range</p>
             <p className="mt-1 text-xs text-(--color-text-subtle)">
-              This table populates when an active member uses a governed resource and telemetry reaches Conductor.
+              {scope === "all"
+                ? "This table populates when member telemetry reaches Conductor."
+                : "This table populates when a member uses a governed resource and telemetry reaches Conductor."}
             </p>
           </div>
         )}
@@ -172,7 +178,13 @@ export function MemberActivityPanel({
   )
 }
 
-function MemberIdentity({ member }: { member: ResourceUsageMember }) {
+function MemberIdentity({
+  member,
+  scope,
+}: {
+  member: ResourceUsageMember
+  scope: ResourceUsageScope
+}) {
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <span className="grid size-8 shrink-0 place-items-center rounded-full bg-(--color-accent-soft) text-[0.7rem] font-semibold text-(--color-accent)">
@@ -186,7 +198,7 @@ function MemberIdentity({ member }: { member: ResourceUsageMember }) {
           {member.display_name}
         </a>
         <span className="block text-xs text-(--color-text-subtle)">
-          Governed activity
+          {scope === "all" ? "All received activity" : "Governed activity"}
         </span>
       </span>
     </div>

@@ -1,5 +1,6 @@
 import { Activity } from "lucide-react"
 
+import type { ResourceUsageScope } from "@/shared/api/client"
 import { Button, buttonVariants } from "@/shared/ui/button"
 import {
   Card,
@@ -15,19 +16,25 @@ export function TelemetryReadiness({
   hasConnections,
   allRequests,
   analyticsHref,
+  scope,
   className,
 }: {
   hasConnections: boolean
   allRequests: number
   analyticsHref: string
+  scope: ResourceUsageScope
   className?: string
 }) {
   return (
     <EmptyState
       icon={Activity}
-      title="No governed activity in this range"
+      title={scope === "all" ? "No EvoFlux activity in this range" : "No governed activity in this range"}
       description={
-        allRequests > 0
+        scope === "all"
+          ? hasConnections
+            ? "EvoFlux is connected, but Conductor has not received project telemetry in this range."
+            : "No member is connected right now. Connect EvoFlux to populate project monitoring."
+          : allRequests > 0
           ? `${allRequests.toLocaleString()} EvoFlux requests were received, but none used an Agent, Skill or Plugin governed by Conductor.`
           : hasConnections
           ? "EvoFlux is connected, but no Agent, Skill or Plugin usage was attributed during this range."
@@ -39,7 +46,7 @@ export function TelemetryReadiness({
           href={analyticsHref}
           className={buttonVariants({ variant: "outline", size: "sm" })}
         >
-          Open resource monitoring
+          Open governed resource monitoring
         </a>
       }
     />
