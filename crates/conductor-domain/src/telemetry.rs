@@ -22,6 +22,14 @@ pub enum TelemetryEventStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceUsageScope {
+    All,
+    #[default]
+    Governed,
+}
+
 impl TelemetryEventStatus {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -398,7 +406,12 @@ pub struct ResourceUsageTotals {
     /// resource-specific facets intentionally do not narrow this denominator.
     pub all_requests: u64,
     /// Distinct request identities attributed to at least one governed
-    /// resource and matching every resource-specific filter.
+    /// resource. This comparison count is returned for both scope views so
+    /// clients can explain attribution coverage without mixing aggregates.
+    pub governed_requests: u64,
+    /// Distinct request identities in the selected scope and matching every
+    /// supported filter. This equals `all_requests` for `scope=all` and the
+    /// governed subset for `scope=governed`.
     pub requests: u64,
     pub resource_uses: u64,
     pub model_calls: u64,
@@ -533,6 +546,11 @@ pub struct ResourceUsageActivityItem {
 pub struct ResourceUsageAnalytics {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
+    /// Declares whether totals, daily rows, members, models, roles and tools
+    /// represent every received project event or only governed-attributed
+    /// events. Resources and request activity are available only in the
+    /// governed view because they require a resource attribution.
+    pub scope: ResourceUsageScope,
     pub totals: ResourceUsageTotals,
     pub daily: Vec<ResourceUsageDay>,
     pub resources: Vec<ResourceUsageBreakdown>,
