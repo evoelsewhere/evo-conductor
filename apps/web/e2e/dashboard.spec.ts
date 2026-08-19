@@ -4,6 +4,7 @@ import {
   DASHBOARD_MEMBER_EMAIL,
   DASHBOARD_MEMBER_ID,
   DASHBOARD_MEMBER_NAME,
+  GOVERNED_DASHBOARD_ANALYTICS,
   installDashboardScenario,
   POPULATED_DASHBOARD_ANALYTICS,
   UNSUPPORTED_RUNTIME_DASHBOARD_SUMMARY,
@@ -31,6 +32,15 @@ test.describe("Dashboard mission control", () => {
     await expect(
       page.getByRole("button", { name: "30 days", exact: true }),
     ).toHaveAttribute("aria-pressed", "true")
+    const activityScope = page.getByRole("group", {
+      name: "Dashboard activity scope",
+    })
+    await expect(
+      activityScope.getByRole("button", { name: /All EvoFlux activity/ }),
+    ).toHaveAttribute("aria-pressed", "true")
+    await expect(
+      activityScope.getByRole("button", { name: /Governed activity/ }),
+    ).toHaveAttribute("aria-pressed", "false")
 
     const range = page.getByRole("group", { name: "Dashboard time range" })
     await range.getByRole("button", { name: "24 hours", exact: true }).click()
@@ -43,16 +53,19 @@ test.describe("Dashboard mission control", () => {
     await expect.poll(() => requests.analytics.at(-1) ?? "").toContain(
       "to=2026-08-18T01%3A30%3A00.000Z",
     )
+    await expect.poll(() => requests.analytics.at(-1) ?? "").toContain(
+      "scope=all",
+    )
     await range.getByRole("button", { name: "30 days", exact: true }).click()
 
     await expect(metric(page, "SSE streams · this node")).toContainText("11")
     await expect(metric(page, "EvoFlux requests")).toContainText("1,600")
     await expect(metric(page, "EvoFlux requests")).toContainText(
-      "1,200 governed · 75% attributed",
+      "1,200 governed · 75% coverage",
     )
     await expect(metric(page, "Success rate")).toContainText("80%")
     await expect(metric(page, "Average duration")).toContainText("1.4 s")
-    await expect(metric(page, "Estimated cost")).toContainText("$12.5")
+    await expect(metric(page, "Estimated cost")).toContainText("$16")
     await expect(metric(page, "Delivery attention")).toContainText("1")
 
     const liveOperations = cardForHeading(page, "Live operations")
@@ -80,11 +93,14 @@ test.describe("Dashboard mission control", () => {
     await expect(
       page.getByRole("heading", { name: "Usage breakdown", level: 2 }),
     ).toBeVisible()
-    for (const heading of ["Resources", "Models", "Tools"]) {
+    for (const heading of ["Models", "Tools"]) {
       await expect(
         page.getByRole("heading", { name: heading, level: 3 }),
       ).toBeVisible()
     }
+    await expect(
+      page.getByRole("heading", { name: "Resources", level: 3 }),
+    ).toHaveCount(0)
     await expect(
       page.getByRole("link", { name: DASHBOARD_MEMBER_NAME, exact: true }).first(),
     ).toBeVisible()
@@ -97,14 +113,29 @@ test.describe("Dashboard mission control", () => {
     )
     const memberRow = page.getByRole("row").filter({ hasText: DASHBOARD_MEMBER_NAME })
     await expect(memberRow).toContainText("2")
-    await expect(memberRow).toContainText("420")
-    await expect(memberRow).toContainText("560 / 315")
-    await expect(memberRow).toContainText("2.5M")
-    await expect(memberRow).toContainText("$4.70")
+    await expect(memberRow).toContainText("580")
+    await expect(memberRow).toContainText("770 / 465")
+    await expect(memberRow).toContainText("3.4M")
+    await expect(memberRow).toContainText("$6.40")
     await expect(memberRow).toContainText("Aug 18, 01:26 AM")
-    await expect(page.getByText("Research copilot", { exact: true })).toBeVisible()
     await expect(page.getByText("gpt-5", { exact: true })).toBeVisible()
     await expect(page.getByText("web.search", { exact: true })).toBeVisible()
+
+    await activityScope
+      .getByRole("button", { name: /Governed activity/ })
+      .click()
+    await expect.poll(() => requests.analytics.at(-1) ?? "").toContain(
+      "scope=governed",
+    )
+    await expect(metric(page, "Governed requests")).toContainText("1,200")
+    await expect(metric(page, "Governed requests")).toContainText(
+      "1,600 received · 75% coverage",
+    )
+    await expect(metric(page, "Estimated cost")).toContainText("$12.5")
+    await expect(
+      page.getByRole("heading", { name: "Resources", level: 3 }),
+    ).toBeVisible()
+    await expect(page.getByText("Research copilot", { exact: true })).toBeVisible()
 
     await expect(
       page.getByRole("heading", { name: "Role usage", level: 3 }),
@@ -145,10 +176,10 @@ test.describe("Dashboard mission control", () => {
       page.locator(`a[href="/app/members/${DASHBOARD_MEMBER_ID}"]`),
     ).toHaveCount(0)
 
-    for (const heading of ["Resources", "Models", "Tools", "Role usage"]) {
+    for (const heading of ["Models", "Tools", "Role usage"]) {
       await expect(page.getByRole("heading", { name: heading })).toBeVisible()
     }
-    await expect(page.getByText("Research copilot", { exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Resources" })).toHaveCount(0)
     await expect(page.getByText("Recorded at ingestion", { exact: true })).toBeVisible()
     await expect(page.getByText("Owned resources", { exact: true })).toBeVisible()
     await expect(page.getByText("Project scope", { exact: true })).toHaveCount(0)
@@ -164,6 +195,52 @@ test.describe("Dashboard mission control", () => {
       totals: {
         ...POPULATED_DASHBOARD_ANALYTICS.totals,
         all_requests: 12,
+        governed_requests: 0,
+        requests: 12,
+        resource_uses: 0,
+        model_calls: 3,
+        tool_calls: 2,
+        successes: 12,
+        errors: 0,
+        blocked: 0,
+        cancelled: 0,
+        tokens_in: 8_000,
+        tokens_out: 2_000,
+        total_tokens: 10_000,
+        estimated_cost_usd_micros: 5_000,
+        unpriced_model_calls: 0,
+        average_tokens_per_request: 0,
+        average_duration_ms: 0,
+      },
+      daily: [{
+        date: "2026-08-18",
+        requests: 12,
+        successes: 12,
+        errors: 0,
+        blocked: 0,
+        cancelled: 0,
+        tokens_in: 8_000,
+        tokens_out: 2_000,
+        cache_read_tokens: 1_000,
+        reasoning_tokens: 0,
+        tool_use_tokens: 0,
+        estimated_cost_usd_micros: 5_000,
+        unpriced_model_calls: 0,
+      }],
+      resources: [],
+      members: [],
+      models: [{ ...POPULATED_DASHBOARD_ANALYTICS.models[0], calls: 3, total_tokens: 10_000, estimated_cost_usd_micros: 5_000 }],
+      roles: [],
+      tools: [{ ...POPULATED_DASHBOARD_ANALYTICS.tools[0], calls: 2, successes: 2, errors: 0, blocked: 0, cancelled: 0 }],
+      activity: [],
+      activity_total: 0,
+    }
+    const governedAnalytics = {
+      ...GOVERNED_DASHBOARD_ANALYTICS,
+      totals: {
+        ...GOVERNED_DASHBOARD_ANALYTICS.totals,
+        all_requests: 12,
+        governed_requests: 0,
         requests: 0,
         resource_uses: 0,
         model_calls: 0,
@@ -189,14 +266,23 @@ test.describe("Dashboard mission control", () => {
       activity: [],
       activity_total: 0,
     }
-    await installDashboardScenario(page, "admin", { analytics })
+    await installDashboardScenario(page, "admin", {
+      analytics,
+      governedAnalytics,
+    })
 
     await page.goto("/app")
 
     await expect(metric(page, "EvoFlux requests")).toContainText("12")
     await expect(metric(page, "EvoFlux requests")).toContainText(
-      "0 governed · 0% attributed",
+      "0 governed · 0% coverage",
     )
+    await expect(page.getByText("gpt-5", { exact: true })).toBeVisible()
+    await expect(page.getByText("web.search", { exact: true })).toBeVisible()
+    await page
+      .getByRole("group", { name: "Dashboard activity scope" })
+      .getByRole("button", { name: /Governed activity/ })
+      .click()
     await expect(
       page.getByText("No governed activity in this range", { exact: true }),
     ).toBeVisible()
