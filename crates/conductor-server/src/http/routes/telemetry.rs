@@ -6,8 +6,9 @@ use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
     AuthorizationTarget, ConductorError, MemberActivityResponse, MemberRequestDetail,
     MemberToolsSummary, MemberUsageSummary, PrimaryRole, ResourceKind, ResourceUsageAnalytics,
-    ResponseProjection, TargetType, TelemetryBatchRequest, TelemetryBatchResponse,
-    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType, TelemetryResourceRelation,
+    ResourceUsageScope, ResponseProjection, TargetType, TelemetryBatchRequest,
+    TelemetryBatchResponse, TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
+    TelemetryResourceRelation,
 };
 use conductor_storage::repos::ResourceUsageQuery;
 use serde::Deserialize;
@@ -55,6 +56,7 @@ pub struct ResourceAnalyticsQuery {
     pub installation_id: Option<Uuid>,
     pub relation: Option<TelemetryResourceRelation>,
     pub tool_name: Option<String>,
+    pub scope: Option<ResourceUsageScope>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -305,6 +307,18 @@ pub async fn resource_usage(
     AuthUser(actor): AuthUser,
     Query(query): Query<ResourceAnalyticsQuery>,
 ) -> ApiResult<Json<ResourceUsageAnalytics>> {
+    let scope = query.scope.unwrap_or_default();
+    if scope == ResourceUsageScope::All
+        && (query.resource_kind.is_some()
+            || query.resource_id.is_some()
+            || query.version_id.is_some()
+            || query.relation.is_some())
+    {
+        return Err(ConductorError::msg(
+            "resource filters require scope=governed because ordinary activity has no resource attribution",
+        )
+        .into());
+    }
     let instance = state
         .db
         .instance()
@@ -359,6 +373,7 @@ pub async fn resource_usage(
             installation_id: query.installation_id,
             relation: query.relation,
             tool_name: query.tool_name,
+            scope,
             limit: query
                 .limit
                 .unwrap_or(DEFAULT_ACTIVITY_LIMIT)
