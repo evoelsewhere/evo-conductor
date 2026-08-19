@@ -205,6 +205,7 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
     installed_members: 7,
     pending_installations: 2,
     attention_installations: 1,
+    all_requests: 1_600,
     requests: 1_200,
     resource_uses: 1_750,
     model_calls: 1_600,

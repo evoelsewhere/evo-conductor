@@ -555,11 +555,31 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         "resources": [agent_reference, skill_reference],
         "reported_at": chrono::Utc::now().to_rfc3339()
     }));
+    let plain_request_id = Uuid::new_v4();
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": plain_request_id,
+        "session_id": "session-plain",
+        "event_type": "request",
+        "sequence": 1,
+        "agent_name": null,
+        "provider": null,
+        "model": null,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "duration_ms": 250,
+        "tool_name": null,
+        "tool_category": null,
+        "status": "success",
+        "error_category": null,
+        "resources": [],
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
     serde_json::from_value::<TelemetryBatchRequest>(batch.clone()).expect("valid telemetry batch");
 
     let (status, response) = app.post("/api/v1/telemetry/batch", Some(raw), batch).await;
     assert_eq!(status, StatusCode::OK, "{response}");
-    assert_eq!(response["accepted"], 3);
+    assert_eq!(response["accepted"], 4);
     let (status, receipt) = app
         .post(
             "/api/v1/telemetry/batch",
@@ -568,7 +588,8 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{receipt}");
-    assert_eq!(receipt["summary"]["events"], 3);
+    assert_eq!(receipt["summary"]["events"], 4);
+    assert_eq!(receipt["summary"]["requests"], 2);
     assert_eq!(receipt["summary"]["attributed_events"], 3);
     assert_eq!(receipt["summary"]["attributed_requests"], 1);
     assert_eq!(receipt["summary"]["attributed_model_calls"], 1);
@@ -579,6 +600,7 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         .get("/api/analytics/resource-usage", Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{analytics}");
+    assert_eq!(analytics["totals"]["all_requests"], 2);
     assert_eq!(analytics["totals"]["requests"], 1);
     assert_eq!(analytics["totals"]["resource_uses"], 2);
     assert_eq!(analytics["totals"]["model_calls"], 1);
@@ -619,6 +641,7 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         .get("/api/analytics/resource-usage", Some(&contributor_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{contributor_analytics}");
+    assert_eq!(contributor_analytics["totals"]["all_requests"], 2);
     assert_eq!(contributor_analytics["totals"]["requests"], 1);
     assert_eq!(
         contributor_analytics["members"].as_array().map(Vec::len),
@@ -671,6 +694,7 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{filtered}");
+    assert_eq!(filtered["totals"]["all_requests"], 1);
     assert_eq!(filtered["totals"]["requests"], 1);
     assert_eq!(filtered["totals"]["successes"], 1);
     assert_eq!(filtered["totals"]["model_calls"], 1);
@@ -791,6 +815,7 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         .get("/api/analytics/resource-usage", Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{two_member_analytics}");
+    assert_eq!(two_member_analytics["totals"]["all_requests"], 3);
     let user_role = two_member_analytics["roles"]
         .as_array()
         .expect("role rows")

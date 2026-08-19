@@ -5,6 +5,7 @@ import {
   DASHBOARD_MEMBER_ID,
   DASHBOARD_MEMBER_NAME,
   installDashboardScenario,
+  POPULATED_DASHBOARD_ANALYTICS,
   UNSUPPORTED_RUNTIME_DASHBOARD_SUMMARY,
 } from "./fixtures/dashboard"
 
@@ -45,7 +46,10 @@ test.describe("Dashboard mission control", () => {
     await range.getByRole("button", { name: "30 days", exact: true }).click()
 
     await expect(metric(page, "SSE streams · this node")).toContainText("11")
-    await expect(metric(page, "Governed requests")).toContainText("1,200")
+    await expect(metric(page, "EvoFlux requests")).toContainText("1,600")
+    await expect(metric(page, "EvoFlux requests")).toContainText(
+      "1,200 governed · 75% attributed",
+    )
     await expect(metric(page, "Success rate")).toContainText("80%")
     await expect(metric(page, "Average duration")).toContainText("1.4 s")
     await expect(metric(page, "Estimated cost")).toContainText("$12.5")
@@ -150,6 +154,57 @@ test.describe("Dashboard mission control", () => {
     await expect(page.getByText("Project scope", { exact: true })).toHaveCount(0)
     expect(requests.pendingCount).toBe(0)
     expect(requests.unexpected).toEqual([])
+  })
+
+  test("shows ordinary EvoFlux requests when none used governed resources", async ({
+    page,
+  }) => {
+    const analytics = {
+      ...POPULATED_DASHBOARD_ANALYTICS,
+      totals: {
+        ...POPULATED_DASHBOARD_ANALYTICS.totals,
+        all_requests: 12,
+        requests: 0,
+        resource_uses: 0,
+        model_calls: 0,
+        tool_calls: 0,
+        successes: 0,
+        errors: 0,
+        blocked: 0,
+        cancelled: 0,
+        tokens_in: 0,
+        tokens_out: 0,
+        total_tokens: 0,
+        estimated_cost_usd_micros: 0,
+        unpriced_model_calls: 0,
+        average_tokens_per_request: 0,
+        average_duration_ms: 0,
+      },
+      daily: [],
+      resources: [],
+      members: [],
+      models: [],
+      roles: [],
+      tools: [],
+      activity: [],
+      activity_total: 0,
+    }
+    await installDashboardScenario(page, "admin", { analytics })
+
+    await page.goto("/app")
+
+    await expect(metric(page, "EvoFlux requests")).toContainText("12")
+    await expect(metric(page, "EvoFlux requests")).toContainText(
+      "0 governed · 0% attributed",
+    )
+    await expect(
+      page.getByText("No governed activity in this range", { exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByText(
+        "12 EvoFlux requests were received, but none used an Agent, Skill or Plugin governed by Conductor.",
+      ),
+    ).toBeVisible()
   })
 
   test("redirects User away before Dashboard queries run", async ({ page }) => {

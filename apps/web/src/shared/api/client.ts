@@ -201,6 +201,7 @@ export interface ResourceUsageTotals {
   installed_members: number
   pending_installations: number
   attention_installations: number
+  all_requests: number
   requests: number
   resource_uses: number
   model_calls: number

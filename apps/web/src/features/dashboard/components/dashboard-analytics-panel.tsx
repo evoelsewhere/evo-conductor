@@ -51,6 +51,7 @@ export function DashboardAnalyticsPanel({
               summary?.members_online ??
               0) > 0
           }
+          allRequests={analytics?.totals.all_requests ?? 0}
           analyticsHref={analyticsHref}
         />
       )}

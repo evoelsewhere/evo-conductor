@@ -156,6 +156,7 @@ function analyticsFixture(
       installed_members: 0,
       pending_installations: 0,
       attention_installations: 0,
+      all_requests: 0,
       requests: 0,
       resource_uses: 0,
       model_calls: 0,

@@ -392,6 +392,13 @@ pub struct ResourceUsageTotals {
     pub installed_members: u64,
     pub pending_installations: u64,
     pub attention_installations: u64,
+    /// Distinct EvoFlux request identities received in the selected range,
+    /// whether or not a governed resource was attributed to them. Project,
+    /// member, role, installation, outcome, model and tool facets apply;
+    /// resource-specific facets intentionally do not narrow this denominator.
+    pub all_requests: u64,
+    /// Distinct request identities attributed to at least one governed
+    /// resource and matching every resource-specific filter.
     pub requests: u64,
     pub resource_uses: u64,
     pub model_calls: u64,

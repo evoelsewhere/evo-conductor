@@ -35,7 +35,7 @@ test.describe("Loading skeletons", () => {
       await expect(
         page.getByRole("heading", { name: "No governed activity in this range" }),
       ).toHaveCount(0)
-      await expect(page.getByText("Governed requests", { exact: true })).toHaveCount(0)
+      await expect(page.getByText("EvoFlux requests", { exact: true })).toHaveCount(0)
 
       const animationName = await loading
         .locator("[data-slot='skeleton']")
@@ -60,8 +60,8 @@ test.describe("Loading skeletons", () => {
       summary.resolve()
       analytics.resolve()
       await expect(loading).toHaveCount(0)
-      await expect(page.getByText("Governed requests", { exact: true })).toBeVisible()
-      await expect(page.getByText("1,200", { exact: true }).first()).toBeVisible()
+      await expect(page.getByText("EvoFlux requests", { exact: true })).toBeVisible()
+      await expect(page.getByText("1,600", { exact: true }).first()).toBeVisible()
     } finally {
       summary.resolve()
       analytics.resolve()
@@ -115,11 +115,11 @@ test.describe("Loading skeletons", () => {
       await page.clock.runFor(0)
       await page.clock.runFor(999)
       await expect(loading).toBeVisible()
-      await expect(page.getByText("Governed requests", { exact: true })).toHaveCount(0)
+      await expect(page.getByText("EvoFlux requests", { exact: true })).toHaveCount(0)
 
       await page.clock.runFor(1)
       await expect(loading).toHaveCount(0)
-      await expect(page.getByText("Governed requests", { exact: true })).toBeVisible()
+      await expect(page.getByText("EvoFlux requests", { exact: true })).toBeVisible()
     } finally {
       summary.resolve()
       analytics.resolve()
@@ -156,7 +156,7 @@ test.describe("Loading skeletons", () => {
       await page.clock.runFor(0)
 
       await expect(loading).toHaveCount(0, { timeout: 1_000 })
-      await expect(page.getByText("Governed requests", { exact: true })).toBeVisible()
+      await expect(page.getByText("EvoFlux requests", { exact: true })).toBeVisible()
     } finally {
       summary.resolve()
       analytics.resolve()
@@ -220,8 +220,8 @@ test.describe("Loading skeletons", () => {
     await page.goto("/app")
     await Promise.all([initialSummary, initialAnalytics])
     await page.clock.runFor(1_000)
-    await expect(page.getByText("Governed requests", { exact: true })).toBeVisible()
-    await expect(page.getByText("1,200", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("EvoFlux requests", { exact: true })).toBeVisible()
+    await expect(page.getByText("1,600", { exact: true }).first()).toBeVisible()
 
     const summary = deferred()
     const analytics = deferred()
@@ -249,11 +249,11 @@ test.describe("Loading skeletons", () => {
       await Promise.all([summaryRequest, analyticsRequest])
 
       await expect(page.getByText("Updating…", { exact: true })).toBeVisible()
-      await expect(page.getByText("1,200", { exact: true }).first()).toBeVisible()
+      await expect(page.getByText("1,600", { exact: true }).first()).toBeVisible()
       await expect(page.locator("[data-slot='loading-state']")).toHaveCount(0)
 
       await page.clock.runFor(1_250)
-      await expect(page.getByText("1,200", { exact: true }).first()).toBeVisible()
+      await expect(page.getByText("1,600", { exact: true }).first()).toBeVisible()
       await expect(page.locator("[data-slot='loading-state']")).toHaveCount(0)
 
       const summaryResponse = page.waitForResponse(/\/api\/dashboard$/)
@@ -301,7 +301,7 @@ test.describe("Loading skeletons", () => {
       await expectLoadingScreenshot(page, "dashboard-loading-mobile.png")
       summary.resolve()
       analytics.resolve()
-      await expect(page.getByText("Governed requests", { exact: true })).toBeVisible()
+      await expect(page.getByText("EvoFlux requests", { exact: true })).toBeVisible()
       const frameAfter = await page.locator("#main-content").boundingBox()
       expect(frameAfter?.x).toBe(frameBefore?.x)
       expect(frameAfter?.width).toBe(frameBefore?.width)

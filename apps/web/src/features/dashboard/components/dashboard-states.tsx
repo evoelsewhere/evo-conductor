@@ -13,10 +13,12 @@ import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function TelemetryReadiness({
   hasConnections,
+  allRequests,
   analyticsHref,
   className,
 }: {
   hasConnections: boolean
+  allRequests: number
   analyticsHref: string
   className?: string
 }) {
@@ -25,7 +27,9 @@ export function TelemetryReadiness({
       icon={Activity}
       title="No governed activity in this range"
       description={
-        hasConnections
+        allRequests > 0
+          ? `${allRequests.toLocaleString()} EvoFlux requests were received, but none used an Agent, Skill or Plugin governed by Conductor.`
+          : hasConnections
           ? "EvoFlux is connected, but no Agent, Skill or Plugin usage was attributed during this range."
           : "No member is connected right now. Connect EvoFlux and use a governed resource to populate monitoring."
       }

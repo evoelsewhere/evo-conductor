@@ -112,15 +112,20 @@ impl ResourceUsageRepo {
         // usage and makes project analytics disagree with member receipts.
         let total_tokens = tokens_in.saturating_add(tokens_out);
         let duration_ms = n(row.get("duration_ms"));
-        let inventory = self.inventory_totals(query).await?;
+        let (inventory, resource_uses, all_requests) = tokio::try_join!(
+            self.inventory_totals(query),
+            self.resource_use_count(query),
+            self.all_request_count(query),
+        )?;
         Ok(ResourceUsageTotals {
             reported_installations: inventory.reported_installations,
             installed_installations: inventory.installed_installations,
             installed_members: inventory.installed_members,
             pending_installations: inventory.pending_installations,
             attention_installations: inventory.attention_installations,
+            all_requests,
             requests,
-            resource_uses: self.resource_use_count(query).await?,
+            resource_uses,
             model_calls: n(row.get("model_calls")),
             tool_calls: n(row.get("tool_calls")),
             successes: n(row.get("successes")),
@@ -138,6 +143,19 @@ impl ResourceUsageRepo {
             average_tokens_per_request: total_tokens.checked_div(requests).unwrap_or_default(),
             average_duration_ms: duration_ms.checked_div(requests).unwrap_or_default(),
         })
+    }
+
+    async fn all_request_count(&self, query: &ResourceUsageQuery) -> Result<u64, sqlx::Error> {
+        let request_identity = request_identity_sql(self.kind, "e");
+        let mut builder = QueryBuilder::<Any>::new(format!(
+            "SELECT COUNT(DISTINCT ({request_identity})) AS requests"
+        ));
+        push_received_events(&mut builder, query);
+        Ok(n(builder
+            .build()
+            .fetch_one(&self.pool)
+            .await?
+            .get("requests")))
     }
 
     async fn resource_use_count(&self, query: &ResourceUsageQuery) -> Result<u64, sqlx::Error> {
@@ -611,25 +629,7 @@ fn push_filtered_from(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsage
 }
 
 fn push_filtered_events(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsageQuery) {
-    builder.push(" FROM telemetry_events e JOIN users u ON u.id=e.user_id WHERE e.project_id=");
-    builder.push_bind(query.project_id.to_string());
-    builder.push(" AND e.received_at>=");
-    builder.push_bind(query.from.to_rfc3339());
-    builder.push(" AND e.received_at<=");
-    builder.push_bind(query.to.to_rfc3339());
-    if let Some(v) = query.user_id {
-        builder.push(" AND e.user_id=");
-        builder.push_bind(v.to_string());
-    }
-    if let Some(v) = query.primary_role {
-        builder.push(" AND e.primary_role_snapshot=");
-        builder.push_bind(v.as_str());
-    }
-    if let Some(v) = query.installation_id {
-        builder.push(" AND e.installation_id=");
-        builder.push_bind(v.to_string());
-    }
-    push_request_event_filters(builder, query);
+    push_received_events(builder, query);
     builder.push(
         " AND EXISTS (SELECT 1 FROM telemetry_resource_attributions a \
          JOIN resources r ON r.id=a.resource_id \
@@ -652,6 +652,28 @@ fn push_filtered_events(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsa
         builder.push_bind(v.as_str());
     }
     builder.push(")");
+}
+
+fn push_received_events(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsageQuery) {
+    builder.push(" FROM telemetry_events e JOIN users u ON u.id=e.user_id WHERE e.project_id=");
+    builder.push_bind(query.project_id.to_string());
+    builder.push(" AND e.received_at>=");
+    builder.push_bind(query.from.to_rfc3339());
+    builder.push(" AND e.received_at<=");
+    builder.push_bind(query.to.to_rfc3339());
+    if let Some(v) = query.user_id {
+        builder.push(" AND e.user_id=");
+        builder.push_bind(v.to_string());
+    }
+    if let Some(v) = query.primary_role {
+        builder.push(" AND e.primary_role_snapshot=");
+        builder.push_bind(v.as_str());
+    }
+    if let Some(v) = query.installation_id {
+        builder.push(" AND e.installation_id=");
+        builder.push_bind(v.to_string());
+    }
+    push_request_event_filters(builder, query);
 }
 
 fn push_request_event_filters(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsageQuery) {

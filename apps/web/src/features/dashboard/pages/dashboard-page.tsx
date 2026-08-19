@@ -48,8 +48,8 @@ export function DashboardPage() {
       title="Dashboard"
       subtitle={
         summary.data
-          ? `${summary.data.project_name} · Current project health and server-received activity attributed to governed resources.`
-          : "Current project health and server-received activity attributed to governed resources."
+          ? `${summary.data.project_name} · Current project health, received EvoFlux requests and governed-resource coverage.`
+          : "Current project health, received EvoFlux requests and governed-resource coverage."
       }
       className="max-w-[100rem]"
       action={

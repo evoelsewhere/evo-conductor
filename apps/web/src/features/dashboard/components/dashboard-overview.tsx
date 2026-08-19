@@ -23,7 +23,10 @@ import type {
   ResourceUsageAnalytics,
 } from "@/shared/api/client"
 import { cn } from "@/shared/lib/utils"
-import { terminalRequestSuccessRate } from "@/shared/lib/telemetry-metrics"
+import {
+  requestAttributionCoverage,
+  terminalRequestSuccessRate,
+} from "@/shared/lib/telemetry-metrics"
 import { StatusDot } from "@/shared/ui/badge"
 import { Card } from "@/shared/ui/card"
 import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
@@ -44,6 +47,10 @@ export function DashboardMetricGrid({
     totals?.successes,
     totals?.requests,
   )
+  const attributionCoverage = requestAttributionCoverage(
+    totals?.requests,
+    totals?.all_requests,
+  )
   const activeStreams = summary?.realtime?.active_streams
   const activeOwners = summary?.realtime?.active_owners
   const attention = totals?.attention_installations ?? 0
@@ -62,10 +69,10 @@ export function DashboardMetricGrid({
       loading: summaryLoading,
     },
     {
-      label: "Governed requests",
-      value: analytics ? (totals?.requests ?? 0).toLocaleString() : "—",
+      label: "EvoFlux requests",
+      value: analytics ? (totals?.all_requests ?? 0).toLocaleString() : "—",
       hint: analytics
-        ? `${(totals?.resource_uses ?? 0).toLocaleString()} resource uses`
+        ? `${(totals?.requests ?? 0).toLocaleString()} governed · ${attributionCoverage ?? 0}% attributed`
         : "Selected range unavailable",
       icon: Gauge,
       tone: analytics ? "accent" : "neutral",
