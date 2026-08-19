@@ -3,6 +3,7 @@ import test from "node:test"
 
 import {
   buildDashboardAttention,
+  DASHBOARD_QUERY_KEYS,
   dashboardAnalyticsHref,
   dashboardResourceTotal,
   dashboardUpdatedAt,
@@ -96,6 +97,22 @@ test("buildDashboardAttention stays empty without actionable conditions", () => 
   assert.deepEqual(buildDashboardAttention(analyticsFixture(), 0), [])
 })
 
+test("buildDashboardAttention labels the selected activity scope", () => {
+  const allActivity = analyticsFixture({ errors: 2, blocked: 1 })
+  allActivity.scope = "all"
+  assert.deepEqual(
+    buildDashboardAttention(allActivity).map((item) => item.label),
+    ["2 project requests failed", "1 project request was blocked"],
+  )
+})
+
+test("Dashboard analytics cache keys isolate all and governed scopes", () => {
+  assert.notDeepEqual(
+    DASHBOARD_QUERY_KEYS.analytics("admin", "all", "from", "to"),
+    DASHBOARD_QUERY_KEYS.analytics("admin", "governed", "from", "to"),
+  )
+})
+
 test("hasDashboardTelemetry distinguishes empty and populated telemetry", () => {
   assert.equal(hasDashboardTelemetry(analyticsFixture()), false)
   assert.equal(
@@ -150,6 +167,7 @@ function analyticsFixture(
   return {
     from: "2026-05-20T00:00:00Z",
     to: "2026-08-18T00:00:00Z",
+    scope: "governed",
     totals: {
       reported_installations: 0,
       installed_installations: 0,
@@ -157,6 +175,7 @@ function analyticsFixture(
       pending_installations: 0,
       attention_installations: 0,
       all_requests: 0,
+      governed_requests: 0,
       requests: 0,
       resource_uses: 0,
       model_calls: 0,

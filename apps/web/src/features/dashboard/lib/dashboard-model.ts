@@ -1,6 +1,7 @@
 import type {
   DashboardSummary,
   ResourceUsageAnalytics,
+  ResourceUsageScope,
 } from "@/shared/api/client"
 import type { UsageRangePreset } from "@/shared/constants/telemetry"
 
@@ -8,9 +9,10 @@ export const DASHBOARD_QUERY_KEYS = {
   summary: ["dashboard", "summary"] as const,
   analytics: (
     role: string | undefined,
+    scope: ResourceUsageScope,
     from: string | undefined,
     to: string | undefined,
-  ) => ["dashboard", "analytics", role, from, to] as const,
+  ) => ["dashboard", "analytics", role, scope, from, to] as const,
 } as const
 
 export type DashboardAttentionTone = "danger" | "warning" | "info"
@@ -48,6 +50,9 @@ export function buildDashboardAttention(
   pendingMembers = 0,
 ) {
   const totals = analytics?.totals
+  const scopeLabel = analytics?.scope === "all" ? "project" : "governed"
+  const errors = totals?.errors ?? 0
+  const blocked = totals?.blocked ?? 0
   const items: DashboardAttentionItem[] = []
 
   if ((totals?.attention_installations ?? 0) > 0) {
@@ -58,20 +63,20 @@ export function buildDashboardAttention(
       detail: "Review desired and observed delivery state.",
     })
   }
-  if ((totals?.errors ?? 0) > 0) {
+  if (errors > 0) {
     items.push({
       id: "errors",
       tone: "danger",
-      label: `${formatCount(totals?.errors ?? 0)} governed requests failed`,
+      label: `${formatCount(errors)} ${scopeLabel} ${errors === 1 ? "request" : "requests"} failed`,
       detail: "Inspect sanitized request outcomes in Analytics.",
       filter: { status: "error" },
     })
   }
-  if ((totals?.blocked ?? 0) > 0) {
+  if (blocked > 0) {
     items.push({
       id: "blocked",
       tone: "warning",
-      label: `${formatCount(totals?.blocked ?? 0)} governed requests were blocked`,
+      label: `${formatCount(blocked)} ${scopeLabel} ${blocked === 1 ? "request was" : "requests were"} blocked`,
       detail: "Review policy and tool outcomes for this range.",
       filter: { status: "blocked" },
     })
