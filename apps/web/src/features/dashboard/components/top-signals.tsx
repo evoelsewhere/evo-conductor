@@ -1,16 +1,10 @@
-import { Link } from "@tanstack/react-router"
 import { Activity, ArrowRight, Boxes } from "lucide-react"
 import type { ReactNode } from "react"
 
 import { DASHBOARD_TOP_SIGNAL_LIMIT } from "@/features/dashboard/lib/dashboard-config"
-import { dashboardInitials } from "@/features/dashboard/lib/dashboard-formatters"
-import {
-  formatDuration,
-  formatTokens,
-} from "@/features/members/components/usage-formatters"
+import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
 import type {
   ResourceUsageBreakdown,
-  ResourceUsageMember,
   ResourceUsageModel,
   ResourceUsageTool,
 } from "@/shared/api/client"
@@ -28,21 +22,17 @@ import {
 import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function TopSignals({
-  members,
   resources,
   models,
   tools,
-  showMembers,
   loading,
   analyticsHref,
   className,
   announceLoading = true,
 }: {
-  members: ResourceUsageMember[]
   resources: ResourceUsageBreakdown[]
   models: ResourceUsageModel[]
   tools: ResourceUsageTool[]
-  showMembers: boolean
   loading: boolean
   analyticsHref: (filters?: Record<string, string>) => string
   className?: string
@@ -52,7 +42,7 @@ export function TopSignals({
     <Card className={className}>
       <CardHeader>
         <div>
-          <CardTitle>Top signals</CardTitle>
+          <CardTitle>Usage breakdown</CardTitle>
           <CardDescription className="mt-0.5">
             Operational volume for the selected range, not a performance score.
           </CardDescription>
@@ -66,31 +56,20 @@ export function TopSignals({
         </a>
       </CardHeader>
       <CardContent
-        className={cn(
-          "grid gap-5",
-          showMembers
-            ? "sm:grid-cols-2 2xl:grid-cols-4"
-            : "sm:grid-cols-2 2xl:grid-cols-3",
-        )}
+        className="grid gap-5 sm:grid-cols-2 2xl:grid-cols-3"
       >
         {loading ? (
           <LoadingState
             label="Loading top signals"
             announce={announceLoading}
-            className={cn(
-              "col-span-full grid gap-5",
-              showMembers
-                ? "sm:grid-cols-2 2xl:grid-cols-4"
-                : "sm:grid-cols-2 2xl:grid-cols-3",
-            )}
+            className="col-span-full grid gap-5 sm:grid-cols-2 2xl:grid-cols-3"
           >
-            {Array.from({ length: showMembers ? 4 : 3 }, (_, index) => (
+            {Array.from({ length: 3 }, (_, index) => (
               <SignalSkeleton key={index} />
             ))}
           </LoadingState>
         ) : (
           <>
-            {showMembers && <MemberSignals items={members} />}
             <ResourceSignals items={resources} analyticsHref={analyticsHref} />
             <ModelSignals items={models} analyticsHref={analyticsHref} />
             <ToolSignals items={tools} analyticsHref={analyticsHref} />
@@ -109,45 +88,6 @@ function SignalSkeleton() {
       <Skeleton className="h-9 w-full" />
       <Skeleton className="h-9 w-full" />
     </div>
-  )
-}
-
-function MemberSignals({ items }: { items: ResourceUsageMember[] }) {
-  return (
-    <SignalSection
-      id="dashboard-members"
-      title="Top members"
-      description="By governed requests"
-      empty="No member activity"
-      hasItems={items.length > 0}
-    >
-      {items.slice(0, DASHBOARD_TOP_SIGNAL_LIMIT).map((item) => (
-        <Link
-          key={item.user_id}
-          to="/app/members/$userId"
-          params={{ userId: item.user_id }}
-          className="group flex items-center gap-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring)/35"
-        >
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-(--color-accent-soft) text-[0.68rem] font-semibold text-(--color-accent)">
-            {dashboardInitials(item.display_name)}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium">
-              {item.display_name}
-            </span>
-            <span className="block text-[0.68rem] text-(--color-text-subtle)">
-              {item.resource_uses.toLocaleString()} resource uses
-            </span>
-          </span>
-          <span className="text-right text-xs font-semibold tabular-nums">
-            {item.requests.toLocaleString()}
-            <span className="block text-[0.62rem] font-normal text-(--color-text-subtle)">
-              requests
-            </span>
-          </span>
-        </Link>
-      ))}
-    </SignalSection>
   )
 }
 

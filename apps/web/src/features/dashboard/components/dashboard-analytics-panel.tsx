@@ -30,7 +30,7 @@ export function DashboardAnalyticsPanel({
   announceLoading?: boolean
 }) {
   return (
-    <div className="min-w-0 xl:col-span-7">
+    <div className="min-w-0 xl:col-span-8">
       {isLoading ? (
         <ChartSkeletons announce={announceLoading} />
       ) : analytics && hasDashboardTelemetry(analytics) ? (

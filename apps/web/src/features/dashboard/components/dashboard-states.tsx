@@ -1,6 +1,5 @@
 import { Activity } from "lucide-react"
 
-import { StatCardGridSkeleton } from "@/shared/components/stat-card"
 import { Button, buttonVariants } from "@/shared/ui/button"
 import {
   Card,
@@ -135,16 +134,25 @@ export function PartialErrorPanel({
 export function DashboardSkeleton() {
   return (
     <LoadingState label="Loading dashboard" className="grid gap-4">
-      <StatCardGridSkeleton
-        count={6}
-        className="lg:grid-cols-3 2xl:grid-cols-6"
-      />
+      <div className="grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="border-b border-r border-(--border-soft) px-4 py-3">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-2 h-7 w-20" />
+            <Skeleton className="mt-1.5 h-3 w-32 max-w-full" />
+          </div>
+        ))}
+        <div className="col-span-full border-t border-(--border-soft) px-4 py-2.5">
+          <Skeleton className="h-3 w-4/5 max-w-xl" />
+        </div>
+      </div>
       <div className="grid items-start gap-4 xl:grid-cols-12">
-        <div className="min-w-0 xl:col-span-7" style={{ alignSelf: "start" }}>
+        <div className="min-w-0 xl:col-span-8" style={{ alignSelf: "start" }}>
           <DashboardPanelSkeleton variant="chart" />
         </div>
-        <DashboardPanelSkeleton className="xl:col-span-5" variant="operations" />
+        <DashboardPanelSkeleton className="xl:col-span-4" variant="operations" />
       </div>
+      <DashboardPanelSkeleton variant="member" />
       <div className="grid items-start gap-4 xl:grid-cols-12">
         <div className="min-w-0 xl:col-span-8" style={{ alignSelf: "start" }}>
           <DashboardPanelSkeleton variant="signals" />
@@ -195,7 +203,7 @@ function DashboardPanelSkeleton({
   variant,
 }: {
   className?: string
-  variant: "chart" | "operations" | "signals" | "workspace"
+  variant: "chart" | "operations" | "member" | "signals" | "workspace"
 }) {
   if (variant === "chart") {
     return (
@@ -209,7 +217,14 @@ function DashboardPanelSkeleton({
     )
   }
 
-  const rows = variant === "operations" ? 7 : variant === "signals" ? 4 : 6
+  const rows =
+    variant === "operations"
+      ? 7
+      : variant === "member"
+        ? 3
+        : variant === "signals"
+          ? 4
+          : 6
   return (
     <div
       data-dashboard-skeleton-panel={variant}

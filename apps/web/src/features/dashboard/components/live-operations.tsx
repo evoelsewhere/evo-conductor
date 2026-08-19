@@ -1,13 +1,9 @@
-import { Boxes, Cpu, Gauge, Server, Users, Wifi, type LucideIcon } from "lucide-react"
+import { Server, Users, Wifi, type LucideIcon } from "lucide-react"
 
 import {
-  formatBytePair,
   formatOptionalCount,
-  formatOptionalPercent,
   formatThreshold,
   formatTimestamp,
-  normalizePercent,
-  percentOf,
 } from "@/features/dashboard/lib/dashboard-formatters"
 import type {
   DashboardSummary,
@@ -48,10 +44,7 @@ export function LiveOperations({
 
   const presence = summary?.presence
   const realtime = summary?.realtime
-  const host = summary?.host_metrics
   const totals = analytics?.totals
-  const memoryPercent = percentOf(host?.memory_used_bytes, host?.memory_total_bytes)
-  const vramPercent = percentOf(host?.vram_used_bytes, host?.vram_total_bytes)
 
   return (
     <Card className={className}>
@@ -59,7 +52,7 @@ export function LiveOperations({
         <div>
           <CardTitle>Live operations</CardTitle>
           <CardDescription className="mt-0.5">
-            Presence, this-node SSE streams and Conductor host sampling.
+            Recent member presence, this-node streams and delivery state.
           </CardDescription>
         </div>
         <Badge tone="accent">Current state</Badge>
@@ -76,7 +69,7 @@ export function LiveOperations({
                 : "Not reported"}
             </Badge>
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
+          <dl className="mt-2 grid grid-cols-2 overflow-hidden rounded-lg border border-(--border-soft) sm:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
             <LiveDatum
               label="Members seen recently"
               value={formatOptionalCount(presence?.members_seen_recently)}
@@ -99,62 +92,11 @@ export function LiveOperations({
               hint="This node"
               icon={Users}
             />
-          </div>
+          </dl>
           <p className="mt-2 text-[0.65rem] text-(--color-text-subtle)">
             {presence
               ? `Presence observed ${formatTimestamp(presence.observed_at)}. SSE scope is this Conductor node.`
               : "Presence is unavailable with the current project snapshot."}
-          </p>
-        </section>
-
-        <section
-          aria-labelledby="dashboard-host-metrics"
-          className="border-t border-(--border-soft) pt-4"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <h3 id="dashboard-host-metrics" className="text-xs font-semibold">
-              Conductor host
-            </h3>
-            <Badge>
-              {host?.scope === "conductor_host" ? "Host scope" : "Not reported"}
-            </Badge>
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-            <MetricMeter
-              label="CPU"
-              value={host?.cpu_usage_percent}
-              display={formatOptionalPercent(host?.cpu_usage_percent)}
-              icon={Cpu}
-            />
-            <MetricMeter
-              label="Memory"
-              value={memoryPercent}
-              display={formatBytePair(
-                host?.memory_used_bytes,
-                host?.memory_total_bytes,
-              )}
-              icon={Server}
-            />
-            <MetricMeter
-              label="GPU"
-              value={host?.gpu_usage_percent}
-              display={formatOptionalPercent(host?.gpu_usage_percent)}
-              icon={Gauge}
-            />
-            <MetricMeter
-              label="VRAM"
-              value={vramPercent}
-              display={formatBytePair(
-                host?.vram_used_bytes,
-                host?.vram_total_bytes,
-              )}
-              icon={Boxes}
-            />
-          </div>
-          <p className="mt-2 text-[0.65rem] text-(--color-text-subtle)">
-            {host
-              ? `Sampled ${formatTimestamp(host.sampled_at)} · Conductor host, not EvoFlux client hardware.`
-              : "Host metrics are unavailable with the current project snapshot."}
           </p>
         </section>
 
@@ -165,7 +107,7 @@ export function LiveOperations({
           <h3 id="dashboard-delivery-state" className="text-xs font-semibold">
             Resource delivery state
           </h3>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <dl className="mt-2 grid grid-cols-3 divide-x divide-(--border-soft) border-y border-(--border-soft)">
             <CompactDatum
               label="Installed clients"
               value={formatOptionalCount(totals?.installed_installations)}
@@ -181,7 +123,7 @@ export function LiveOperations({
               value={formatOptionalCount(totals?.attention_installations)}
               tone="danger"
             />
-          </div>
+          </dl>
         </section>
       </CardContent>
     </Card>
@@ -222,24 +164,6 @@ export function LiveOperationsSkeleton({
             </div>
           </div>
           <div className="border-t border-(--border-soft) pt-4">
-            <div className="flex items-center justify-between gap-2">
-              <Skeleton className="h-3 w-24" />
-              <Skeleton className="h-5 w-16" />
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              {Array.from({ length: 4 }, (_, index) => (
-                <div key={index}>
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="size-3.5" />
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="ml-auto h-3 w-12" />
-                  </div>
-                  <Skeleton className="mt-2 h-1.5 w-full rounded-full" />
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="border-t border-(--border-soft) pt-4">
             <Skeleton className="h-3 w-32" />
             <div className="mt-2 grid grid-cols-3 gap-2">
               {Array.from({ length: 3 }, (_, index) => (
@@ -268,7 +192,7 @@ function LiveDatum({
   icon: LucideIcon
 }) {
   return (
-    <div className="rounded-lg border border-(--border-soft) bg-(--bg-key)/25 p-2.5">
+    <div className="border-r border-b border-(--border-soft) px-3 py-2.5 last:border-r-0 sm:border-b-0 xl:border-b 2xl:border-b-0">
       <div className="flex items-center justify-between gap-2 text-(--color-text-subtle)">
         <span className="truncate text-[0.65rem]">{label}</span>
         <Icon className="size-3 shrink-0" />
@@ -276,53 +200,6 @@ function LiveDatum({
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
       {hint && (
         <div className="text-[0.62rem] text-(--color-text-subtle)">{hint}</div>
-      )}
-    </div>
-  )
-}
-
-function MetricMeter({
-  label,
-  value,
-  display,
-  icon: Icon,
-}: {
-  label: string
-  value: number | null | undefined
-  display: string
-  icon: LucideIcon
-}) {
-  const normalized = normalizePercent(value)
-  return (
-    <div>
-      <div className="flex items-center gap-2 text-xs">
-        <Icon className="size-3.5 text-(--color-text-subtle)" />
-        <span className="min-w-0 flex-1 text-(--color-text-muted)">{label}</span>
-        <span className="shrink-0 font-medium tabular-nums">{display}</span>
-      </div>
-      {normalized == null ? (
-        <div className="mt-1.5 h-1.5 rounded-full bg-(--bg-key)" />
-      ) : (
-        <div
-          role="progressbar"
-          aria-label={`${label} usage`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={normalized}
-          className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-(--bg-key)"
-        >
-          <div
-            className={cn(
-              "h-full rounded-full",
-              normalized >= 90
-                ? "bg-(--color-error)"
-                : normalized >= 75
-                  ? "bg-(--color-warning)"
-                  : "bg-(--color-accent)",
-            )}
-            style={{ width: `${normalized}%` }}
-          />
-        </div>
       )}
     </div>
   )
@@ -338,8 +215,8 @@ function CompactDatum({
   tone: "success" | "warning" | "danger"
 }) {
   return (
-    <div className="rounded-lg border border-(--border-soft) px-2 py-2 text-center">
-      <div
+    <div className="px-2 py-2 text-center">
+      <dd
         className={cn(
           "text-lg font-semibold tabular-nums",
           tone === "success" && "text-(--color-success)",
@@ -348,10 +225,10 @@ function CompactDatum({
         )}
       >
         {value}
-      </div>
-      <div className="text-[0.62rem] leading-tight text-(--color-text-subtle)">
+      </dd>
+      <dt className="text-[0.62rem] leading-tight text-(--color-text-subtle)">
         {label}
-      </div>
+      </dt>
     </div>
   )
 }

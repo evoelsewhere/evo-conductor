@@ -60,9 +60,9 @@ export function RoleAndWorkspace({
     <Card className={className}>
       <CardHeader>
         <div>
-          <CardTitle>Role & workspace</CardTitle>
+          <CardTitle>Project context</CardTitle>
           <CardDescription className="mt-0.5">
-            Aggregate role usage, feedback and current project state.
+            Recorded role usage, feedback, project facts and destinations.
           </CardDescription>
         </div>
       </CardHeader>

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import {
   DASHBOARD_MEMBER_EMAIL,
@@ -34,7 +34,7 @@ test.describe("Dashboard mission control", () => {
     await expect(metric(page, "SSE streams · this node")).toContainText("11")
     await expect(metric(page, "Governed requests")).toContainText("1,200")
     await expect(metric(page, "Success rate")).toContainText("80%")
-    await expect(metric(page, "Average request duration")).toContainText("1.4 s")
+    await expect(metric(page, "Average duration")).toContainText("1.4 s")
     await expect(metric(page, "Estimated cost")).toContainText("$12.5")
     await expect(metric(page, "Delivery attention")).toContainText("1")
 
@@ -45,35 +45,46 @@ test.describe("Dashboard mission control", () => {
     await expect(
       liveOperations.getByText("Clients seen recently", { exact: true }),
     ).toBeVisible()
-    await expect(liveOperations.getByText("CPU", { exact: true })).toBeVisible()
-    await expect(liveOperations.getByText("Memory", { exact: true })).toBeVisible()
-    await expect(liveOperations.getByText("GPU", { exact: true })).toBeVisible()
-    await expect(liveOperations.getByText("VRAM", { exact: true })).toBeVisible()
+    const operationalSummary = page.getByRole("region", {
+      name: "Operational summary",
+    })
+    for (const label of ["CPU", "Memory", "GPU", "VRAM"]) {
+      await expect(hostMetric(operationalSummary, label)).toBeVisible()
+    }
+    await expect(operationalSummary).toContainText("37.4%")
+    await expect(operationalSummary).toContainText("8 GB / 16 GB")
     await expect(
-      liveOperations.getByRole("progressbar", { name: "CPU usage" }),
-    ).toHaveAttribute("aria-valuenow", "37.4")
-    await expect(
-      liveOperations.getByRole("progressbar", { name: "Memory usage" }),
-    ).toHaveAttribute("aria-valuenow", "50")
-    await expect(
-      liveOperations.getByRole("progressbar", { name: "GPU usage" }),
-    ).toHaveCount(0)
-    await expect(
-      liveOperations.getByRole("progressbar", { name: "VRAM usage" }),
-    ).toHaveCount(0)
-    await expect(
-      liveOperations.getByText("Not reported", { exact: true }),
+      operationalSummary.getByText("Not reported", { exact: true }),
     ).toHaveCount(2)
 
     await expect(
-      page.getByRole("heading", { name: "Top signals", level: 2 }),
+      page.getByRole("heading", { name: "Member activity", level: 2 }),
     ).toBeVisible()
-    for (const heading of ["Top members", "Resources", "Models", "Tools"]) {
+    await expect(
+      page.getByRole("heading", { name: "Usage breakdown", level: 2 }),
+    ).toBeVisible()
+    for (const heading of ["Resources", "Models", "Tools"]) {
       await expect(
         page.getByRole("heading", { name: heading, level: 3 }),
       ).toBeVisible()
     }
-    await expect(page.getByText(DASHBOARD_MEMBER_NAME, { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole("link", { name: DASHBOARD_MEMBER_NAME, exact: true }).first(),
+    ).toBeVisible()
+    const memberActivity = page.getByRole("link", {
+      name: `Inspect governed activity for ${DASHBOARD_MEMBER_NAME}`,
+    })
+    await expect(memberActivity).toHaveAttribute(
+      "href",
+      new RegExp(`member_id=${DASHBOARD_MEMBER_ID}`),
+    )
+    const memberRow = page.getByRole("row").filter({ hasText: DASHBOARD_MEMBER_NAME })
+    await expect(memberRow).toContainText("2")
+    await expect(memberRow).toContainText("420")
+    await expect(memberRow).toContainText("560 / 315")
+    await expect(memberRow).toContainText("2.5M")
+    await expect(memberRow).toContainText("$4.70")
+    await expect(memberRow).toContainText("Aug 18, 01:26 AM")
     await expect(page.getByText("Research copilot", { exact: true })).toBeVisible()
     await expect(page.getByText("gpt-5", { exact: true })).toBeVisible()
     await expect(page.getByText("web.search", { exact: true })).toBeVisible()
@@ -105,7 +116,7 @@ test.describe("Dashboard mission control", () => {
       page.getByRole("heading", { name: "Dashboard", level: 1 }),
     ).toBeVisible()
     await expect(
-      page.getByRole("heading", { name: "Top members", level: 3 }),
+      page.getByRole("heading", { name: "Member activity", level: 2 }),
     ).toHaveCount(0)
     await expect(
       page.getByText(DASHBOARD_MEMBER_NAME, { exact: true }),
@@ -157,17 +168,17 @@ test.describe("Dashboard mission control", () => {
 
     await page.goto("/app")
 
-    const liveOperations = cardForHeading(page, "Live operations")
-    await expect(liveOperations).toBeVisible()
+    const operationalSummary = page.getByRole("region", {
+      name: "Operational summary",
+    })
     for (const label of ["CPU", "Memory", "GPU", "VRAM"]) {
-      await expect(liveOperations.getByText(label, { exact: true })).toBeVisible()
+      await expect(hostMetric(operationalSummary, label)).toBeVisible()
     }
     await expect(
-      liveOperations.getByText("Not reported", { exact: true }),
+      operationalSummary.getByText("Not reported", { exact: true }),
     ).toHaveCount(4)
-    await expect(liveOperations.getByRole("progressbar")).toHaveCount(0)
-    await expect(liveOperations.getByText("0%", { exact: true })).toHaveCount(0)
-    await expect(liveOperations.getByText(/0\s*(?:B|KB|MB|GB)/, { exact: true })).toHaveCount(0)
+    await expect(operationalSummary.getByText("0%", { exact: true })).toHaveCount(0)
+    await expect(operationalSummary.getByText(/0\s*(?:B|KB|MB|GB)/, { exact: true })).toHaveCount(0)
   })
 
   test("keeps the populated Dashboard usable at mobile width", async ({ page }) => {
@@ -191,10 +202,10 @@ test.describe("Dashboard mission control", () => {
       page.getByRole("heading", { name: "Live operations", level: 2 }),
     ).toBeVisible()
     await expect(
-      page.getByRole("heading", { name: "Top signals", level: 2 }),
+      page.getByRole("heading", { name: "Usage breakdown", level: 2 }),
     ).toBeVisible()
     await expect(
-      page.getByRole("heading", { name: "Role & workspace", level: 2 }),
+      page.getByRole("heading", { name: "Project context", level: 2 }),
     ).toBeVisible()
     await expect
       .poll(() =>
@@ -222,7 +233,11 @@ test.describe("Dashboard mission control", () => {
 })
 
 function metric(page: Page, label: string) {
-  return page.getByText(label, { exact: true }).first().locator("../..")
+  return page.locator(`[data-dashboard-metric="${label}"]`)
+}
+
+function hostMetric(scope: Locator, label: string) {
+  return scope.locator(`[data-dashboard-host-metric="${label}"]`)
 }
 
 function cardForHeading(page: Page, heading: string) {

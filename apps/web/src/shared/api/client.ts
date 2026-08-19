@@ -263,8 +263,12 @@ export interface ResourceUsageMember {
   primary_role: PrimaryRole
   requests: number
   resource_uses: number
+  model_calls: number
+  tool_calls: number
+  installations: number
   total_tokens: number
   estimated_cost_usd_micros: number
+  last_received_at: string
 }
 
 export interface ResourceUsageModel {

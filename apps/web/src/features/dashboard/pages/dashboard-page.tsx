@@ -10,6 +10,7 @@ import {
 } from "@/features/dashboard/components/dashboard-states"
 import { DashboardToolbar } from "@/features/dashboard/components/dashboard-toolbar"
 import { LiveOperations } from "@/features/dashboard/components/live-operations"
+import { MemberActivityPanel } from "@/features/dashboard/components/member-activity-panel"
 import { RoleAndWorkspace } from "@/features/dashboard/components/role-and-workspace"
 import { TopSignals } from "@/features/dashboard/components/top-signals"
 import { useDashboardData } from "@/features/dashboard/hooks/use-dashboard-data"
@@ -47,8 +48,8 @@ export function DashboardPage() {
       title="Dashboard"
       subtitle={
         summary.data
-          ? `${summary.data.project_name} · Current project health and selected-range governed activity.`
-          : "Current project health and selected-range governed activity."
+          ? `${summary.data.project_name} · Current project health and server-received activity attributed to governed resources.`
+          : "Current project health and server-received activity attributed to governed resources."
       }
       className="max-w-[100rem]"
       action={
@@ -110,7 +111,7 @@ export function DashboardPage() {
               announceLoading={false}
             />
             <LiveOperations
-              className="xl:col-span-5"
+              className="xl:col-span-4"
               summary={summary.data}
               analytics={analytics.data}
               loading={summaryLoading}
@@ -118,14 +119,21 @@ export function DashboardPage() {
             />
           </div>
 
+          {canReadMemberTelemetry && (
+            <MemberActivityPanel
+              members={analytics.data?.members ?? []}
+              loading={analyticsLoading}
+              analyticsHref={analyticsHref}
+              announceLoading={false}
+            />
+          )}
+
           <div className="grid items-start gap-4 xl:grid-cols-12">
             <TopSignals
               className="xl:col-span-8"
-              members={analytics.data?.members ?? []}
               resources={analytics.data?.resources ?? []}
               models={analytics.data?.models ?? []}
               tools={analytics.data?.tools ?? []}
-              showMembers={canReadMemberTelemetry}
               loading={analyticsLoading}
               analyticsHref={analyticsHref}
               announceLoading={false}
