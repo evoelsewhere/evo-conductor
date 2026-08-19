@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use conductor_domain::{
     PrimaryRole, ResourceInventoryObservedState, ResourceKind, ResourceUsageActivityItem,
     ResourceUsageAnalytics, ResourceUsageBreakdown, ResourceUsageDay, ResourceUsageMember,
-    ResourceUsageModel, ResourceUsageRole, ResourceUsageTool, ResourceUsageTotals,
-    TelemetryEventStatus, TelemetryResourceRelation, TelemetryToolCategory,
+    ResourceUsageModel, ResourceUsageRole, ResourceUsageScope, ResourceUsageTool,
+    ResourceUsageTotals, TelemetryEventStatus, TelemetryResourceRelation, TelemetryToolCategory,
     UNKNOWN_TELEMETRY_LABEL,
 };
 use sqlx::{Any, Pool, QueryBuilder, Row};
@@ -30,6 +30,7 @@ pub struct ResourceUsageQuery {
     pub installation_id: Option<Uuid>,
     pub relation: Option<TelemetryResourceRelation>,
     pub tool_name: Option<String>,
+    pub scope: ResourceUsageScope,
     pub limit: u32,
     pub offset: u32,
 }
@@ -52,20 +53,35 @@ impl ResourceUsageRepo {
         // These panels are independent read models. Running them concurrently
         // keeps a rich dashboard from paying the sum of eight query latencies,
         // while the pool still provides a hard concurrency bound per process.
+        let resources = async {
+            if query.scope == ResourceUsageScope::Governed {
+                self.resources(query).await
+            } else {
+                Ok(Vec::new())
+            }
+        };
+        let activity_page = async {
+            if query.scope == ResourceUsageScope::Governed {
+                self.activity(query).await
+            } else {
+                Ok((Vec::new(), 0))
+            }
+        };
         let (totals, daily, resources, members, models, roles, tools, activity_page) = tokio::try_join!(
             self.totals(query),
             self.daily(query),
-            self.resources(query),
+            resources,
             self.members(query),
             self.models(query),
             self.roles(query),
             self.tools(query),
-            self.activity(query),
+            activity_page,
         )?;
         let (activity, activity_total) = activity_page;
         Ok(ResourceUsageAnalytics {
             from: query.from,
             to: query.to,
+            scope: query.scope,
             totals,
             daily,
             resources,
@@ -99,7 +115,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='request' THEN e.duration_ms ELSE 0 END),0) AS duration_ms "#,
         ));
-        push_filtered_events(&mut builder, query);
+        push_scoped_events(&mut builder, query);
         let row = builder.build().fetch_one(&self.pool).await?;
         let requests = n(row.get("requests"));
         let tokens_in = n(row.get("tokens_in"));
@@ -112,11 +128,19 @@ impl ResourceUsageRepo {
         // usage and makes project analytics disagree with member receipts.
         let total_tokens = tokens_in.saturating_add(tokens_out);
         let duration_ms = n(row.get("duration_ms"));
-        let (inventory, resource_uses, all_requests) = tokio::try_join!(
+        let comparison_scope = match query.scope {
+            ResourceUsageScope::All => ResourceUsageScope::Governed,
+            ResourceUsageScope::Governed => ResourceUsageScope::All,
+        };
+        let (inventory, resource_uses, comparison_requests) = tokio::try_join!(
             self.inventory_totals(query),
             self.resource_use_count(query),
-            self.all_request_count(query),
+            self.request_count(query, comparison_scope),
         )?;
+        let (all_requests, governed_requests) = match query.scope {
+            ResourceUsageScope::All => (requests, comparison_requests),
+            ResourceUsageScope::Governed => (comparison_requests, requests),
+        };
         Ok(ResourceUsageTotals {
             reported_installations: inventory.reported_installations,
             installed_installations: inventory.installed_installations,
@@ -124,6 +148,7 @@ impl ResourceUsageRepo {
             pending_installations: inventory.pending_installations,
             attention_installations: inventory.attention_installations,
             all_requests,
+            governed_requests,
             requests,
             resource_uses,
             model_calls: n(row.get("model_calls")),
@@ -145,12 +170,16 @@ impl ResourceUsageRepo {
         })
     }
 
-    async fn all_request_count(&self, query: &ResourceUsageQuery) -> Result<u64, sqlx::Error> {
+    async fn request_count(
+        &self,
+        query: &ResourceUsageQuery,
+        scope: ResourceUsageScope,
+    ) -> Result<u64, sqlx::Error> {
         let request_identity = request_identity_sql(self.kind, "e");
         let mut builder = QueryBuilder::<Any>::new(format!(
             "SELECT COUNT(DISTINCT ({request_identity})) AS requests"
         ));
-        push_received_events(&mut builder, query);
+        push_events_for_scope(&mut builder, query, scope);
         Ok(n(builder
             .build()
             .fetch_one(&self.pool)
@@ -188,7 +217,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls "#,
         ));
-        push_filtered_events(&mut builder, query);
+        push_scoped_events(&mut builder, query);
         builder.push(" GROUP BY SUBSTR(e.received_at,1,10) ORDER BY date");
         Ok(builder
             .build()
@@ -278,7 +307,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
               MAX(e.received_at) AS last_received_at "#,
         ));
-        push_filtered_events(&mut builder, query);
+        push_scoped_events(&mut builder, query);
         builder.push(" GROUP BY e.user_id,u.display_name,u.email,u.primary_role ORDER BY requests DESC,u.display_name LIMIT 25");
         Ok(builder
             .build()
@@ -319,7 +348,7 @@ impl ResourceUsageRepo {
         builder.push(r#") AS model,COUNT(*) AS calls,COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
           COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
           COALESCE(SUM(CASE WHEN e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_calls "#);
-        push_filtered_events(&mut builder, query);
+        push_scoped_events(&mut builder, query);
         builder.push(" AND e.event_type='model_call' GROUP BY e.provider,e.model ORDER BY calls DESC LIMIT 20");
         Ok(builder
             .build()
@@ -350,7 +379,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros "#,
         ));
-        push_filtered_events(&mut builder, query);
+        push_scoped_events(&mut builder, query);
         builder.push(
             " GROUP BY COALESCE(e.primary_role_snapshot,u.primary_role) ORDER BY requests DESC",
         );
@@ -391,7 +420,7 @@ impl ResourceUsageRepo {
               CAST(COALESCE(AVG(e.duration_ms),0) AS BIGINT) AS average_duration_ms,
               MAX(e.received_at) AS last_used_at "#,
         );
-        push_filtered_events(&mut builder, query);
+        push_scoped_events(&mut builder, query);
         builder.push(" AND e.event_type='tool_call' GROUP BY e.tool_name,e.tool_category ORDER BY calls DESC LIMIT 25");
         Ok(builder
             .build()
@@ -626,6 +655,21 @@ fn push_filtered_from(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsage
         builder.push_bind(v.as_str());
     }
     push_request_event_filters(builder, query);
+}
+
+fn push_scoped_events(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsageQuery) {
+    push_events_for_scope(builder, query, query.scope);
+}
+
+fn push_events_for_scope(
+    builder: &mut QueryBuilder<'_, Any>,
+    query: &ResourceUsageQuery,
+    scope: ResourceUsageScope,
+) {
+    match scope {
+        ResourceUsageScope::All => push_received_events(builder, query),
+        ResourceUsageScope::Governed => push_filtered_events(builder, query),
+    }
 }
 
 fn push_filtered_events(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsageQuery) {
