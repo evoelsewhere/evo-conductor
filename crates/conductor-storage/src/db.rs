@@ -120,7 +120,7 @@ impl Db {
     }
 
     pub fn resource_usage(&self) -> ResourceUsageRepo {
-        ResourceUsageRepo::new(self.pool.clone())
+        ResourceUsageRepo::new(self.pool.clone(), self.kind)
     }
 }
 

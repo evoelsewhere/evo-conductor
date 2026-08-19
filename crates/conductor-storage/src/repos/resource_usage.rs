@@ -11,6 +11,7 @@ use conductor_domain::{
 use sqlx::{Any, Pool, QueryBuilder, Row};
 use uuid::Uuid;
 
+use crate::core::dialect::DatabaseKind;
 use crate::core::mapping::parse_dt;
 
 #[derive(Debug, Clone)]
@@ -36,11 +37,12 @@ pub struct ResourceUsageQuery {
 #[derive(Clone)]
 pub struct ResourceUsageRepo {
     pool: Pool<Any>,
+    kind: DatabaseKind,
 }
 
 impl ResourceUsageRepo {
-    pub fn new(pool: Pool<Any>) -> Self {
-        Self { pool }
+    pub fn new(pool: Pool<Any>, kind: DatabaseKind) -> Self {
+        Self { pool, kind }
     }
 
     pub async fn analytics(
@@ -79,14 +81,15 @@ impl ResourceUsageRepo {
     }
 
     async fn totals(&self, query: &ResourceUsageQuery) -> Result<ResourceUsageTotals, sqlx::Error> {
-        let mut builder = QueryBuilder::<Any>::new(
-            r#"SELECT COUNT(DISTINCT (e.user_id || ':' || e.request_id)) AS requests,
+        let request_identity = request_identity_sql(self.kind, "e");
+        let mut builder = QueryBuilder::<Any>::new(format!(
+            r#"SELECT COUNT(DISTINCT ({request_identity})) AS requests,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='success' THEN e.user_id || ':' || e.request_id END) AS successes,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='error' THEN e.user_id || ':' || e.request_id END) AS errors,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='blocked' THEN e.user_id || ':' || e.request_id END) AS blocked,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='cancelled' THEN e.user_id || ':' || e.request_id END) AS cancelled,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='success' THEN {request_identity} END) AS successes,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='error' THEN {request_identity} END) AS errors,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='blocked' THEN {request_identity} END) AS blocked,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='cancelled' THEN {request_identity} END) AS cancelled,
               COALESCE(SUM(e.tokens_in),0) AS tokens_in,
               COALESCE(SUM(e.tokens_out),0) AS tokens_out,
               COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
@@ -95,7 +98,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='request' THEN e.duration_ms ELSE 0 END),0) AS duration_ms "#,
-        );
+        ));
         push_filtered_events(&mut builder, query);
         let row = builder.build().fetch_one(&self.pool).await?;
         let requests = n(row.get("requests"));
@@ -104,11 +107,10 @@ impl ResourceUsageRepo {
         let cache_read_tokens = n(row.get("cache_read_tokens"));
         let reasoning_tokens = n(row.get("reasoning_tokens"));
         let tool_use_tokens = n(row.get("tool_use_tokens"));
-        let total_tokens = tokens_in
-            .saturating_add(tokens_out)
-            .saturating_add(cache_read_tokens)
-            .saturating_add(reasoning_tokens)
-            .saturating_add(tool_use_tokens);
+        // Cache-read, reasoning and tool-use counters are provider breakdowns
+        // already included in input/output totals. Adding them again inflates
+        // usage and makes project analytics disagree with member receipts.
+        let total_tokens = tokens_in.saturating_add(tokens_out);
         let duration_ms = n(row.get("duration_ms"));
         let inventory = self.inventory_totals(query).await?;
         Ok(ResourceUsageTotals {
@@ -153,20 +155,21 @@ impl ResourceUsageRepo {
         &self,
         query: &ResourceUsageQuery,
     ) -> Result<Vec<ResourceUsageDay>, sqlx::Error> {
-        let mut builder = QueryBuilder::<Any>::new(
+        let request_identity = request_identity_sql(self.kind, "e");
+        let mut builder = QueryBuilder::<Any>::new(format!(
             r#"SELECT SUBSTR(e.received_at,1,10) AS date,
-              COUNT(DISTINCT (e.user_id || ':' || e.request_id)) AS requests,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='success' THEN e.user_id || ':' || e.request_id END) AS successes,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='error' THEN e.user_id || ':' || e.request_id END) AS errors,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='blocked' THEN e.user_id || ':' || e.request_id END) AS blocked,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='cancelled' THEN e.user_id || ':' || e.request_id END) AS cancelled,
+              COUNT(DISTINCT ({request_identity})) AS requests,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='success' THEN {request_identity} END) AS successes,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='error' THEN {request_identity} END) AS errors,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='blocked' THEN {request_identity} END) AS blocked,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='cancelled' THEN {request_identity} END) AS cancelled,
               COALESCE(SUM(e.tokens_in),0) AS tokens_in,COALESCE(SUM(e.tokens_out),0) AS tokens_out,
               COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
               COALESCE(SUM(e.reasoning_tokens),0) AS reasoning_tokens,
               COALESCE(SUM(e.tool_use_tokens),0) AS tool_use_tokens,
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls "#,
-        );
+        ));
         push_filtered_events(&mut builder, query);
         builder.push(" GROUP BY SUBSTR(e.received_at,1,10) ORDER BY date");
         Ok(builder
@@ -196,18 +199,19 @@ impl ResourceUsageRepo {
         &self,
         query: &ResourceUsageQuery,
     ) -> Result<Vec<ResourceUsageBreakdown>, sqlx::Error> {
-        let mut builder = QueryBuilder::<Any>::new(
+        let request_identity = request_identity_sql(self.kind, "e");
+        let mut builder = QueryBuilder::<Any>::new(format!(
             r#"SELECT a.resource_id,a.version_id,r.kind,r.name,rv.version,a.relation,
-              COUNT(DISTINCT (e.user_id || ':' || e.request_id)) AS uses,COUNT(DISTINCT e.user_id) AS members,
-              COUNT(DISTINCT (e.user_id || ':' || e.request_id)) AS requests,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='success' THEN e.user_id || ':' || e.request_id END) AS successes,
-              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='error' THEN e.user_id || ':' || e.request_id END) AS errors,
+              COUNT(DISTINCT ({request_identity})) AS uses,COUNT(DISTINCT e.user_id) AS members,
+              COUNT(DISTINCT ({request_identity})) AS requests,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='success' THEN {request_identity} END) AS successes,
+              COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='error' THEN {request_identity} END) AS errors,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
-              COALESCE(SUM(e.tokens_in+e.tokens_out+e.cache_read_tokens+e.reasoning_tokens+e.tool_use_tokens),0) AS total_tokens,
+              COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
               MAX(e.received_at) AS last_used_at "#,
-        );
+        ));
         push_filtered_from(&mut builder, query);
         builder.push(" GROUP BY a.resource_id,a.version_id,r.kind,r.name,rv.version,a.relation ORDER BY uses DESC,r.name LIMIT 25");
         Ok(builder
@@ -245,12 +249,17 @@ impl ResourceUsageRepo {
         query: &ResourceUsageQuery,
     ) -> Result<Vec<ResourceUsageMember>, sqlx::Error> {
         let resource_uses = self.member_resource_uses(query).await?;
-        let mut builder = QueryBuilder::<Any>::new(
-            r#"SELECT e.user_id,u.display_name,u.email,COALESCE(MAX(e.primary_role_snapshot),u.primary_role) AS primary_role,
-              COUNT(DISTINCT (e.user_id || ':' || e.request_id)) AS requests,
-              COALESCE(SUM(e.tokens_in+e.tokens_out+e.cache_read_tokens+e.reasoning_tokens+e.tool_use_tokens),0) AS total_tokens,
-              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros "#,
-        );
+        let request_identity = request_identity_sql(self.kind, "e");
+        let mut builder = QueryBuilder::<Any>::new(format!(
+            r#"SELECT e.user_id,u.display_name,u.email,u.primary_role,
+              COUNT(DISTINCT ({request_identity})) AS requests,
+              COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
+              COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
+              COUNT(DISTINCT e.installation_id) AS installations,
+              COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
+              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
+              MAX(e.received_at) AS last_received_at "#,
+        ));
         push_filtered_events(&mut builder, query);
         builder.push(" GROUP BY e.user_id,u.display_name,u.email,u.primary_role ORDER BY requests DESC,u.display_name LIMIT 25");
         Ok(builder
@@ -270,8 +279,12 @@ impl ResourceUsageRepo {
                     )?,
                     requests,
                     resource_uses: resource_uses.get(&user_id).copied().unwrap_or_default(),
+                    model_calls: n(row.get("model_calls")),
+                    tool_calls: n(row.get("tool_calls")),
+                    installations: n(row.get("installations")),
                     total_tokens: n(row.get("total_tokens")),
                     estimated_cost_usd_micros: n(row.get("cost_micros")),
+                    last_received_at: parse_dt(row.get("last_received_at")),
                 })
             })
             .collect())
@@ -285,7 +298,7 @@ impl ResourceUsageRepo {
         builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
         builder.push(") AS provider,COALESCE(e.model,");
         builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
-        builder.push(r#") AS model,COUNT(*) AS calls,COALESCE(SUM(e.tokens_in+e.tokens_out+e.cache_read_tokens+e.reasoning_tokens+e.tool_use_tokens),0) AS total_tokens,
+        builder.push(r#") AS model,COUNT(*) AS calls,COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
           COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
           COALESCE(SUM(CASE WHEN e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_calls "#);
         push_filtered_events(&mut builder, query);
@@ -310,14 +323,15 @@ impl ResourceUsageRepo {
         &self,
         query: &ResourceUsageQuery,
     ) -> Result<Vec<ResourceUsageRole>, sqlx::Error> {
-        let mut builder = QueryBuilder::<Any>::new(
+        let request_identity = request_identity_sql(self.kind, "e");
+        let mut builder = QueryBuilder::<Any>::new(format!(
             r#"SELECT COALESCE(e.primary_role_snapshot,u.primary_role) AS primary_role,
-              COUNT(DISTINCT e.request_id) AS requests,
+              COUNT(DISTINCT ({request_identity})) AS requests,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
-              COALESCE(SUM(e.tokens_in+e.tokens_out+e.cache_read_tokens+e.reasoning_tokens+e.tool_use_tokens),0) AS total_tokens,
+              COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros "#,
-        );
+        ));
         push_filtered_events(&mut builder, query);
         builder.push(
             " GROUP BY COALESCE(e.primary_role_snapshot,u.primary_role) ORDER BY requests DESC",
@@ -459,7 +473,7 @@ impl ResourceUsageRepo {
               MAX(e.provider) AS provider,MAX(e.model) AS model,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
-              COALESCE(SUM(e.tokens_in+e.tokens_out+e.cache_read_tokens+e.reasoning_tokens+e.tool_use_tokens),0) AS total_tokens,
+              COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(MAX(CASE WHEN e.event_type='request' THEN e.duration_ms END),
@@ -690,4 +704,33 @@ fn uuid(value: String) -> Option<Uuid> {
 }
 fn n(value: i64) -> u64 {
     value.max(0) as u64
+}
+
+fn request_identity_sql(kind: DatabaseKind, alias: &str) -> String {
+    match kind {
+        DatabaseKind::Mysql => format!("CONCAT({alias}.user_id, ':', {alias}.request_id)"),
+        DatabaseKind::Postgres | DatabaseKind::Sqlite => {
+            format!("{alias}.user_id || ':' || {alias}.request_id")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_identity_sql;
+    use crate::core::dialect::DatabaseKind;
+
+    #[test]
+    fn request_identity_uses_native_concatenation() {
+        assert_eq!(
+            request_identity_sql(DatabaseKind::Mysql, "e"),
+            "CONCAT(e.user_id, ':', e.request_id)"
+        );
+        for kind in [DatabaseKind::Postgres, DatabaseKind::Sqlite] {
+            assert_eq!(
+                request_identity_sql(kind, "event"),
+                "event.user_id || ':' || event.request_id"
+            );
+        }
+    }
 }

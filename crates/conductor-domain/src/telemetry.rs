@@ -209,6 +209,30 @@ pub struct TelemetryBatchRequest {
 pub struct TelemetryBatchResponse {
     pub accepted: u32,
     pub duplicates: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<TelemetryDeliverySummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryDeliverySummary {
+    pub installation_id: Uuid,
+    pub window_days: u16,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub events: u64,
+    pub requests: u64,
+    pub model_calls: u64,
+    pub tool_calls: u64,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub estimated_cost_usd_micros: u64,
+    pub unpriced_model_calls: u64,
+    pub attributed_events: u64,
+    pub attributed_requests: u64,
+    pub attributed_model_calls: u64,
+    pub attributed_tool_calls: u64,
+    pub attributed_estimated_cost_usd_micros: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,8 +457,12 @@ pub struct ResourceUsageMember {
     pub primary_role: PrimaryRole,
     pub requests: u64,
     pub resource_uses: u64,
+    pub model_calls: u64,
+    pub tool_calls: u64,
+    pub installations: u64,
     pub total_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    pub last_received_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

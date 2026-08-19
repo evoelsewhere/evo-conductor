@@ -45,9 +45,6 @@ const OUTCOME_CONFIG = {
 const TOKEN_COST_CONFIG = {
   tokens_in: { label: "Input", color: "var(--chart-series-1)" },
   tokens_out: { label: "Output", color: "var(--chart-series-2)" },
-  cache_read_tokens: { label: "Cache read", color: "var(--chart-series-3)" },
-  reasoning_tokens: { label: "Reasoning", color: "var(--chart-series-4)" },
-  tool_use_tokens: { label: "Tool use", color: "var(--chart-series-6)" },
   estimated_cost_usd_micros: { label: "Estimated cost", color: "var(--chart-series-5)" },
 } satisfies ChartConfig
 const RESOURCE_CONFIG = { uses: { label: "Uses", color: "var(--chart-series-1)" } } satisfies ChartConfig
@@ -84,7 +81,7 @@ export function RequestOutcomeChart({ daily }: { daily: ResourceUsageDay[] }) {
 
 export function TokenCostChart({ daily }: { daily: ResourceUsageDay[] }) {
   return (
-    <ChartCard title="Tokens & estimated cost" description="Input/output volume with priced model-call trend.">
+    <ChartCard title="Tokens & estimated cost" description="Input/output totals with priced model-call trend. Token breakdowns are already included in these totals.">
       <EmptyAware hasData={daily.length > 0}>
         <ChartContainer config={TOKEN_COST_CONFIG} className="h-64 w-full">
           <AreaChart accessibilityLayer data={daily} margin={MARGIN}>
@@ -95,9 +92,6 @@ export function TokenCostChart({ daily }: { daily: ResourceUsageDay[] }) {
             <ChartTooltip content={<ChartTooltipContent config={TOKEN_COST_CONFIG} />} />
             <Area yAxisId="tokens" type="monotone" dataKey="tokens_in" stackId="tokens" fill="var(--chart-series-1)" fillOpacity={0.22} stroke="var(--chart-series-1)" />
             <Area yAxisId="tokens" type="monotone" dataKey="tokens_out" stackId="tokens" fill="var(--chart-series-2)" fillOpacity={0.2} stroke="var(--chart-series-2)" />
-            <Area yAxisId="tokens" type="monotone" dataKey="cache_read_tokens" stackId="tokens" fill="var(--chart-series-3)" fillOpacity={0.18} stroke="var(--chart-series-3)" />
-            <Area yAxisId="tokens" type="monotone" dataKey="reasoning_tokens" stackId="tokens" fill="var(--chart-series-4)" fillOpacity={0.18} stroke="var(--chart-series-4)" />
-            <Area yAxisId="tokens" type="monotone" dataKey="tool_use_tokens" stackId="tokens" fill="var(--chart-series-6)" fillOpacity={0.18} stroke="var(--chart-series-6)" />
             <Line yAxisId="cost" type="monotone" dataKey="estimated_cost_usd_micros" stroke="var(--chart-series-5)" strokeWidth={2} dot={false} />
           </AreaChart>
         </ChartContainer>

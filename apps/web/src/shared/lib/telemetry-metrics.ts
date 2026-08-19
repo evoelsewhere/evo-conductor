@@ -12,3 +12,14 @@ export function terminalRequestSuccessRate(
   if (!requests) return null
   return Math.round(((successes ?? 0) / requests) * 100)
 }
+
+/**
+ * Provider total usage is input plus output. Cache-read, reasoning and tool-use
+ * values are diagnostic subsets of those totals and must not be added again.
+ */
+export function inputOutputTokenTotal(
+  tokensIn: number | null | undefined,
+  tokensOut: number | null | undefined,
+) {
+  return (tokensIn ?? 0) + (tokensOut ?? 0)
+}

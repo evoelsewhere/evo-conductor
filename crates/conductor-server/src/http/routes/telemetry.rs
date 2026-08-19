@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::core::constants::telemetry::{
     DEFAULT_ACTIVITY_LIMIT, DEFAULT_RANGE_DAYS, MAX_ACTIVITY_LIMIT, MAX_BATCH_SIZE,
     MAX_FUTURE_CLOCK_SKEW_MINUTES, MAX_LABEL_LENGTH, MAX_RESOURCE_ATTRIBUTIONS_PER_EVENT,
-    MIN_ACTIVITY_LIMIT, MIN_BATCH_SIZE, MIN_LABEL_LENGTH,
+    MIN_ACTIVITY_LIMIT, MIN_LABEL_LENGTH,
 };
 use crate::core::error::ApiResult;
 use crate::core::state::AppState;
@@ -65,9 +65,9 @@ pub async fn ingest(
     Extension(principal): Extension<ConnectionPrincipal>,
     Json(request): Json<TelemetryBatchRequest>,
 ) -> ApiResult<Json<TelemetryBatchResponse>> {
-    if request.events.len() < MIN_BATCH_SIZE || request.events.len() > MAX_BATCH_SIZE {
+    if request.events.len() > MAX_BATCH_SIZE {
         return Err(ConductorError::msg(format!(
-            "events must contain {MIN_BATCH_SIZE}–{MAX_BATCH_SIZE} items"
+            "events must contain at most {MAX_BATCH_SIZE} items"
         ))
         .into());
     }
@@ -111,6 +111,27 @@ pub async fn ingest(
         .telemetry_enabled()
     {
         return Err(ConductorError::Forbidden.into());
+    }
+    if request.events.is_empty() {
+        let to = Utc::now();
+        let window_days = DEFAULT_RANGE_DAYS as u16;
+        let summary = state
+            .db
+            .telemetry()
+            .delivery_summary(
+                instance.id,
+                principal.user.id,
+                request.installation_id,
+                to - Duration::days(DEFAULT_RANGE_DAYS),
+                to,
+                window_days,
+            )
+            .await?;
+        return Ok(Json(TelemetryBatchResponse {
+            accepted: 0,
+            duplicates: 0,
+            summary: Some(summary),
+        }));
     }
     for event in &request.events {
         validate_event(event)?;

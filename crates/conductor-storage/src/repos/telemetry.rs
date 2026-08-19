@@ -4,9 +4,10 @@ use chrono::{DateTime, Utc};
 use conductor_domain::{
     DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberRequestDetail,
     MemberToolUsage, MemberToolsSummary, MemberUsageSummary, ModelUsageBreakdown, ResourceKind,
-    TelemetryBatchResponse, TelemetryCostSource, TelemetryEventDetail, TelemetryEventRequest,
-    TelemetryEventStatus, TelemetryEventType, TelemetryResourceAttributionDetail,
-    TelemetryResourceRelation, TelemetryToolCategory, User, UNKNOWN_TELEMETRY_LABEL,
+    TelemetryBatchResponse, TelemetryCostSource, TelemetryDeliverySummary, TelemetryEventDetail,
+    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
+    TelemetryResourceAttributionDetail, TelemetryResourceRelation, TelemetryToolCategory, User,
+    UNKNOWN_TELEMETRY_LABEL,
 };
 use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
@@ -139,6 +140,93 @@ impl TelemetryRepo {
         Ok(TelemetryBatchResponse {
             accepted,
             duplicates,
+            summary: None,
+        })
+    }
+
+    pub async fn delivery_summary(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        installation_id: Uuid,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        window_days: u16,
+    ) -> Result<TelemetryDeliverySummary, sqlx::Error> {
+        let project = self.kind.bind_parameter(1);
+        let user = self.kind.bind_parameter(2);
+        let installation = self.kind.bind_parameter(3);
+        let from_marker = self.kind.bind_parameter(4);
+        let to_marker = self.kind.bind_parameter(5);
+        let sql = format!(
+            r#"
+            SELECT COUNT(*) AS events,
+                   COUNT(DISTINCT e.request_id) AS requests,
+                   COALESCE(SUM(CASE WHEN e.event_type = 'model_call' THEN 1 ELSE 0 END), 0) AS model_calls,
+                   COALESCE(SUM(CASE WHEN e.event_type = 'tool_call' THEN 1 ELSE 0 END), 0) AS tool_calls,
+                   COALESCE(SUM(e.tokens_in), 0) AS tokens_in,
+                   COALESCE(SUM(e.tokens_out), 0) AS tokens_out,
+                   COALESCE(SUM(e.cache_read_tokens), 0) AS cache_read_tokens,
+                   COALESCE(SUM(e.estimated_cost_usd_micros), 0) AS estimated_cost_usd_micros,
+                   COALESCE(SUM(CASE WHEN e.event_type = 'model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
+                   COALESCE(SUM(CASE WHEN EXISTS (
+                       SELECT 1 FROM telemetry_resource_attributions a
+                       WHERE a.event_id = e.id AND a.project_id = e.project_id
+                   ) THEN 1 ELSE 0 END), 0) AS attributed_events,
+                   COUNT(DISTINCT CASE WHEN EXISTS (
+                       SELECT 1 FROM telemetry_resource_attributions a
+                       WHERE a.event_id = e.id AND a.project_id = e.project_id
+                   ) THEN e.request_id ELSE NULL END) AS attributed_requests,
+                   COALESCE(SUM(CASE WHEN e.event_type = 'model_call' AND EXISTS (
+                       SELECT 1 FROM telemetry_resource_attributions a
+                       WHERE a.event_id = e.id AND a.project_id = e.project_id
+                   ) THEN 1 ELSE 0 END), 0) AS attributed_model_calls,
+                   COALESCE(SUM(CASE WHEN e.event_type = 'tool_call' AND EXISTS (
+                       SELECT 1 FROM telemetry_resource_attributions a
+                       WHERE a.event_id = e.id AND a.project_id = e.project_id
+                   ) THEN 1 ELSE 0 END), 0) AS attributed_tool_calls,
+                   COALESCE(SUM(CASE WHEN EXISTS (
+                       SELECT 1 FROM telemetry_resource_attributions a
+                       WHERE a.event_id = e.id AND a.project_id = e.project_id
+                   ) THEN e.estimated_cost_usd_micros ELSE 0 END), 0) AS attributed_estimated_cost_usd_micros
+            FROM telemetry_events e
+            WHERE e.project_id = {project}
+              AND e.user_id = {user}
+              AND e.installation_id = {installation}
+              AND e.received_at >= {from_marker}
+              AND e.received_at <= {to_marker}
+            "#
+        );
+        let row = sqlx::query(&sql)
+            .bind(project_id.to_string())
+            .bind(user_id.to_string())
+            .bind(installation_id.to_string())
+            .bind(from.to_rfc3339())
+            .bind(to.to_rfc3339())
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(TelemetryDeliverySummary {
+            installation_id,
+            window_days,
+            from,
+            to,
+            events: non_negative(row.get("events")),
+            requests: non_negative(row.get("requests")),
+            model_calls: non_negative(row.get("model_calls")),
+            tool_calls: non_negative(row.get("tool_calls")),
+            tokens_in: non_negative(row.get("tokens_in")),
+            tokens_out: non_negative(row.get("tokens_out")),
+            cache_read_tokens: non_negative(row.get("cache_read_tokens")),
+            estimated_cost_usd_micros: non_negative(row.get("estimated_cost_usd_micros")),
+            unpriced_model_calls: non_negative(row.get("unpriced_model_calls")),
+            attributed_events: non_negative(row.get("attributed_events")),
+            attributed_requests: non_negative(row.get("attributed_requests")),
+            attributed_model_calls: non_negative(row.get("attributed_model_calls")),
+            attributed_tool_calls: non_negative(row.get("attributed_tool_calls")),
+            attributed_estimated_cost_usd_micros: non_negative(
+                row.get("attributed_estimated_cost_usd_micros"),
+            ),
         })
     }
 

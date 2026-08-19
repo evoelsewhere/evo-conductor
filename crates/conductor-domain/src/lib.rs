@@ -87,9 +87,10 @@ pub use telemetry::{
     ModelUsageBreakdown, ResourceUsageActivityItem, ResourceUsageAnalytics, ResourceUsageBreakdown,
     ResourceUsageDay, ResourceUsageMember, ResourceUsageModel, ResourceUsageRole,
     ResourceUsageTool, ResourceUsageTotals, TelemetryBatchRequest, TelemetryBatchResponse,
-    TelemetryCostSource, TelemetryEventDetail, TelemetryEventRequest, TelemetryEventStatus,
-    TelemetryEventType, TelemetryResourceAttributionDetail, TelemetryResourceRef,
-    TelemetryResourceRelation, TelemetrySnapshot, TelemetryToolCategory, UNKNOWN_TELEMETRY_LABEL,
+    TelemetryCostSource, TelemetryDeliverySummary, TelemetryEventDetail, TelemetryEventRequest,
+    TelemetryEventStatus, TelemetryEventType, TelemetryResourceAttributionDetail,
+    TelemetryResourceRef, TelemetryResourceRelation, TelemetrySnapshot, TelemetryToolCategory,
+    UNKNOWN_TELEMETRY_LABEL,
 };
 pub use user::{
     ApproveMemberRequest, AuthSession, ChangePasswordRequest, CreateMemberRequest, CreatedMember,
