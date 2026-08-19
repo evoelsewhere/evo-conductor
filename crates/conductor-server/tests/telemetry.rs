@@ -560,8 +560,51 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         "event_id": Uuid::new_v4(),
         "request_id": plain_request_id,
         "session_id": "session-plain",
-        "event_type": "request",
+        "event_type": "model_call",
         "sequence": 1,
+        "agent_name": "evoflux",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4",
+        "tokens_in": 300,
+        "tokens_out": 100,
+        "cache_read_tokens": 60,
+        "reasoning_tokens": 20,
+        "tool_use_tokens": 0,
+        "duration_ms": 600,
+        "tool_name": null,
+        "tool_category": null,
+        "status": "success",
+        "error_category": null,
+        "estimated_cost_usd_micros": 2000,
+        "cost_source": "evoflux_catalog",
+        "resources": [],
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": plain_request_id,
+        "session_id": "session-plain",
+        "event_type": "tool_call",
+        "sequence": 2,
+        "agent_name": "evoflux",
+        "provider": null,
+        "model": null,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "duration_ms": 80,
+        "tool_name": "shell",
+        "tool_category": "filesystem",
+        "status": "success",
+        "error_category": null,
+        "resources": [],
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": plain_request_id,
+        "session_id": "session-plain",
+        "event_type": "request",
+        "sequence": 3,
         "agent_name": null,
         "provider": null,
         "model": null,
@@ -579,7 +622,7 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
 
     let (status, response) = app.post("/api/v1/telemetry/batch", Some(raw), batch).await;
     assert_eq!(status, StatusCode::OK, "{response}");
-    assert_eq!(response["accepted"], 4);
+    assert_eq!(response["accepted"], 6);
     let (status, receipt) = app
         .post(
             "/api/v1/telemetry/batch",
@@ -588,7 +631,7 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{receipt}");
-    assert_eq!(receipt["summary"]["events"], 4);
+    assert_eq!(receipt["summary"]["events"], 6);
     assert_eq!(receipt["summary"]["requests"], 2);
     assert_eq!(receipt["summary"]["attributed_events"], 3);
     assert_eq!(receipt["summary"]["attributed_requests"], 1);
@@ -600,7 +643,9 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         .get("/api/analytics/resource-usage", Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{analytics}");
+    assert_eq!(analytics["scope"], "governed");
     assert_eq!(analytics["totals"]["all_requests"], 2);
+    assert_eq!(analytics["totals"]["governed_requests"], 1);
     assert_eq!(analytics["totals"]["requests"], 1);
     assert_eq!(analytics["totals"]["resource_uses"], 2);
     assert_eq!(analytics["totals"]["model_calls"], 1);
@@ -636,6 +681,43 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         member.display_name
     );
 
+    let (status, all_analytics) = app
+        .get(
+            "/api/analytics/resource-usage?scope=all",
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{all_analytics}");
+    assert_eq!(all_analytics["scope"], "all");
+    assert_eq!(all_analytics["totals"]["all_requests"], 2);
+    assert_eq!(all_analytics["totals"]["governed_requests"], 1);
+    assert_eq!(all_analytics["totals"]["requests"], 2);
+    assert_eq!(all_analytics["totals"]["model_calls"], 2);
+    assert_eq!(all_analytics["totals"]["tool_calls"], 2);
+    assert_eq!(all_analytics["totals"]["total_tokens"], 550);
+    assert_eq!(all_analytics["totals"]["estimated_cost_usd_micros"], 3250);
+    assert_eq!(all_analytics["members"][0]["model_calls"], 2);
+    assert_eq!(all_analytics["members"][0]["tool_calls"], 2);
+    assert_eq!(all_analytics["members"][0]["total_tokens"], 550);
+    assert_eq!(all_analytics["models"].as_array().map(Vec::len), Some(2));
+    assert!(all_analytics["models"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|row| row["model"] == "claude-sonnet-4")));
+    assert!(all_analytics["tools"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|row| row["tool_name"] == "shell")));
+    assert_eq!(all_analytics["resources"].as_array().map(Vec::len), Some(0));
+    assert_eq!(all_analytics["activity"].as_array().map(Vec::len), Some(0));
+    assert_eq!(all_analytics["activity_total"], 0);
+
+    let (status, invalid_scope_filter) = app
+        .get(
+            &format!("/api/analytics/resource-usage?scope=all&resource_id={resource_id}"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_scope_filter}");
+
     let contributor_token = app.token_for(&resource_owner).await;
     let (status, contributor_analytics) = app
         .get("/api/analytics/resource-usage", Some(&contributor_token))
@@ -655,6 +737,22 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
     let serialized = contributor_analytics.to_string();
     assert!(!serialized.contains(&member.id.to_string()));
     assert!(!serialized.contains(&member.email));
+
+    let (status, contributor_all) = app
+        .get(
+            "/api/analytics/resource-usage?scope=all",
+            Some(&contributor_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{contributor_all}");
+    assert_eq!(contributor_all["scope"], "all");
+    assert_eq!(contributor_all["totals"]["requests"], 2);
+    assert_eq!(contributor_all["members"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        contributor_all["activity"].as_array().map(Vec::len),
+        Some(0)
+    );
+    assert!(!contributor_all.to_string().contains(&member.email));
 
     for identifying_filter in [
         format!("member_id={}", member.id),
