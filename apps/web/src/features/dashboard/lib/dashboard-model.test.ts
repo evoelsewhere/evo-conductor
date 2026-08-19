@@ -127,6 +127,18 @@ test("dashboardAnalyticsHref preserves range and filters", () => {
   )
 })
 
+test("dashboardAnalyticsHref maps a one-day dashboard range to the day preset", () => {
+  assert.equal(
+    dashboardAnalyticsHref(
+      "/app/resources/usage",
+      "day",
+      "2026-08-17",
+      "2026-08-18",
+    ),
+    "/app/resources/usage?range=day",
+  )
+})
+
 test("dashboardUpdatedAt returns the newest successful query time", () => {
   assert.equal(dashboardUpdatedAt(0, 42, 21), 42)
   assert.equal(dashboardUpdatedAt(0, 0), null)

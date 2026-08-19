@@ -31,6 +31,19 @@ test.describe("Dashboard mission control", () => {
       page.getByRole("button", { name: "30 days", exact: true }),
     ).toHaveAttribute("aria-pressed", "true")
 
+    const range = page.getByRole("group", { name: "Dashboard time range" })
+    await range.getByRole("button", { name: "24 hours", exact: true }).click()
+    await expect(
+      range.getByRole("button", { name: "24 hours", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => requests.analytics.at(-1) ?? "").toContain(
+      "from=2026-08-17T01%3A30%3A00.000Z",
+    )
+    await expect.poll(() => requests.analytics.at(-1) ?? "").toContain(
+      "to=2026-08-18T01%3A30%3A00.000Z",
+    )
+    await range.getByRole("button", { name: "30 days", exact: true }).click()
+
     await expect(metric(page, "SSE streams · this node")).toContainText("11")
     await expect(metric(page, "Governed requests")).toContainText("1,200")
     await expect(metric(page, "Success rate")).toContainText("80%")

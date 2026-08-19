@@ -81,7 +81,7 @@ function DashboardRangeFilter({
           )}
           onClick={() => onChange(days)}
         >
-          {days} days
+          {days === 1 ? "24 hours" : `${days} days`}
         </Button>
       ))}
     </div>

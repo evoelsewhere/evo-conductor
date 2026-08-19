@@ -32,11 +32,13 @@ export function useDashboardData() {
     [rangeAnchor, rangeDays],
   )
   const hrefPreset =
-    rangeDays === 7
-      ? UsageRangePreset.Week
-      : rangeDays === 30
-        ? UsageRangePreset.Month
-        : UsageRangePreset.Custom
+    rangeDays === 1
+      ? UsageRangePreset.Day
+      : rangeDays === 7
+        ? UsageRangePreset.Week
+        : rangeDays === 30
+          ? UsageRangePreset.Month
+          : UsageRangePreset.Custom
   const currentRole = authorization?.current_role
   const canManageMembers = mayRequest(can(PERMISSION.MEMBER_MANAGE))
   const canReadMembers = mayRequest(can(PERMISSION.MEMBER_DIRECTORY_READ))
