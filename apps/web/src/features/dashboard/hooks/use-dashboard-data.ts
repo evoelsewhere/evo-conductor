@@ -12,6 +12,7 @@ import {
   dashboardUpdatedAt,
 } from "@/features/dashboard/lib/dashboard-model"
 import { api } from "@/shared/api/client"
+import type { ResourceUsageScope } from "@/shared/api/client"
 import { MILLISECONDS_PER_DAY, UsageRangePreset } from "@/shared/constants/telemetry"
 import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
@@ -21,6 +22,7 @@ export function useDashboardData() {
   const authorization = useAuthStore((state) => state.authorization)
   const can = useAuthStore((state) => state.can)
   const [rangeDays, setRangeDays] = useState<DashboardRangeDays>(30)
+  const [scope, setScope] = useState<ResourceUsageScope>(initialDashboardScope)
   const [rangeAnchor, setRangeAnchor] = useState(() => Date.now())
   const dateRange = useMemo(
     () => ({
@@ -32,11 +34,13 @@ export function useDashboardData() {
     [rangeAnchor, rangeDays],
   )
   const hrefPreset =
-    rangeDays === 7
-      ? UsageRangePreset.Week
-      : rangeDays === 30
-        ? UsageRangePreset.Month
-        : UsageRangePreset.Custom
+    rangeDays === 1
+      ? UsageRangePreset.Day
+      : rangeDays === 7
+        ? UsageRangePreset.Week
+        : rangeDays === 30
+          ? UsageRangePreset.Month
+          : UsageRangePreset.Custom
   const currentRole = authorization?.current_role
   const canManageMembers = mayRequest(can(PERMISSION.MEMBER_MANAGE))
   const canReadMembers = mayRequest(can(PERMISSION.MEMBER_DIRECTORY_READ))
@@ -56,17 +60,22 @@ export function useDashboardData() {
   const analytics = useQuery({
     queryKey: DASHBOARD_QUERY_KEYS.analytics(
       currentRole,
+      scope,
       dateRange.from,
       dateRange.to,
     ),
     queryFn: () =>
       api.resourceUsage({
         ...dateRange,
+        scope,
         limit: DASHBOARD_TOP_SIGNAL_LIMIT,
       }),
     staleTime: 60_000,
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[2] === currentRole ? previousData : undefined,
+      previousQuery?.queryKey[2] === currentRole &&
+      previousQuery?.queryKey[3] === scope
+        ? previousData
+        : undefined,
   })
   const pending = useQuery({
     queryKey: ["pending-count"],
@@ -125,6 +134,14 @@ export function useDashboardData() {
     setRangeAnchor(Date.now())
   }
 
+  function changeScope(next: ResourceUsageScope) {
+    setScope(next)
+    const url = new URL(window.location.href)
+    if (next === "all") url.searchParams.delete("scope")
+    else url.searchParams.set("scope", next)
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`)
+  }
+
   return {
     analytics,
     analyticsHref,
@@ -134,6 +151,7 @@ export function useDashboardData() {
     canReadMemberTelemetry,
     canReadSettings,
     canReadTaxonomy,
+    changeScope,
     changeRange,
     isInitialLoading,
     isRefreshing,
@@ -142,6 +160,14 @@ export function useDashboardData() {
     rangeDays,
     refreshDashboard,
     summary,
+    scope,
     updatedAt,
   }
+}
+
+function initialDashboardScope(): ResourceUsageScope {
+  if (typeof window === "undefined") return "all"
+  return new URLSearchParams(window.location.search).get("scope") === "governed"
+    ? "governed"
+    : "all"
 }

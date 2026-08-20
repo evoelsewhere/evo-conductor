@@ -6,8 +6,9 @@ use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
     AuthorizationTarget, ConductorError, MemberActivityResponse, MemberRequestDetail,
     MemberToolsSummary, MemberUsageSummary, PrimaryRole, ResourceKind, ResourceUsageAnalytics,
-    ResponseProjection, TargetType, TelemetryBatchRequest, TelemetryBatchResponse,
-    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType, TelemetryResourceRelation,
+    ResourceUsageScope, ResponseProjection, TargetType, TelemetryBatchRequest,
+    TelemetryBatchResponse, TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
+    TelemetryResourceRelation,
 };
 use conductor_storage::repos::ResourceUsageQuery;
 use serde::Deserialize;
@@ -16,7 +17,7 @@ use uuid::Uuid;
 use crate::core::constants::telemetry::{
     DEFAULT_ACTIVITY_LIMIT, DEFAULT_RANGE_DAYS, MAX_ACTIVITY_LIMIT, MAX_BATCH_SIZE,
     MAX_FUTURE_CLOCK_SKEW_MINUTES, MAX_LABEL_LENGTH, MAX_RESOURCE_ATTRIBUTIONS_PER_EVENT,
-    MIN_ACTIVITY_LIMIT, MIN_BATCH_SIZE, MIN_LABEL_LENGTH,
+    MIN_ACTIVITY_LIMIT, MIN_LABEL_LENGTH,
 };
 use crate::core::error::ApiResult;
 use crate::core::state::AppState;
@@ -55,6 +56,7 @@ pub struct ResourceAnalyticsQuery {
     pub installation_id: Option<Uuid>,
     pub relation: Option<TelemetryResourceRelation>,
     pub tool_name: Option<String>,
+    pub scope: Option<ResourceUsageScope>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -65,9 +67,9 @@ pub async fn ingest(
     Extension(principal): Extension<ConnectionPrincipal>,
     Json(request): Json<TelemetryBatchRequest>,
 ) -> ApiResult<Json<TelemetryBatchResponse>> {
-    if request.events.len() < MIN_BATCH_SIZE || request.events.len() > MAX_BATCH_SIZE {
+    if request.events.len() > MAX_BATCH_SIZE {
         return Err(ConductorError::msg(format!(
-            "events must contain {MIN_BATCH_SIZE}–{MAX_BATCH_SIZE} items"
+            "events must contain at most {MAX_BATCH_SIZE} items"
         ))
         .into());
     }
@@ -111,6 +113,27 @@ pub async fn ingest(
         .telemetry_enabled()
     {
         return Err(ConductorError::Forbidden.into());
+    }
+    if request.events.is_empty() {
+        let to = Utc::now();
+        let window_days = DEFAULT_RANGE_DAYS as u16;
+        let summary = state
+            .db
+            .telemetry()
+            .delivery_summary(
+                instance.id,
+                principal.user.id,
+                request.installation_id,
+                to - Duration::days(DEFAULT_RANGE_DAYS),
+                to,
+                window_days,
+            )
+            .await?;
+        return Ok(Json(TelemetryBatchResponse {
+            accepted: 0,
+            duplicates: 0,
+            summary: Some(summary),
+        }));
     }
     for event in &request.events {
         validate_event(event)?;
@@ -284,6 +307,18 @@ pub async fn resource_usage(
     AuthUser(actor): AuthUser,
     Query(query): Query<ResourceAnalyticsQuery>,
 ) -> ApiResult<Json<ResourceUsageAnalytics>> {
+    let scope = query.scope.unwrap_or_default();
+    if scope == ResourceUsageScope::All
+        && (query.resource_kind.is_some()
+            || query.resource_id.is_some()
+            || query.version_id.is_some()
+            || query.relation.is_some())
+    {
+        return Err(ConductorError::msg(
+            "resource filters require scope=governed because ordinary activity has no resource attribution",
+        )
+        .into());
+    }
     let instance = state
         .db
         .instance()
@@ -338,6 +373,7 @@ pub async fn resource_usage(
             installation_id: query.installation_id,
             relation: query.relation,
             tool_name: query.tool_name,
+            scope,
             limit: query
                 .limit
                 .unwrap_or(DEFAULT_ACTIVITY_LIMIT)

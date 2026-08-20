@@ -12,3 +12,30 @@ export function terminalRequestSuccessRate(
   if (!requests) return null
   return Math.round(((successes ?? 0) / requests) * 100)
 }
+
+/**
+ * Share of received EvoFlux requests with at least one governed-resource
+ * attribution. The value is capped because malformed historical data must not
+ * render an impossible percentage.
+ */
+export function requestAttributionCoverage(
+  governedRequests: number | null | undefined,
+  allRequests: number | null | undefined,
+) {
+  if (!allRequests) return null
+  return Math.min(
+    100,
+    Math.round(((governedRequests ?? 0) / allRequests) * 100),
+  )
+}
+
+/**
+ * Provider total usage is input plus output. Cache-read, reasoning and tool-use
+ * values are diagnostic subsets of those totals and must not be added again.
+ */
+export function inputOutputTokenTotal(
+  tokensIn: number | null | undefined,
+  tokensOut: number | null | undefined,
+) {
+  return (tokensIn ?? 0) + (tokensOut ?? 0)
+}

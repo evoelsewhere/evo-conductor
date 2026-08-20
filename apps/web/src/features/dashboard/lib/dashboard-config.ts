@@ -3,7 +3,7 @@ import { PRIMARY_ROLE } from "@/shared/constants/member"
 
 export const DASHBOARD_TOP_SIGNAL_LIMIT = 3
 
-export const DASHBOARD_RANGE_OPTIONS = [7, 30, 90] as const
+export const DASHBOARD_RANGE_OPTIONS = [1, 7, 30, 90] as const
 
 export type DashboardRangeDays = (typeof DASHBOARD_RANGE_OPTIONS)[number]
 

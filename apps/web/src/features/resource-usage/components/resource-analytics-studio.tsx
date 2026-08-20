@@ -48,6 +48,7 @@ import { api } from "@/shared/api/client"
 import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import type { ResourceKind } from "@/shared/constants/resource"
 import { TELEMETRY_CHART_SERIES } from "@/shared/constants/telemetry"
+import { inputOutputTokenTotal } from "@/shared/lib/telemetry-metrics"
 import {
   PERMISSION,
   bestAuthorizationDecision,
@@ -879,12 +880,7 @@ function DailyWidget({
   const height = density === "compact" ? "h-48" : "h-60"
   const consumptionRows = daily.map((item) => ({
     ...item,
-    total_tokens:
-      item.tokens_in +
-      item.tokens_out +
-      item.cache_read_tokens +
-      item.reasoning_tokens +
-      item.tool_use_tokens,
+    total_tokens: inputOutputTokenTotal(item.tokens_in, item.tokens_out),
   }))
   const rows = id === "consumption" ? consumptionRows : daily
   const config: ChartConfig = id === "requests"

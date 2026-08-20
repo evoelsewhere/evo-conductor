@@ -212,11 +212,30 @@ async fn telemetry_is_idempotent_private_and_queryable_by_member() {
     assert_eq!(status, StatusCode::OK, "{first}");
     assert_eq!(first["accepted"], 2);
     assert_eq!(first["duplicates"], 0);
+    assert!(first.get("summary").is_none());
 
     let (status, replay) = app.post("/api/v1/telemetry/batch", Some(raw), batch).await;
     assert_eq!(status, StatusCode::OK, "{replay}");
     assert_eq!(replay["accepted"], 0);
     assert_eq!(replay["duplicates"], 2);
+    assert!(replay.get("summary").is_none());
+
+    let (status, refresh) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            json!({"installation_id": installation_id, "events": []}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{refresh}");
+    assert_eq!(refresh["accepted"], 0);
+    assert_eq!(refresh["duplicates"], 0);
+    assert_eq!(refresh["summary"]["events"], 2);
+    assert_eq!(refresh["summary"]["requests"], 1);
+    assert_eq!(refresh["summary"]["model_calls"], 1);
+    assert_eq!(refresh["summary"]["tool_calls"], 1);
+    assert_eq!(refresh["summary"]["attributed_events"], 0);
+    assert_eq!(refresh["summary"]["window_days"], 30);
 
     let browser_token = app.token_for(&member).await;
     let (status, summary) = app
@@ -260,6 +279,27 @@ async fn telemetry_is_idempotent_private_and_queryable_by_member() {
     assert_eq!(status, StatusCode::OK, "{tools}");
     assert_eq!(tools["total_calls"], 1);
     assert_eq!(tools["tools"][0]["tool_name"], "read_file");
+
+    let second_installation_id = register(&app, raw).await;
+    let (status, second_installation) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            event_batch(&second_installation_id, Uuid::new_v4()),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{second_installation}");
+    assert_eq!(second_installation["accepted"], 2);
+
+    let (status, first_installation) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            json!({"installation_id": installation_id, "events": []}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{first_installation}");
+    assert_eq!(first_installation["summary"]["events"], 2);
 
     let other = app.seed_user(PrimaryRole::User).await;
     let other_browser_token = app.token_for(&other).await;
@@ -515,30 +555,111 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         "resources": [agent_reference, skill_reference],
         "reported_at": chrono::Utc::now().to_rfc3339()
     }));
+    let plain_request_id = Uuid::new_v4();
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": plain_request_id,
+        "session_id": "session-plain",
+        "event_type": "model_call",
+        "sequence": 1,
+        "agent_name": "evoflux",
+        "provider": "anthropic",
+        "model": "claude-sonnet-4",
+        "tokens_in": 300,
+        "tokens_out": 100,
+        "cache_read_tokens": 60,
+        "reasoning_tokens": 20,
+        "tool_use_tokens": 0,
+        "duration_ms": 600,
+        "tool_name": null,
+        "tool_category": null,
+        "status": "success",
+        "error_category": null,
+        "estimated_cost_usd_micros": 2000,
+        "cost_source": "evoflux_catalog",
+        "resources": [],
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": plain_request_id,
+        "session_id": "session-plain",
+        "event_type": "tool_call",
+        "sequence": 2,
+        "agent_name": "evoflux",
+        "provider": null,
+        "model": null,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "duration_ms": 80,
+        "tool_name": "shell",
+        "tool_category": "filesystem",
+        "status": "success",
+        "error_category": null,
+        "resources": [],
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": plain_request_id,
+        "session_id": "session-plain",
+        "event_type": "request",
+        "sequence": 3,
+        "agent_name": null,
+        "provider": null,
+        "model": null,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "duration_ms": 250,
+        "tool_name": null,
+        "tool_category": null,
+        "status": "success",
+        "error_category": null,
+        "resources": [],
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
     serde_json::from_value::<TelemetryBatchRequest>(batch.clone()).expect("valid telemetry batch");
 
     let (status, response) = app.post("/api/v1/telemetry/batch", Some(raw), batch).await;
     assert_eq!(status, StatusCode::OK, "{response}");
-    assert_eq!(response["accepted"], 3);
+    assert_eq!(response["accepted"], 6);
+    let (status, receipt) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            json!({"installation_id": installation_id, "events": []}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{receipt}");
+    assert_eq!(receipt["summary"]["events"], 6);
+    assert_eq!(receipt["summary"]["requests"], 2);
+    assert_eq!(receipt["summary"]["attributed_events"], 3);
+    assert_eq!(receipt["summary"]["attributed_requests"], 1);
+    assert_eq!(receipt["summary"]["attributed_model_calls"], 1);
+    assert_eq!(receipt["summary"]["attributed_tool_calls"], 1);
 
     let admin_token = app.token_for_role(PrimaryRole::Admin).await;
     let (status, analytics) = app
         .get("/api/analytics/resource-usage", Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{analytics}");
+    assert_eq!(analytics["scope"], "governed");
+    assert_eq!(analytics["totals"]["all_requests"], 2);
+    assert_eq!(analytics["totals"]["governed_requests"], 1);
     assert_eq!(analytics["totals"]["requests"], 1);
     assert_eq!(analytics["totals"]["resource_uses"], 2);
     assert_eq!(analytics["totals"]["model_calls"], 1);
     assert_eq!(analytics["totals"]["cache_read_tokens"], 20);
     assert_eq!(analytics["totals"]["reasoning_tokens"], 10);
-    assert_eq!(analytics["totals"]["total_tokens"], 180);
-    assert_eq!(analytics["totals"]["average_tokens_per_request"], 180);
+    assert_eq!(analytics["totals"]["total_tokens"], 150);
+    assert_eq!(analytics["totals"]["average_tokens_per_request"], 150);
     assert_eq!(analytics["totals"]["estimated_cost_usd_micros"], 1250);
     assert_eq!(analytics["totals"]["reported_installations"], 2);
     assert_eq!(analytics["totals"]["installed_installations"], 1);
     assert_eq!(analytics["totals"]["installed_members"], 1);
     assert_eq!(analytics["roles"][0]["primary_role"], "user");
     assert_eq!(analytics["roles"][0]["tool_calls"], 1);
+    assert_eq!(analytics["roles"][0]["total_tokens"], 150);
     assert_eq!(analytics["tools"][0]["tool_name"], "read_file");
     assert_eq!(analytics["tools"][0]["calls"], 1);
     let resource_rows = analytics["resources"].as_array().expect("resource rows");
@@ -546,17 +667,63 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
     assert!(resource_rows
         .iter()
         .any(|row| row["resource_id"] == resource_id.to_string()));
+    assert!(resource_rows.iter().all(|row| row["total_tokens"] == 150));
     assert_eq!(analytics["members"][0]["primary_role"], "user");
+    assert_eq!(analytics["members"][0]["model_calls"], 1);
+    assert_eq!(analytics["members"][0]["tool_calls"], 1);
+    assert_eq!(analytics["members"][0]["installations"], 1);
+    assert_eq!(analytics["members"][0]["total_tokens"], 150);
+    assert!(analytics["members"][0]["last_received_at"].is_string());
+    assert_eq!(analytics["models"][0]["total_tokens"], 150);
+    assert_eq!(analytics["activity"][0]["total_tokens"], 150);
     assert_eq!(
         analytics["activity"][0]["display_name"],
         member.display_name
     );
+
+    let (status, all_analytics) = app
+        .get(
+            "/api/analytics/resource-usage?scope=all",
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{all_analytics}");
+    assert_eq!(all_analytics["scope"], "all");
+    assert_eq!(all_analytics["totals"]["all_requests"], 2);
+    assert_eq!(all_analytics["totals"]["governed_requests"], 1);
+    assert_eq!(all_analytics["totals"]["requests"], 2);
+    assert_eq!(all_analytics["totals"]["model_calls"], 2);
+    assert_eq!(all_analytics["totals"]["tool_calls"], 2);
+    assert_eq!(all_analytics["totals"]["total_tokens"], 550);
+    assert_eq!(all_analytics["totals"]["estimated_cost_usd_micros"], 3250);
+    assert_eq!(all_analytics["members"][0]["model_calls"], 2);
+    assert_eq!(all_analytics["members"][0]["tool_calls"], 2);
+    assert_eq!(all_analytics["members"][0]["total_tokens"], 550);
+    assert_eq!(all_analytics["models"].as_array().map(Vec::len), Some(2));
+    assert!(all_analytics["models"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|row| row["model"] == "claude-sonnet-4")));
+    assert!(all_analytics["tools"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|row| row["tool_name"] == "shell")));
+    assert_eq!(all_analytics["resources"].as_array().map(Vec::len), Some(0));
+    assert_eq!(all_analytics["activity"].as_array().map(Vec::len), Some(0));
+    assert_eq!(all_analytics["activity_total"], 0);
+
+    let (status, invalid_scope_filter) = app
+        .get(
+            &format!("/api/analytics/resource-usage?scope=all&resource_id={resource_id}"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid_scope_filter}");
 
     let contributor_token = app.token_for(&resource_owner).await;
     let (status, contributor_analytics) = app
         .get("/api/analytics/resource-usage", Some(&contributor_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{contributor_analytics}");
+    assert_eq!(contributor_analytics["totals"]["all_requests"], 2);
     assert_eq!(contributor_analytics["totals"]["requests"], 1);
     assert_eq!(
         contributor_analytics["members"].as_array().map(Vec::len),
@@ -570,6 +737,22 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
     let serialized = contributor_analytics.to_string();
     assert!(!serialized.contains(&member.id.to_string()));
     assert!(!serialized.contains(&member.email));
+
+    let (status, contributor_all) = app
+        .get(
+            "/api/analytics/resource-usage?scope=all",
+            Some(&contributor_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{contributor_all}");
+    assert_eq!(contributor_all["scope"], "all");
+    assert_eq!(contributor_all["totals"]["requests"], 2);
+    assert_eq!(contributor_all["members"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        contributor_all["activity"].as_array().map(Vec::len),
+        Some(0)
+    );
+    assert!(!contributor_all.to_string().contains(&member.email));
 
     for identifying_filter in [
         format!("member_id={}", member.id),
@@ -609,11 +792,12 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{filtered}");
+    assert_eq!(filtered["totals"]["all_requests"], 1);
     assert_eq!(filtered["totals"]["requests"], 1);
     assert_eq!(filtered["totals"]["successes"], 1);
     assert_eq!(filtered["totals"]["model_calls"], 1);
-    assert_eq!(filtered["totals"]["total_tokens"], 180);
-    assert_eq!(filtered["activity"][0]["total_tokens"], 180);
+    assert_eq!(filtered["totals"]["total_tokens"], 150);
+    assert_eq!(filtered["activity"][0]["total_tokens"], 150);
     assert_eq!(filtered["activity"][0]["status"], "success");
 
     let (status, resource_inventory) = app
@@ -682,6 +866,85 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         .find(|event| event["event_type"] == "model_call")
         .expect("model event");
     assert_eq!(model_event["resources"].as_array().map(Vec::len), Some(2));
+
+    // Client request IDs are scoped by member. Two members may legitimately
+    // emit the same opaque request ID and both must count in role analytics.
+    let second_member = app.seed_user(PrimaryRole::User).await;
+    let second_raw = "evc_resource_telemetry_second_member";
+    seed_connection_token(&app, &second_member, second_raw).await;
+    let second_installation_id = register(&app, second_raw).await;
+    let mut second_batch = event_batch(&second_installation_id, request_id);
+    let second_agent_reference = json!({
+        "resource_id": resource_id,
+        "version_id": version_id,
+        "relation": "executing_agent",
+        "plugin_installation_id": null
+    });
+    for event in second_batch["events"].as_array_mut().expect("events") {
+        event["resources"] = json!([second_agent_reference.clone()]);
+    }
+    second_batch["events"]
+        .as_array_mut()
+        .expect("events")
+        .push(json!({
+            "event_id": Uuid::new_v4(),
+            "request_id": request_id,
+            "session_id": "session-2",
+            "event_type": "request",
+            "sequence": 3,
+            "agent_name": "reviewer",
+            "provider": null,
+            "model": null,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "duration_ms": 500,
+            "tool_name": null,
+            "tool_category": null,
+            "status": "success",
+            "error_category": null,
+            "resources": [second_agent_reference],
+            "reported_at": chrono::Utc::now().to_rfc3339()
+        }));
+    let (status, body) = app
+        .post("/api/v1/telemetry/batch", Some(second_raw), second_batch)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, two_member_analytics) = app
+        .get("/api/analytics/resource-usage", Some(&admin_token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{two_member_analytics}");
+    assert_eq!(two_member_analytics["totals"]["all_requests"], 3);
+    let user_role = two_member_analytics["roles"]
+        .as_array()
+        .expect("role rows")
+        .iter()
+        .find(|row| row["primary_role"] == "user")
+        .expect("user role row");
+    assert_eq!(user_role["requests"], 2);
+
+    // The member row represents the current access profile; role aggregates
+    // above intentionally retain the role captured when each event arrived.
+    sqlx::query("UPDATE users SET primary_role = 'contribute' WHERE id = ?")
+        .bind(member.id.to_string())
+        .execute(app.state.db.pool())
+        .await
+        .expect("change current member role");
+    let (status, changed_role_analytics) = app
+        .get("/api/analytics/resource-usage", Some(&admin_token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{changed_role_analytics}");
+    let member_row = changed_role_analytics["members"]
+        .as_array()
+        .expect("member rows")
+        .iter()
+        .find(|row| row["user_id"] == member.id.to_string())
+        .expect("changed member row");
+    assert_eq!(member_row["primary_role"], "contribute");
+    assert!(changed_role_analytics["roles"]
+        .as_array()
+        .expect("role rows")
+        .iter()
+        .any(|row| row["primary_role"] == "user"));
 
     sqlx::query(
         "UPDATE installation_resource_inventory SET observed_state = 'future_state' \

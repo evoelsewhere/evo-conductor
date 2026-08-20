@@ -9,7 +9,9 @@ import {
   PartialErrorPanel,
 } from "@/features/dashboard/components/dashboard-states"
 import { DashboardToolbar } from "@/features/dashboard/components/dashboard-toolbar"
+import { DashboardScopeTabs } from "@/features/dashboard/components/dashboard-scope-tabs"
 import { LiveOperations } from "@/features/dashboard/components/live-operations"
+import { MemberActivityPanel } from "@/features/dashboard/components/member-activity-panel"
 import { RoleAndWorkspace } from "@/features/dashboard/components/role-and-workspace"
 import { TopSignals } from "@/features/dashboard/components/top-signals"
 import { useDashboardData } from "@/features/dashboard/hooks/use-dashboard-data"
@@ -29,6 +31,7 @@ export function DashboardPage() {
     canReadMemberTelemetry,
     canReadSettings,
     canReadTaxonomy,
+    changeScope,
     changeRange,
     isInitialLoading,
     isRefreshing,
@@ -37,6 +40,7 @@ export function DashboardPage() {
     rangeDays,
     refreshDashboard,
     summary,
+    scope,
     updatedAt,
   } = useDashboardData()
   const summaryLoading = useMinimumLoading(summary.isLoading && !summary.data)
@@ -47,8 +51,8 @@ export function DashboardPage() {
       title="Dashboard"
       subtitle={
         summary.data
-          ? `${summary.data.project_name} · Current project health and selected-range governed activity.`
-          : "Current project health and selected-range governed activity."
+          ? `${summary.data.project_name} · Current project health, received EvoFlux requests and governed-resource coverage.`
+          : "Current project health, received EvoFlux requests and governed-resource coverage."
       }
       className="max-w-[100rem]"
       action={
@@ -86,6 +90,13 @@ export function DashboardPage() {
             />
           )}
 
+          <DashboardScopeTabs
+            value={scope}
+            totals={analytics.data?.totals}
+            loading={analyticsLoading}
+            onChange={changeScope}
+          />
+
           {!analyticsLoading && attention.length > 0 && (
             <DashboardAttentionRail
               items={attention}
@@ -96,6 +107,7 @@ export function DashboardPage() {
           <DashboardMetricGrid
             summary={summary.data}
             analytics={analytics.data}
+            scope={scope}
             summaryLoading={summaryLoading}
             analyticsLoading={analyticsLoading}
           />
@@ -107,10 +119,11 @@ export function DashboardPage() {
               isLoading={analyticsLoading}
               error={analytics.error}
               analyticsHref={overviewHref()}
+              scope={scope}
               announceLoading={false}
             />
             <LiveOperations
-              className="xl:col-span-5"
+              className="xl:col-span-4"
               summary={summary.data}
               analytics={analytics.data}
               loading={summaryLoading}
@@ -118,14 +131,23 @@ export function DashboardPage() {
             />
           </div>
 
+          {canReadMemberTelemetry && (
+            <MemberActivityPanel
+              members={analytics.data?.members ?? []}
+              scope={scope}
+              loading={analyticsLoading}
+              analyticsHref={analyticsHref}
+              announceLoading={false}
+            />
+          )}
+
           <div className="grid items-start gap-4 xl:grid-cols-12">
             <TopSignals
               className="xl:col-span-8"
-              members={analytics.data?.members ?? []}
               resources={analytics.data?.resources ?? []}
               models={analytics.data?.models ?? []}
               tools={analytics.data?.tools ?? []}
-              showMembers={canReadMemberTelemetry}
+              scope={scope}
               loading={analyticsLoading}
               analyticsHref={analyticsHref}
               announceLoading={false}
@@ -134,6 +156,7 @@ export function DashboardPage() {
               className="xl:col-span-4"
               roles={analytics.data?.roles ?? []}
               summary={summary.data}
+              scope={scope}
               loading={analyticsLoading}
               summaryLoading={summaryLoading}
               analyticsHref={analyticsHref}

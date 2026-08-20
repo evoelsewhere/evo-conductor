@@ -195,12 +195,16 @@ export type TelemetryResourceRelation =
   | "plugin_contributed_skill"
   | "plugin_contributed_tool"
 
+export type ResourceUsageScope = "all" | "governed"
+
 export interface ResourceUsageTotals {
   reported_installations: number
   installed_installations: number
   installed_members: number
   pending_installations: number
   attention_installations: number
+  all_requests: number
+  governed_requests: number
   requests: number
   resource_uses: number
   model_calls: number
@@ -263,8 +267,12 @@ export interface ResourceUsageMember {
   primary_role: PrimaryRole
   requests: number
   resource_uses: number
+  model_calls: number
+  tool_calls: number
+  installations: number
   total_tokens: number
   estimated_cost_usd_micros: number
+  last_received_at: string
 }
 
 export interface ResourceUsageModel {
@@ -323,6 +331,7 @@ export interface ResourceUsageActivityItem {
 export interface ResourceUsageAnalytics {
   from: string
   to: string
+  scope: ResourceUsageScope
   totals: ResourceUsageTotals
   daily: ResourceUsageDay[]
   resources: ResourceUsageBreakdown[]
@@ -337,6 +346,7 @@ export interface ResourceUsageAnalytics {
 }
 
 export interface ResourceUsageParams extends DateRangeParams {
+  scope?: ResourceUsageScope
   member_id?: string
   primary_role?: PrimaryRole
   resource_kind?: ResourceKind
@@ -1407,6 +1417,7 @@ export const api = {
       `/analytics/resource-usage${qs({
         from: params.from,
         to: params.to,
+        scope: params.scope,
         member_id: params.member_id,
         primary_role: params.primary_role,
         resource_kind: params.resource_kind,

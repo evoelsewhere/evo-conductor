@@ -12,6 +12,7 @@ export interface DashboardRequestLog {
 export interface DashboardScenarioOptions {
   summary?: Record<string, unknown>
   analytics?: Record<string, unknown>
+  governedAnalytics?: Record<string, unknown>
   summaryGate?: Promise<void>
   analyticsGate?: Promise<void>
   summaryFailure?: DashboardScenarioFailure
@@ -196,15 +197,18 @@ export const CONTRIBUTOR_DASHBOARD_SUMMARY = {
   },
 }
 
-export const POPULATED_DASHBOARD_ANALYTICS = {
+export const GOVERNED_DASHBOARD_ANALYTICS = {
   from: "2026-07-19T01:30:00Z",
   to: "2026-08-18T01:30:00Z",
+  scope: "governed",
   totals: {
     reported_installations: 12,
     installed_installations: 9,
     installed_members: 7,
     pending_installations: 2,
     attention_installations: 1,
+    all_requests: 1_600,
+    governed_requests: 1_200,
     requests: 1_200,
     resource_uses: 1_750,
     model_calls: 1_600,
@@ -218,10 +222,10 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
     cache_read_tokens: 600_000,
     reasoning_tokens: 300_000,
     tool_use_tokens: 100_000,
-    total_tokens: 7_000_000,
+    total_tokens: 6_000_000,
     estimated_cost_usd_micros: 12_500_000,
     unpriced_model_calls: 14,
-    average_tokens_per_request: 5_833,
+    average_tokens_per_request: 5_000,
     average_duration_ms: 1_450,
   },
   daily: [
@@ -293,8 +297,12 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       primary_role: "contribute",
       requests: 420,
       resource_uses: 610,
+      model_calls: 560,
+      tool_calls: 315,
+      installations: 2,
       total_tokens: 2_500_000,
       estimated_cost_usd_micros: 4_700_000,
+      last_received_at: "2026-08-18T01:26:00Z",
     },
     {
       user_id: "12222222-2222-4222-8222-222222222222",
@@ -303,8 +311,12 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       primary_role: "user",
       requests: 330,
       resource_uses: 480,
+      model_calls: 430,
+      tool_calls: 260,
+      installations: 1,
       total_tokens: 1_900_000,
       estimated_cost_usd_micros: 3_200_000,
+      last_received_at: "2026-08-18T01:19:00Z",
     },
     {
       user_id: "13333333-3333-4333-8333-333333333333",
@@ -313,8 +325,12 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       primary_role: "admin",
       requests: 250,
       resource_uses: 370,
+      model_calls: 310,
+      tool_calls: 190,
+      installations: 1,
       total_tokens: 1_500_000,
       estimated_cost_usd_micros: 2_700_000,
+      last_received_at: "2026-08-18T00:58:00Z",
     },
   ],
   models: [
@@ -322,7 +338,7 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       provider: "openai",
       model: "gpt-5",
       calls: 780,
-      total_tokens: 3_600_000,
+      total_tokens: 3_100_000,
       estimated_cost_usd_micros: 6_100_000,
       unpriced_calls: 0,
     },
@@ -330,7 +346,7 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       provider: "anthropic",
       model: "claude-sonnet-4",
       calls: 530,
-      total_tokens: 2_400_000,
+      total_tokens: 2_000_000,
       estimated_cost_usd_micros: 4_800_000,
       unpriced_calls: 0,
     },
@@ -338,7 +354,7 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       provider: "custom",
       model: "local-reasoner",
       calls: 290,
-      total_tokens: 1_000_000,
+      total_tokens: 900_000,
       estimated_cost_usd_micros: 1_600_000,
       unpriced_calls: 14,
     },
@@ -349,7 +365,7 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       requests: 600,
       model_calls: 780,
       tool_calls: 470,
-      total_tokens: 3_500_000,
+      total_tokens: 3_000_000,
       estimated_cost_usd_micros: 6_300_000,
     },
     {
@@ -357,7 +373,7 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       requests: 400,
       model_calls: 540,
       tool_calls: 310,
-      total_tokens: 2_300_000,
+      total_tokens: 2_000_000,
       estimated_cost_usd_micros: 3_900_000,
     },
     {
@@ -365,7 +381,7 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
       requests: 200,
       model_calls: 280,
       tool_calls: 120,
-      total_tokens: 1_200_000,
+      total_tokens: 1_000_000,
       estimated_cost_usd_micros: 2_300_000,
     },
   ],
@@ -401,6 +417,59 @@ export const POPULATED_DASHBOARD_ANALYTICS = {
   activity_total: 1,
   limit: 3,
   offset: 0,
+}
+
+export const POPULATED_DASHBOARD_ANALYTICS = {
+  ...GOVERNED_DASHBOARD_ANALYTICS,
+  scope: "all",
+  totals: {
+    ...GOVERNED_DASHBOARD_ANALYTICS.totals,
+    requests: 1_600,
+    model_calls: 2_000,
+    tool_calls: 1_300,
+    successes: 1_280,
+    errors: 160,
+    blocked: 120,
+    cancelled: 40,
+    tokens_in: 6_400_000,
+    tokens_out: 1_600_000,
+    total_tokens: 8_000_000,
+    estimated_cost_usd_micros: 16_000_000,
+    unpriced_model_calls: 20,
+    average_tokens_per_request: 5_000,
+  },
+  daily: [
+    usageDay("2026-08-16", 480, 384, 48, 36, 12, 2_400_000, 4_200_000),
+    usageDay("2026-08-17", 540, 432, 54, 40, 14, 2_700_000, 5_300_000),
+    usageDay("2026-08-18", 580, 464, 58, 44, 14, 2_900_000, 6_500_000),
+  ],
+  resources: [],
+  members: GOVERNED_DASHBOARD_ANALYTICS.members.map((member, index) => ({
+    ...member,
+    requests: member.requests + [160, 140, 100][index],
+    model_calls: member.model_calls + [210, 120, 70][index],
+    tool_calls: member.tool_calls + [150, 110, 80][index],
+    total_tokens: member.total_tokens + [900_000, 650_000, 450_000][index],
+    estimated_cost_usd_micros:
+      member.estimated_cost_usd_micros + [1_700_000, 1_100_000, 700_000][index],
+  })),
+  models: [
+    { ...GOVERNED_DASHBOARD_ANALYTICS.models[0], calls: 1_000, total_tokens: 4_100_000, estimated_cost_usd_micros: 7_800_000 },
+    { ...GOVERNED_DASHBOARD_ANALYTICS.models[1], calls: 650, total_tokens: 2_700_000, estimated_cost_usd_micros: 5_900_000 },
+    { ...GOVERNED_DASHBOARD_ANALYTICS.models[2], calls: 350, total_tokens: 1_200_000, estimated_cost_usd_micros: 2_300_000, unpriced_calls: 20 },
+  ],
+  roles: [
+    { ...GOVERNED_DASHBOARD_ANALYTICS.roles[0], requests: 800, model_calls: 1_000, tool_calls: 650, total_tokens: 4_000_000, estimated_cost_usd_micros: 8_000_000 },
+    { ...GOVERNED_DASHBOARD_ANALYTICS.roles[1], requests: 500, model_calls: 650, tool_calls: 400, total_tokens: 2_500_000, estimated_cost_usd_micros: 5_000_000 },
+    { ...GOVERNED_DASHBOARD_ANALYTICS.roles[2], requests: 300, model_calls: 350, tool_calls: 250, total_tokens: 1_500_000, estimated_cost_usd_micros: 3_000_000 },
+  ],
+  tools: [
+    tool("web.search", "web", 500, 485, 10, 4, 1, 820),
+    tool("filesystem.read", "filesystem", 430, 422, 5, 3, 0, 45),
+    tool("git.diff", "version_control", 370, 354, 11, 5, 0, 125),
+  ],
+  activity: [],
+  activity_total: 0,
 }
 
 export async function installDashboardScenario(
@@ -482,7 +551,14 @@ export async function installDashboardScenario(
         }
         // Contributor responses are redacted by the real server. Keeping member
         // rows here deliberately proves the UI permission gate is defense in depth.
-        return json(route, options.analytics ?? POPULATED_DASHBOARD_ANALYTICS)
+        return json(
+          route,
+          url.searchParams.get("scope") === "governed"
+            ? (options.governedAnalytics ??
+              options.analytics ??
+              GOVERNED_DASHBOARD_ANALYTICS)
+            : (options.analytics ?? POPULATED_DASHBOARD_ANALYTICS),
+        )
       case "/api/resources":
         return json(route, [])
       default:
@@ -549,9 +625,9 @@ function usageDay(
     errors,
     blocked,
     cancelled,
-    tokens_in: Math.round(tokens * 0.68),
-    tokens_out: Math.round(tokens * 0.18),
-    cache_read_tokens: Math.round(tokens * 0.08),
+    tokens_in: Math.round(tokens * 0.8),
+    tokens_out: Math.round(tokens * 0.2),
+    cache_read_tokens: Math.round(tokens * 0.16),
     reasoning_tokens: Math.round(tokens * 0.04),
     tool_use_tokens: Math.round(tokens * 0.02),
     estimated_cost_usd_micros: estimatedCost,

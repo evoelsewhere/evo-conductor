@@ -191,15 +191,15 @@ Response:
 ```json
 {
   "accepted": 1,
-  "duplicates": 0,
-  "rejected": 0,
-  "rejections": []
+  "duplicates": 0
 }
 ```
 
 Rules:
 
-- Batch size is 1–100.
+- Ingestion batches contain 1–100 events. An empty `events` array performs an
+  authenticated, read-only delivery-summary refresh for the current member and
+  installation; it does not insert a telemetry event.
 - `event_id` is generated once by EvoFlux and retained across retries.
 - The same event ID is counted once; retry duplicates increment `duplicates`.
 - Member identity is always the authenticated secret owner. There is no `user_id` request field.
@@ -207,8 +207,15 @@ Rules:
 - Valid outcomes are `success`, `failure` and `cancelled`.
 - Events older than 90 days or over five minutes in the future are rejected.
 - `duration_ms` is capped at 24 hours; token counts are capped at 100 million per event.
-- `rejections` identifies each rejected event and a stable reason such as `resource_not_accessible`, `unknown_resource_version` or `timestamp_out_of_range`.
-- Partial batch acceptance is expected. EvoFlux should drop rejected events, acknowledge accepted/duplicate events and retry only on transport/`5xx` failures.
+- Validation is atomic for a submitted batch. EvoFlux acknowledges events only
+  when `accepted + duplicates` equals the submitted event count.
+
+An empty refresh returns `accepted: 0`, `duplicates: 0`, and a `summary` over
+the trailing 30 days using Conductor `received_at`. The summary is scoped to the
+authenticated member and requested installation. It reports both all delivered
+events and the governed-resource-attributed subset used by project analytics;
+these populations are intentionally different from EvoFlux's locally retained
+OTEL activity.
 
 Recommended EvoFlux queue behavior:
 

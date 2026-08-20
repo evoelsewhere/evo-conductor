@@ -10,6 +10,7 @@ import {
 import type {
   DashboardSummary,
   ResourceUsageAnalytics,
+  ResourceUsageScope,
 } from "@/shared/api/client"
 import { Card, CardContent } from "@/shared/ui/card"
 import { ErrorState } from "@/shared/ui/empty-state"
@@ -20,6 +21,7 @@ export function DashboardAnalyticsPanel({
   isLoading,
   error,
   analyticsHref,
+  scope,
   announceLoading = true,
 }: {
   analytics: ResourceUsageAnalytics | undefined
@@ -27,21 +29,22 @@ export function DashboardAnalyticsPanel({
   isLoading: boolean
   error: Error | null
   analyticsHref: string
+  scope: ResourceUsageScope
   announceLoading?: boolean
 }) {
   return (
-    <div className="min-w-0 xl:col-span-7">
+    <div className="min-w-0 xl:col-span-8">
       {isLoading ? (
         <ChartSkeletons announce={announceLoading} />
       ) : analytics && hasDashboardTelemetry(analytics) ? (
         <div className="grid min-w-0 gap-4 md:grid-cols-2">
-          <RequestOutcomeChart daily={analytics.daily} />
-          <TokenCostChart daily={analytics.daily} />
+          <RequestOutcomeChart daily={analytics.daily} scope={scope} />
+          <TokenCostChart daily={analytics.daily} scope={scope} />
         </div>
       ) : error ? (
         <Card>
           <CardContent>
-            <ErrorState message="Governed analytics are unavailable. Live project state remains visible." />
+            <ErrorState message={`${scope === "all" ? "Project" : "Governed"} analytics are unavailable. Live project state remains visible.`} />
           </CardContent>
         </Card>
       ) : (
@@ -51,7 +54,9 @@ export function DashboardAnalyticsPanel({
               summary?.members_online ??
               0) > 0
           }
+          allRequests={analytics?.totals.all_requests ?? 0}
           analyticsHref={analyticsHref}
+          scope={scope}
         />
       )}
     </div>

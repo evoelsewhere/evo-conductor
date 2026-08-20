@@ -22,6 +22,14 @@ pub enum TelemetryEventStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceUsageScope {
+    All,
+    #[default]
+    Governed,
+}
+
 impl TelemetryEventStatus {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -209,6 +217,30 @@ pub struct TelemetryBatchRequest {
 pub struct TelemetryBatchResponse {
     pub accepted: u32,
     pub duplicates: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<TelemetryDeliverySummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryDeliverySummary {
+    pub installation_id: Uuid,
+    pub window_days: u16,
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    pub events: u64,
+    pub requests: u64,
+    pub model_calls: u64,
+    pub tool_calls: u64,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub estimated_cost_usd_micros: u64,
+    pub unpriced_model_calls: u64,
+    pub attributed_events: u64,
+    pub attributed_requests: u64,
+    pub attributed_model_calls: u64,
+    pub attributed_tool_calls: u64,
+    pub attributed_estimated_cost_usd_micros: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -368,6 +400,18 @@ pub struct ResourceUsageTotals {
     pub installed_members: u64,
     pub pending_installations: u64,
     pub attention_installations: u64,
+    /// Distinct EvoFlux request identities received in the selected range,
+    /// whether or not a governed resource was attributed to them. Project,
+    /// member, role, installation, outcome, model and tool facets apply;
+    /// resource-specific facets intentionally do not narrow this denominator.
+    pub all_requests: u64,
+    /// Distinct request identities attributed to at least one governed
+    /// resource. This comparison count is returned for both scope views so
+    /// clients can explain attribution coverage without mixing aggregates.
+    pub governed_requests: u64,
+    /// Distinct request identities in the selected scope and matching every
+    /// supported filter. This equals `all_requests` for `scope=all` and the
+    /// governed subset for `scope=governed`.
     pub requests: u64,
     pub resource_uses: u64,
     pub model_calls: u64,
@@ -433,8 +477,12 @@ pub struct ResourceUsageMember {
     pub primary_role: PrimaryRole,
     pub requests: u64,
     pub resource_uses: u64,
+    pub model_calls: u64,
+    pub tool_calls: u64,
+    pub installations: u64,
     pub total_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    pub last_received_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -498,6 +546,11 @@ pub struct ResourceUsageActivityItem {
 pub struct ResourceUsageAnalytics {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
+    /// Declares whether totals, daily rows, members, models, roles and tools
+    /// represent every received project event or only governed-attributed
+    /// events. Resources and request activity are available only in the
+    /// governed view because they require a resource attribution.
+    pub scope: ResourceUsageScope,
     pub totals: ResourceUsageTotals,
     pub daily: Vec<ResourceUsageDay>,
     pub resources: Vec<ResourceUsageBreakdown>,

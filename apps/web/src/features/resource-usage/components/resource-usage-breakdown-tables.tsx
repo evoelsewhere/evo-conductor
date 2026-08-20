@@ -101,7 +101,7 @@ export function ResourceMemberBreakdownTable({ items }: { items: ResourceUsageMe
   return (
     <TableWrap className="rounded-none border-0">
       <Table>
-        <TableHead><tr><TableTh>Member</TableTh><TableTh>Recorded role</TableTh><TableTh>Requests</TableTh><TableTh>Resource uses</TableTh><TableTh>Tokens</TableTh><TableTh>Est. cost</TableTh><TableTh><span className="sr-only">Actions</span></TableTh></tr></TableHead>
+        <TableHead><tr><TableTh>Member</TableTh><TableTh>Current role</TableTh><TableTh>Requests</TableTh><TableTh>Resource uses</TableTh><TableTh>Tokens</TableTh><TableTh>Est. cost</TableTh><TableTh><span className="sr-only">Actions</span></TableTh></tr></TableHead>
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.user_id}>

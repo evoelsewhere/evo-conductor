@@ -1,17 +1,12 @@
-import { Link } from "@tanstack/react-router"
 import { Activity, ArrowRight, Boxes } from "lucide-react"
 import type { ReactNode } from "react"
 
 import { DASHBOARD_TOP_SIGNAL_LIMIT } from "@/features/dashboard/lib/dashboard-config"
-import { dashboardInitials } from "@/features/dashboard/lib/dashboard-formatters"
-import {
-  formatDuration,
-  formatTokens,
-} from "@/features/members/components/usage-formatters"
+import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
 import type {
   ResourceUsageBreakdown,
-  ResourceUsageMember,
   ResourceUsageModel,
+  ResourceUsageScope,
   ResourceUsageTool,
 } from "@/shared/api/client"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
@@ -28,21 +23,19 @@ import {
 import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 
 export function TopSignals({
-  members,
   resources,
   models,
   tools,
-  showMembers,
+  scope,
   loading,
   analyticsHref,
   className,
   announceLoading = true,
 }: {
-  members: ResourceUsageMember[]
   resources: ResourceUsageBreakdown[]
   models: ResourceUsageModel[]
   tools: ResourceUsageTool[]
-  showMembers: boolean
+  scope: ResourceUsageScope
   loading: boolean
   analyticsHref: (filters?: Record<string, string>) => string
   className?: string
@@ -52,7 +45,7 @@ export function TopSignals({
     <Card className={className}>
       <CardHeader>
         <div>
-          <CardTitle>Top signals</CardTitle>
+          <CardTitle>Usage breakdown</CardTitle>
           <CardDescription className="mt-0.5">
             Operational volume for the selected range, not a performance score.
           </CardDescription>
@@ -61,16 +54,14 @@ export function TopSignals({
           href={analyticsHref()}
           className={buttonVariants({ variant: "outline", size: "sm" })}
         >
-          Open Analytics
+          {scope === "all" ? "Open governed Analytics" : "Open Analytics"}
           <ArrowRight className="size-3.5" />
         </a>
       </CardHeader>
       <CardContent
         className={cn(
-          "grid gap-5",
-          showMembers
-            ? "sm:grid-cols-2 2xl:grid-cols-4"
-            : "sm:grid-cols-2 2xl:grid-cols-3",
+          "grid gap-5 sm:grid-cols-2",
+          scope === "governed" && "2xl:grid-cols-3",
         )}
       >
         {loading ? (
@@ -78,22 +69,21 @@ export function TopSignals({
             label="Loading top signals"
             announce={announceLoading}
             className={cn(
-              "col-span-full grid gap-5",
-              showMembers
-                ? "sm:grid-cols-2 2xl:grid-cols-4"
-                : "sm:grid-cols-2 2xl:grid-cols-3",
+              "col-span-full grid gap-5 sm:grid-cols-2",
+              scope === "governed" && "2xl:grid-cols-3",
             )}
           >
-            {Array.from({ length: showMembers ? 4 : 3 }, (_, index) => (
+            {Array.from({ length: scope === "all" ? 2 : 3 }, (_, index) => (
               <SignalSkeleton key={index} />
             ))}
           </LoadingState>
         ) : (
           <>
-            {showMembers && <MemberSignals items={members} />}
-            <ResourceSignals items={resources} analyticsHref={analyticsHref} />
-            <ModelSignals items={models} analyticsHref={analyticsHref} />
-            <ToolSignals items={tools} analyticsHref={analyticsHref} />
+            {scope === "governed" && (
+              <ResourceSignals items={resources} analyticsHref={analyticsHref} />
+            )}
+            <ModelSignals items={models} analyticsHref={analyticsHref} scope={scope} />
+            <ToolSignals items={tools} analyticsHref={analyticsHref} scope={scope} />
           </>
         )}
       </CardContent>
@@ -109,45 +99,6 @@ function SignalSkeleton() {
       <Skeleton className="h-9 w-full" />
       <Skeleton className="h-9 w-full" />
     </div>
-  )
-}
-
-function MemberSignals({ items }: { items: ResourceUsageMember[] }) {
-  return (
-    <SignalSection
-      id="dashboard-members"
-      title="Top members"
-      description="By governed requests"
-      empty="No member activity"
-      hasItems={items.length > 0}
-    >
-      {items.slice(0, DASHBOARD_TOP_SIGNAL_LIMIT).map((item) => (
-        <Link
-          key={item.user_id}
-          to="/app/members/$userId"
-          params={{ userId: item.user_id }}
-          className="group flex items-center gap-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring)/35"
-        >
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-(--color-accent-soft) text-[0.68rem] font-semibold text-(--color-accent)">
-            {dashboardInitials(item.display_name)}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium">
-              {item.display_name}
-            </span>
-            <span className="block text-[0.68rem] text-(--color-text-subtle)">
-              {item.resource_uses.toLocaleString()} resource uses
-            </span>
-          </span>
-          <span className="text-right text-xs font-semibold tabular-nums">
-            {item.requests.toLocaleString()}
-            <span className="block text-[0.62rem] font-normal text-(--color-text-subtle)">
-              requests
-            </span>
-          </span>
-        </Link>
-      ))}
-    </SignalSection>
   )
 }
 
@@ -198,15 +149,17 @@ function ResourceSignals({
 function ModelSignals({
   items,
   analyticsHref,
+  scope,
 }: {
   items: ResourceUsageModel[]
   analyticsHref: (filters?: Record<string, string>) => string
+  scope: ResourceUsageScope
 }) {
   return (
     <SignalSection
       id="dashboard-models"
       title="Models"
-      description="Calls and estimate coverage"
+      description={scope === "all" ? "All received calls" : "Governed calls and pricing"}
       empty="No model activity"
       hasItems={items.length > 0}
     >
@@ -252,15 +205,17 @@ function ModelSignals({
 function ToolSignals({
   items,
   analyticsHref,
+  scope,
 }: {
   items: ResourceUsageTool[]
   analyticsHref: (filters?: Record<string, string>) => string
+  scope: ResourceUsageScope
 }) {
   return (
     <SignalSection
       id="dashboard-tools"
       title="Tools"
-      description="Calls and outcomes"
+      description={scope === "all" ? "All received calls and outcomes" : "Governed calls and outcomes"}
       empty="No tool activity"
       hasItems={items.length > 0}
     >

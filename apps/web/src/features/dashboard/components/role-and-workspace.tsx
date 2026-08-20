@@ -15,6 +15,7 @@ import { dashboardResourceTotal } from "@/features/dashboard/lib/dashboard-model
 import type {
   DashboardSummary,
   ResourceUsageRole,
+  ResourceUsageScope,
 } from "@/shared/api/client"
 import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
 import { Badge } from "@/shared/ui/badge"
@@ -31,6 +32,7 @@ import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 export function RoleAndWorkspace({
   roles,
   summary,
+  scope,
   loading,
   summaryLoading = false,
   analyticsHref,
@@ -43,6 +45,7 @@ export function RoleAndWorkspace({
 }: {
   roles: ResourceUsageRole[]
   summary: DashboardSummary | undefined
+  scope: ResourceUsageScope
   loading: boolean
   summaryLoading?: boolean
   analyticsHref: (filters?: Record<string, string>) => string
@@ -60,9 +63,10 @@ export function RoleAndWorkspace({
     <Card className={className}>
       <CardHeader>
         <div>
-          <CardTitle>Role & workspace</CardTitle>
+          <CardTitle>Project context</CardTitle>
           <CardDescription className="mt-0.5">
-            Aggregate role usage, feedback and current project state.
+            {scope === "all" ? "All received" : "Governed"} role usage,
+            feedback, project facts and destinations.
           </CardDescription>
         </div>
       </CardHeader>
@@ -125,10 +129,15 @@ export function RoleAndWorkspace({
                   </a>
                 ))}
               </div>
+              {scope === "all" && (
+                <p className="mt-2 text-[0.68rem] text-(--color-text-subtle)">
+                  Role links open the governed Analytics drill-down.
+                </p>
+              )}
             </>
           ) : (
             <p className="mt-2 text-xs text-(--color-text-subtle)">
-              Role usage appears after governed telemetry arrives.
+              Role usage appears after {scope === "all" ? "project" : "governed"} telemetry arrives.
             </p>
           )}
         </section>
