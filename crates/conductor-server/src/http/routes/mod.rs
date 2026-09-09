@@ -4,6 +4,7 @@ mod auth;
 mod client;
 mod dashboard;
 mod health;
+mod model_pricing;
 mod realtime;
 mod resource_delivery;
 mod resources;
@@ -417,6 +418,26 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             project_member(),
         ),
         access::list_tags,
+    );
+    routes.get(
+        "/model-pricing",
+        browser(
+            A::ModelPricingCatalogList,
+            Target::Project,
+            P::ModelPricingRead,
+            project_member(),
+        ),
+        model_pricing::list_catalog,
+    );
+    routes.post(
+        "/model-pricing/refresh",
+        browser(
+            A::ModelPricingCatalogRefresh,
+            Target::Project,
+            P::ModelPricingRead,
+            project_member(),
+        ),
+        model_pricing::refresh_catalog,
     );
     routes.post(
         "/tags",

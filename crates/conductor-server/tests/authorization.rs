@@ -194,7 +194,7 @@ fn every_browser_action_resolves_each_current_role_and_eligible_alternative() {
         }
     }
 
-    assert_eq!(browser_actions, 77);
+    assert_eq!(browser_actions, 79);
     assert_eq!(role_cases, browser_actions * PrimaryRole::ALL.len());
 }
 
@@ -299,7 +299,7 @@ fn public_bootstrap_and_protected_classes_are_explicit_and_exhaustive() {
         classes,
         BTreeMap::from([
             ("bootstrap", 1),
-            ("browser", 77),
+            ("browser", 79),
             ("connection", 11),
             ("public", 6),
         ])

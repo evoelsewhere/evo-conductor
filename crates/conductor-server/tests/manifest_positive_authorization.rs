@@ -689,7 +689,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | MemberPendingCountRead
         | TaxonomySubRolesList
         | TaxonomyTagsList
-        | ConnectionTokensSelfList => PreparedRequest::empty(route, StatusCode::OK),
+        | ConnectionTokensSelfList
+        | ModelPricingCatalogList
+        | ModelPricingCatalogRefresh => PreparedRequest::empty(route, StatusCode::OK),
 
         SessionPasswordChange => {
             world
@@ -1229,7 +1231,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ClientInventorySync
                 | ClientTelemetryIngest
                 | ClientResourceUsageIngest
-                | ClientRealtimeEvents => unreachable!("outer resource action match"),
+                | ClientRealtimeEvents
+                | ModelPricingCatalogList
+                | ModelPricingCatalogRefresh => unreachable!("outer resource action match"),
             }
         }
 
@@ -1358,7 +1362,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ClientInventorySync
                 | ClientTelemetryIngest
                 | ClientResourceUsageIngest
-                | ClientRealtimeEvents => unreachable!("outer analytics action match"),
+                | ClientRealtimeEvents
+                | ModelPricingCatalogList
+                | ModelPricingCatalogRefresh => unreachable!("outer analytics action match"),
             }
         }
 
@@ -1597,7 +1603,9 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | AnalyticsViewRead
         | AnalyticsViewCreate
         | AnalyticsViewUpdate
-        | AnalyticsViewDelete => unreachable!("non-connection action in connection fixture"),
+        | AnalyticsViewDelete
+        | ModelPricingCatalogList
+        | ModelPricingCatalogRefresh => unreachable!("non-connection action in connection fixture"),
     }
 }
 
@@ -1944,7 +1952,9 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | ClientResourceArtifactRead
         | ClientInventorySync
         | ClientTelemetryIngest
-        | ClientRealtimeEvents => {}
+        | ClientRealtimeEvents
+        | ModelPricingCatalogList
+        | ModelPricingCatalogRefresh => {}
     }
 }
 
