@@ -11,6 +11,7 @@ pub mod config;
 pub mod constants;
 pub mod error;
 pub mod host_metrics;
+pub mod model_pricing;
 pub mod request_context;
 pub mod resource_authoring;
 pub mod routes;
