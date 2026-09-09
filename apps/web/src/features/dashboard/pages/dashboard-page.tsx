@@ -9,7 +9,7 @@ import {
   PartialErrorPanel,
 } from "@/features/dashboard/components/dashboard-states"
 import { DashboardToolbar } from "@/features/dashboard/components/dashboard-toolbar"
-import { DashboardScopeTabs } from "@/features/dashboard/components/dashboard-scope-tabs"
+import { ActivityScopeTabs } from "@/features/resource-usage/components/activity-scope-tabs"
 import { LiveOperations } from "@/features/dashboard/components/live-operations"
 import { MemberActivityPanel } from "@/features/dashboard/components/member-activity-panel"
 import { RoleAndWorkspace } from "@/features/dashboard/components/role-and-workspace"
@@ -90,7 +90,7 @@ export function DashboardPage() {
             />
           )}
 
-          <DashboardScopeTabs
+          <ActivityScopeTabs
             value={scope}
             totals={analytics.data?.totals}
             loading={analyticsLoading}

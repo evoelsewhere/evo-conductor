@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   Clock3,
   Gauge,
+  PiggyBank,
   Users,
   Wrench,
 } from "lucide-react"
@@ -24,6 +25,7 @@ import {
   TelemetryReadiness,
   hasAnalyticsData,
 } from "@/features/resource-usage/components/resource-analytics-studio"
+import { ActivityScopeTabs } from "@/features/resource-usage/components/activity-scope-tabs"
 import {
   ResourceBreakdownTable,
   ResourceMemberBreakdownTable,
@@ -40,7 +42,11 @@ import {
   ResourceUsageFilters,
   type ResourceUsageFilterState,
 } from "@/features/resource-usage/components/resource-usage-filters"
-import { formatEstimatedCost } from "@/features/resource-usage/components/resource-usage-formatters"
+import {
+  formatCacheSavings,
+  formatEstimatedCost,
+} from "@/features/resource-usage/components/resource-usage-formatters"
+import { PeriodDeltaBadge } from "@/features/resource-usage/components/period-delta-badge"
 import { ResourceUsageNav } from "@/features/resource-usage/components/resource-usage-nav"
 import {
   api,
@@ -48,6 +54,7 @@ import {
   type PrimaryRole,
   type ResourceUsageAnalytics,
   type ResourceUsageParams,
+  type ResourceUsageScope,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
 import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
@@ -112,6 +119,12 @@ export function ResourceUsagePage({
     sanitizeMemberFilters(readFiltersFromUrl(scopeKind), allowMemberDetail),
   )
   const [offset, setOffset] = useState(readOffsetFromUrl)
+  // A resource-kind-locked page (e.g. "Plugins usage") only makes sense
+  // governed: `resource_kind` is filtered through the resource-attribution
+  // join that "all" scope skips entirely, so "all" scope there would
+  // silently ignore the kind lock rather than widen it.
+  const [requestedScope, setRequestedScope] = useState<ResourceUsageScope>(readScopeFromUrl)
+  const scope: ResourceUsageScope = scopeKind ? "governed" : requestedScope
   const deferredProvider = useDeferredValue(filters.provider.trim())
   const deferredModel = useDeferredValue(filters.model.trim())
   const deferredToolName = useDeferredValue(filters.toolName.trim())
@@ -134,6 +147,7 @@ export function ResourceUsagePage({
 
   const params = useMemo<ResourceUsageParams>(() => ({
     ...dates.range,
+    scope,
     member_id: allowMemberDetail ? optional(filters.memberId) : undefined,
     installation_id: allowMemberDetail ? optional(filters.installationId) : undefined,
     primary_role: optional(filters.primaryRole) as PrimaryRole | undefined,
@@ -145,11 +159,12 @@ export function ResourceUsagePage({
     provider: deferredProvider || undefined,
     model: deferredModel || undefined,
     tool_name: deferredToolName || undefined,
+    compare_previous: true,
     limit: view === RESOURCE_USAGE_VIEW.OVERVIEW
       ? RESOURCE_USAGE_OVERVIEW_ACTIVITY_LIMIT
       : RESOURCE_USAGE_PAGE_SIZE,
     offset: view === RESOURCE_USAGE_VIEW.ACTIVITY ? offset : 0,
-  }), [allowMemberDetail, dates.range, deferredModel, deferredProvider, deferredToolName, filters, offset, scopeKind, view])
+  }), [allowMemberDetail, dates.range, deferredModel, deferredProvider, deferredToolName, filters, offset, scope, scopeKind, view])
 
   const analyticsQuery = useMemo<AnalyticsQuery>(() => ({
     date_range: analyticsDateRange(dates.preset),
@@ -211,10 +226,10 @@ export function ResourceUsagePage({
   const fatalUsageError = Boolean(usage.error && !usage.data && !initialLoading)
 
   useEffect(() => {
-    const search = serializeSearch(filters, dates, view === RESOURCE_USAGE_VIEW.ACTIVITY ? offset : 0)
+    const search = serializeSearch(filters, dates, view === RESOURCE_USAGE_VIEW.ACTIVITY ? offset : 0, requestedScope)
     const suffix = search.toString()
     window.history.replaceState(null, "", `${window.location.pathname}${suffix ? `?${suffix}` : ""}`)
-  }, [dates.customFrom, dates.customTo, dates.preset, filters, offset, view])
+  }, [dates.customFrom, dates.customTo, dates.preset, filters, offset, requestedScope, view])
 
   useEffect(() => {
     if (!allowMemberDetail) {
@@ -249,6 +264,19 @@ export function ResourceUsagePage({
       }
     >
       <ResourceUsageNav kind={scopeKind} />
+      {!scopeKind && (
+        <div className="mb-4">
+          <ActivityScopeTabs
+            value={requestedScope}
+            totals={usage.data?.totals}
+            loading={initialLoading}
+            onChange={(next) => {
+              setRequestedScope(next)
+              setOffset(0)
+            }}
+          />
+        </div>
+      )}
       <ResourceUsageFilters
         value={filters}
         members={members.data?.items ?? []}
@@ -300,6 +328,7 @@ export function ResourceUsagePage({
 
 function OverviewPanel({ data, loading, activityPath, showMemberDetail }: { data?: ResourceUsageAnalytics; loading: boolean; activityPath: string; showMemberDetail: boolean }) {
   const totals = data?.totals
+  const previous = data?.previous_period
   const successRate =
     terminalRequestSuccessRate(totals?.successes, totals?.requests) ?? 0
   const averageCost = totals?.requests
@@ -308,12 +337,42 @@ function OverviewPanel({ data, loading, activityPath, showMemberDetail }: { data
 
   return (
     <>
-      {loading ? <StatCardGridSkeleton count={4} className="mt-4 lg:grid-cols-4" label="Loading analytics overview" /> : (
-        <StatCardGrid className="mt-4 lg:grid-cols-4">
+      {loading ? <StatCardGridSkeleton count={5} className="mt-4 lg:grid-cols-4 xl:grid-cols-5" label="Loading analytics overview" /> : (
+        <StatCardGrid className="mt-4 lg:grid-cols-4 xl:grid-cols-5">
           <StatCard label="Requests" value={(totals?.requests ?? 0).toLocaleString()} hint={`${formatTokens(totals?.average_tokens_per_request ?? 0)} tokens/request`} icon={Gauge} />
           <StatCard label="Installed members" value={(totals?.installed_members ?? 0).toLocaleString()} hint="Aggregate project adoption" icon={Users} tone="accent" />
           <StatCard label="Success rate" value={`${successRate}%`} hint={`${totals?.errors ?? 0} errors · ${totals?.blocked ?? 0} blocked · ${totals?.cancelled ?? 0} cancelled`} icon={Users} tone={successRate >= 90 ? "success" : "warning"} />
-          <StatCard label="Estimated cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${formatEstimatedCost(averageCost)} avg · ${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} tone="warning" />
+          <StatCard
+            label="Cost"
+            value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)}
+            hint={
+              <span className="flex flex-wrap items-center gap-x-1.5">
+                <span>{formatEstimatedCost(averageCost)} avg · {totals?.unpriced_model_calls ?? 0} unpriced</span>
+                <PeriodDeltaBadge
+                  current={totals?.estimated_cost_usd_micros ?? 0}
+                  previous={previous?.estimated_cost_usd_micros}
+                  formatValue={formatEstimatedCost}
+                  higherIsBetter={false}
+                />
+              </span>
+            }
+            icon={CircleDollarSign}
+            tone="warning"
+          />
+          <StatCard
+            label="Cache savings"
+            value={formatCacheSavings(totals?.cache_savings_usd_micros ?? 0)}
+            hint={
+              <PeriodDeltaBadge
+                current={totals?.cache_savings_usd_micros ?? 0}
+                previous={previous?.cache_savings_usd_micros}
+                formatValue={formatCacheSavings}
+                higherIsBetter
+              />
+            }
+            icon={PiggyBank}
+            tone={(totals?.cache_savings_usd_micros ?? 0) < 0 ? "warning" : "success"}
+          />
         </StatCardGrid>
       )}
       {loading ? <OperationalHealthStripSkeleton announce={false} /> : <OperationalHealthStrip data={data} />}
@@ -323,8 +382,8 @@ function OverviewPanel({ data, loading, activityPath, showMemberDetail }: { data
         <TelemetryReadiness data={data} />
       ) : (
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          <RequestOutcomeChart daily={data?.daily ?? []} />
-          <TokenCostChart daily={data?.daily ?? []} />
+          <RequestOutcomeChart daily={data?.daily ?? []} scope={data?.scope} />
+          <TokenCostChart daily={data?.daily ?? []} scope={data?.scope} />
         </div>
       )}
       {showMemberDetail && <Card className="mt-4">
@@ -540,7 +599,7 @@ function UsagePanel({
           {loading ? <ResourceUsageTableSkeleton rows={5} columns={7} label="Loading member adoption" announce={false} /> : data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <ResourceUsageEmpty title="No member adoption" description="Member breakdown appears after attributed telemetry arrives." />}
         </BreakdownCard>
       )}
-      <BreakdownCard title="Provider and model usage" description="Calls, tokens, estimated cost and pricing coverage while governed resources were active.">
+      <BreakdownCard title="Provider and model usage" description="Calls, tokens, cost and pricing coverage while governed resources were active.">
         {loading ? <ResourceUsageTableSkeleton rows={5} columns={7} label="Loading provider and model usage" announce={false} /> : data?.models.length ? <ResourceModelBreakdownTable items={data.models} /> : <ResourceUsageEmpty title="No model usage" description="Provider and model breakdown appears after model-call telemetry arrives." />}
       </BreakdownCard>
       <BreakdownCard title="Calls by recorded role" description="Request, model-call and tool-call volume by the role captured with each request.">
@@ -671,10 +730,17 @@ function readOffsetFromUrl() {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0
 }
 
+function readScopeFromUrl(): ResourceUsageScope {
+  return new URLSearchParams(window.location.search).get("scope") === "governed"
+    ? "governed"
+    : "all"
+}
+
 function serializeSearch(
   filters: ResourceUsageFilterState,
   dates: ReturnType<typeof useUsageRange>,
   offset: number,
+  scope: ResourceUsageScope,
 ) {
   const search = new URLSearchParams()
   if (dates.preset !== DEFAULT_USAGE_RANGE_PRESET) search.set("range", dates.preset)
@@ -683,6 +749,7 @@ function serializeSearch(
     search.set("to", dates.customTo)
   }
   if (offset > 0) search.set("offset", String(offset))
+  if (scope === "governed") search.set("scope", scope)
   if (filters.memberId !== RESOURCE_USAGE_ALL_FILTER) search.set("member_id", filters.memberId)
   if (filters.installationId !== RESOURCE_USAGE_ALL_FILTER) search.set("installation_id", filters.installationId)
   if (filters.primaryRole !== RESOURCE_USAGE_ALL_FILTER) search.set("primary_role", filters.primaryRole)

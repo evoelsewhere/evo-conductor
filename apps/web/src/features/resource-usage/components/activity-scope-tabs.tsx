@@ -26,7 +26,14 @@ const SCOPE_OPTIONS = [
   icon: typeof RadioTower
 }>
 
-export function DashboardScopeTabs({
+/**
+ * Scope switch for any screen built on `/analytics/resource-usage` — the
+ * server prices, counts and lists everything under one of two scopes
+ * ("all" or "governed"), so every consumer of that endpoint (Dashboard,
+ * Usage) picks between them the same way instead of each inventing its own
+ * toggle.
+ */
+export function ActivityScopeTabs({
   value,
   totals,
   loading,
@@ -40,15 +47,15 @@ export function DashboardScopeTabs({
   return (
     <section
       className="rounded-xl border border-(--border-soft) bg-(--bg-card) p-1.5"
-      aria-labelledby="dashboard-scope-heading"
+      aria-labelledby="activity-scope-heading"
     >
-      <h2 id="dashboard-scope-heading" className="sr-only">
-        Dashboard activity scope
+      <h2 id="activity-scope-heading" className="sr-only">
+        Activity scope
       </h2>
       <div
         className="grid gap-1 sm:grid-cols-2"
         role="group"
-        aria-label="Dashboard activity scope"
+        aria-label="Activity scope"
       >
         {SCOPE_OPTIONS.map((option) => {
           const selected = value === option.value
