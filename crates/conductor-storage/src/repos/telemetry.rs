@@ -21,6 +21,21 @@ pub struct TelemetryRepo {
     kind: DatabaseKind,
 }
 
+/// A `model_call` event already in storage that no one has priced yet —
+/// the reporting client sent no cost, and no backfill has run against it
+/// since. Carries just what pricing needs, not the whole event row.
+#[derive(Debug, Clone)]
+pub struct UnpricedModelCall {
+    pub event_id: Uuid,
+    pub provider: String,
+    pub model: String,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
+}
+
 impl TelemetryRepo {
     pub fn new(pool: Pool<Any>, kind: DatabaseKind) -> Self {
         Self { pool, kind }
@@ -49,12 +64,12 @@ impl TelemetryRepo {
                 INSERT INTO telemetry_events (
                     id, project_id, user_id, installation_id, request_id, session_id, event_type,
                     sequence, agent_name, provider, model, response_model, tokens_in, tokens_out,
-                    cache_read_tokens, reasoning_tokens, tool_use_tokens, duration_ms,
+                    cache_read_tokens, cache_write_tokens, reasoning_tokens, tool_use_tokens, duration_ms,
                     tool_name, tool_category, status, error_category, reported_at,
-                    received_at, estimated_cost_usd_micros, cost_source, evoflux_version,
-                    primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
+                    received_at, estimated_cost_usd_micros, cost_source, cache_savings_usd_micros,
+                    evoflux_version, primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
                     tool_calls, active_agents
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 ON DUPLICATE KEY UPDATE id = id
                 "#
                 }
@@ -63,12 +78,12 @@ impl TelemetryRepo {
                 INSERT INTO telemetry_events (
                     id, project_id, user_id, installation_id, request_id, session_id, event_type,
                     sequence, agent_name, provider, model, response_model, tokens_in, tokens_out,
-                    cache_read_tokens, reasoning_tokens, tool_use_tokens, duration_ms,
+                    cache_read_tokens, cache_write_tokens, reasoning_tokens, tool_use_tokens, duration_ms,
                     tool_name, tool_category, status, error_category, reported_at,
-                    received_at, estimated_cost_usd_micros, cost_source, evoflux_version,
-                    primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
+                    received_at, estimated_cost_usd_micros, cost_source, cache_savings_usd_micros,
+                    evoflux_version, primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
                     tool_calls, active_agents
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 ON CONFLICT (id) DO NOTHING
                 "#
                 }
@@ -89,6 +104,7 @@ impl TelemetryRepo {
                 .bind(to_i64(event.tokens_in))
                 .bind(to_i64(event.tokens_out))
                 .bind(to_i64(event.cache_read_tokens))
+                .bind(to_i64(event.cache_write_tokens))
                 .bind(to_i64(event.reasoning_tokens))
                 .bind(to_i64(event.tool_use_tokens))
                 .bind(to_i64(event.duration_ms))
@@ -100,6 +116,7 @@ impl TelemetryRepo {
                 .bind(&received_at)
                 .bind(event.estimated_cost_usd_micros.map(to_i64))
                 .bind(event.cost_source.map(|value| value.as_str()))
+                .bind(event.cache_savings_usd_micros)
                 .bind(evoflux_version)
                 .bind(user.primary_role.as_str())
                 .bind(&sub_role_ids)
@@ -430,7 +447,7 @@ impl TelemetryRepo {
             r#"
             SELECT id, request_id, session_id, event_type, sequence, agent_name,
                    provider, model, response_model, tokens_in, tokens_out, cache_read_tokens,
-                   reasoning_tokens, tool_use_tokens, duration_ms, tool_name,
+                   cache_write_tokens, reasoning_tokens, tool_use_tokens, duration_ms, tool_name,
                    tool_category, status, error_category, estimated_cost_usd_micros,
                    cost_source, reported_at
             FROM telemetry_events
@@ -552,6 +569,7 @@ impl TelemetryRepo {
                 tokens_in: event_tokens_in,
                 tokens_out: event_tokens_out,
                 cache_read_tokens: non_negative(row.get::<i64, _>("cache_read_tokens")),
+                cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
                 reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
                 tool_use_tokens: non_negative(row.get::<i64, _>("tool_use_tokens")),
                 duration_ms: event_duration,
@@ -660,6 +678,117 @@ impl TelemetryRepo {
             failed_calls,
             tools,
         })
+    }
+
+    /// A page of `model_call` events already in storage with no cost —
+    /// historical rows a one-off backfill can price now that a catalog
+    /// exists for them, not something ingest revisits on its own.
+    pub async fn list_unpriced_model_calls(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<UnpricedModelCall>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, provider, model, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens, reasoning_tokens \
+             FROM telemetry_events \
+             WHERE event_type = 'model_call' AND estimated_cost_usd_micros IS NULL \
+               AND provider IS NOT NULL AND model IS NOT NULL \
+             ORDER BY id \
+             LIMIT ?",
+        )
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                Some(UnpricedModelCall {
+                    event_id: Uuid::parse_str(&row.get::<String, _>("id")).ok()?,
+                    provider: row.get("provider"),
+                    model: row.get("model"),
+                    tokens_in: non_negative(row.get("tokens_in")),
+                    tokens_out: non_negative(row.get("tokens_out")),
+                    cache_read_tokens: non_negative(row.get("cache_read_tokens")),
+                    cache_write_tokens: non_negative(row.get("cache_write_tokens")),
+                    reasoning_tokens: non_negative(row.get("reasoning_tokens")),
+                })
+            })
+            .collect())
+    }
+
+    /// Prices one already-stored event after the fact. Never overwrites a
+    /// cost that is already set — callers are expected to have filtered to
+    /// unpriced rows already, but this stays safe even if they have not.
+    pub async fn backfill_event_cost(
+        &self,
+        event_id: Uuid,
+        cost_usd_micros: u64,
+        source: TelemetryCostSource,
+    ) -> Result<bool, sqlx::Error> {
+        let updated = sqlx::query(
+            "UPDATE telemetry_events SET estimated_cost_usd_micros = ?, cost_source = ? \
+             WHERE id = ? AND estimated_cost_usd_micros IS NULL",
+        )
+        .bind(to_i64(cost_usd_micros))
+        .bind(source.as_str())
+        .bind(event_id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(updated.rows_affected() > 0)
+    }
+
+    /// A page of `model_call` events with no computed cache-savings figure
+    /// yet — every row from before this column existed, plus anything a
+    /// prior backfill run could not resolve a rate for. Unlike cost, this
+    /// is independent of `estimated_cost_usd_micros`: a row can already be
+    /// fully priced by the client and still be missing this derived value.
+    pub async fn list_model_calls_missing_cache_savings(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<UnpricedModelCall>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, provider, model, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens, reasoning_tokens \
+             FROM telemetry_events \
+             WHERE event_type = 'model_call' AND cache_savings_usd_micros IS NULL \
+               AND provider IS NOT NULL AND model IS NOT NULL \
+             ORDER BY id \
+             LIMIT ?",
+        )
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                Some(UnpricedModelCall {
+                    event_id: Uuid::parse_str(&row.get::<String, _>("id")).ok()?,
+                    provider: row.get("provider"),
+                    model: row.get("model"),
+                    tokens_in: non_negative(row.get("tokens_in")),
+                    tokens_out: non_negative(row.get("tokens_out")),
+                    cache_read_tokens: non_negative(row.get("cache_read_tokens")),
+                    cache_write_tokens: non_negative(row.get("cache_write_tokens")),
+                    reasoning_tokens: non_negative(row.get("reasoning_tokens")),
+                })
+            })
+            .collect())
+    }
+
+    /// Fills in one already-stored event's cache-savings figure. Never
+    /// overwrites a value already set, mirroring `backfill_event_cost`.
+    pub async fn backfill_event_cache_savings(
+        &self,
+        event_id: Uuid,
+        savings_usd_micros: i64,
+    ) -> Result<bool, sqlx::Error> {
+        let updated = sqlx::query(
+            "UPDATE telemetry_events SET cache_savings_usd_micros = ? \
+             WHERE id = ? AND cache_savings_usd_micros IS NULL",
+        )
+        .bind(savings_usd_micros)
+        .bind(event_id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(updated.rows_affected() > 0)
     }
 }
 
