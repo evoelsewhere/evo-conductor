@@ -425,6 +425,7 @@ impl World {
                     tokens_in: 1,
                     tokens_out: 1,
                     cache_read_tokens: 0,
+                    cache_write_tokens: 0,
                     reasoning_tokens: 0,
                     tool_use_tokens: 0,
                     duration_ms: 1,
@@ -434,6 +435,7 @@ impl World {
                     error_category: None,
                     estimated_cost_usd_micros: None,
                     cost_source: None,
+                    cache_savings_usd_micros: None,
                     evoflux_version: Some("1.0.0".into()),
                     resources: vec![],
                     reported_at: chrono::Utc::now(),
@@ -687,7 +689,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | MemberPendingCountRead
         | TaxonomySubRolesList
         | TaxonomyTagsList
-        | ConnectionTokensSelfList => PreparedRequest::empty(route, StatusCode::OK),
+        | ConnectionTokensSelfList
+        | ModelPricingCatalogList
+        | ModelPricingCatalogRefresh => PreparedRequest::empty(route, StatusCode::OK),
 
         SessionPasswordChange => {
             world
@@ -1227,7 +1231,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ClientInventorySync
                 | ClientTelemetryIngest
                 | ClientResourceUsageIngest
-                | ClientRealtimeEvents => unreachable!("outer resource action match"),
+                | ClientRealtimeEvents
+                | ModelPricingCatalogList
+                | ModelPricingCatalogRefresh => unreachable!("outer resource action match"),
             }
         }
 
@@ -1356,7 +1362,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ClientInventorySync
                 | ClientTelemetryIngest
                 | ClientResourceUsageIngest
-                | ClientRealtimeEvents => unreachable!("outer analytics action match"),
+                | ClientRealtimeEvents
+                | ModelPricingCatalogList
+                | ModelPricingCatalogRefresh => unreachable!("outer analytics action match"),
             }
         }
 
@@ -1595,7 +1603,9 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | AnalyticsViewRead
         | AnalyticsViewCreate
         | AnalyticsViewUpdate
-        | AnalyticsViewDelete => unreachable!("non-connection action in connection fixture"),
+        | AnalyticsViewDelete
+        | ModelPricingCatalogList
+        | ModelPricingCatalogRefresh => unreachable!("non-connection action in connection fixture"),
     }
 }
 
@@ -1942,7 +1952,9 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | ClientResourceArtifactRead
         | ClientInventorySync
         | ClientTelemetryIngest
-        | ClientRealtimeEvents => {}
+        | ClientRealtimeEvents
+        | ModelPricingCatalogList
+        | ModelPricingCatalogRefresh => {}
     }
 }
 

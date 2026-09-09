@@ -35,7 +35,7 @@ export function ResourceUsageActivityTable({ items }: { items: ResourceUsageActi
             <TableTh>Model</TableTh>
             <TableTh>Calls</TableTh>
             <TableTh>Tokens</TableTh>
-            <TableTh>Est. cost</TableTh>
+            <TableTh>Cost</TableTh>
             <TableTh>Duration</TableTh>
             <TableTh>Outcome</TableTh>
             <TableTh><span className="sr-only">Actions</span></TableTh>

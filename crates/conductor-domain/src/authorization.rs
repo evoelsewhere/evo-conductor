@@ -106,6 +106,7 @@ stable_string_enum! {
         TelemetryMemberReadAny => "telemetry.member.read_any",
         TaxonomyRead => "taxonomy.read",
         TaxonomyDefinitionManage => "taxonomy.definition.manage",
+        ModelPricingRead => "model_pricing.read",
         MemberTagAssignmentManage => "member.tag_assignment.manage",
         ResourceConsume => "resource.consume",
         ResourceAuthor => "resource.author",
@@ -181,6 +182,8 @@ stable_string_enum! {
         TaxonomyTagDelete => "taxonomy.tag.delete",
         TaxonomyAssignmentRead => "taxonomy.assignment.read",
         TaxonomyAssignmentSet => "taxonomy.assignment.set",
+        ModelPricingCatalogList => "model_pricing.catalog.list",
+        ModelPricingCatalogRefresh => "model_pricing.catalog.refresh",
         ConnectionTokensSelfList => "connection_tokens.self.list",
         ConnectionTokensSelfIssue => "connection_tokens.self.issue",
         ConnectionTokensSelfRevoke => "connection_tokens.self.revoke",
@@ -1027,7 +1030,10 @@ fn grant_for_role(role: PrimaryRole, permission: PermissionKey) -> Option<Permis
         | P::TelemetryMemberReadSelf
         | P::ConnectionTokenIssueSelf
         | P::ConnectionTokenReadSelf
-        | P::ConnectionTokenRevokeSelf => true,
+        | P::ConnectionTokenRevokeSelf
+        // The world AI pricing catalog is public reference data, not
+        // scoped to any project or organization — every role may read it.
+        | P::ModelPricingRead => true,
 
         P::ProjectDashboardRead
         | P::MemberDirectoryRead

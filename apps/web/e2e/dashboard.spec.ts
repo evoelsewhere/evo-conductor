@@ -33,7 +33,7 @@ test.describe("Dashboard mission control", () => {
       page.getByRole("button", { name: "30 days", exact: true }),
     ).toHaveAttribute("aria-pressed", "true")
     const activityScope = page.getByRole("group", {
-      name: "Dashboard activity scope",
+      name: "Activity scope",
     })
     await expect(
       activityScope.getByRole("button", { name: /All EvoFlux activity/ }),
@@ -65,7 +65,7 @@ test.describe("Dashboard mission control", () => {
     )
     await expect(metric(page, "Success rate")).toContainText("80%")
     await expect(metric(page, "Average duration")).toContainText("1.4 s")
-    await expect(metric(page, "Estimated cost")).toContainText("$16")
+    await expect(metric(page, "Cost")).toContainText("$16")
     await expect(metric(page, "Delivery attention")).toContainText("1")
 
     const liveOperations = cardForHeading(page, "Live operations")
@@ -131,7 +131,7 @@ test.describe("Dashboard mission control", () => {
     await expect(metric(page, "Governed requests")).toContainText(
       "1,600 received · 75% coverage",
     )
-    await expect(metric(page, "Estimated cost")).toContainText("$12.5")
+    await expect(metric(page, "Cost")).toContainText("$12.5")
     await expect(
       page.getByRole("heading", { name: "Resources", level: 3 }),
     ).toBeVisible()
@@ -280,7 +280,7 @@ test.describe("Dashboard mission control", () => {
     await expect(page.getByText("gpt-5", { exact: true })).toBeVisible()
     await expect(page.getByText("web.search", { exact: true })).toBeVisible()
     await page
-      .getByRole("group", { name: "Dashboard activity scope" })
+      .getByRole("group", { name: "Activity scope" })
       .getByRole("button", { name: /Governed activity/ })
       .click()
     await expect(

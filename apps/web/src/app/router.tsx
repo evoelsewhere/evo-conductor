@@ -20,6 +20,7 @@ import { ChangePasswordPage } from "@/features/auth/pages/change-password-page"
 import { LoginPage } from "@/features/auth/pages/login-page"
 import { PendingPage } from "@/features/auth/pages/pending-page"
 import { SsoCallbackPage } from "@/features/auth/pages/sso-callback-page"
+import { ModelPricingPage } from "@/features/model-pricing/pages/model-pricing-page"
 import { MembersPage } from "@/features/members/pages/members-page"
 import { MemberActivityPage } from "@/features/members/pages/member-activity-page"
 import { MemberDetailPage } from "@/features/members/pages/member-detail-page"
@@ -305,6 +306,12 @@ const resourceRequestDetailRoute = createRoute({
   component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_MEMBER_READ_ANY]}><ResourceRequestDetailPage /></PermissionBoundary>,
 })
 
+const modelPricingRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/resources/pricing",
+  component: () => <PermissionBoundary permissions={[PERMISSION.MODEL_PRICING_READ]}><ModelPricingPage /></PermissionBoundary>,
+})
+
 const legacyResourceUsageRoute = createRoute({
   getParentRoute: () => appRoute,
   path: RESOURCE_USAGE_ROUTE_PATHS.legacy,
@@ -440,6 +447,7 @@ const routeTree = rootRoute.addChildren([
     resourceUsageActivityRoute,
     resourceUsageAnalysisRoute,
     resourceRequestDetailRoute,
+    modelPricingRoute,
     legacyResourceUsageRoute,
     resourcesPluginsRoute,
     resourcesPluginsActivityRoute,

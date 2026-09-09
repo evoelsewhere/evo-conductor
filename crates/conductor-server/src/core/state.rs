@@ -12,7 +12,9 @@ use tokio::sync::RwLock;
 use crate::core::artifacts::ArtifactStore;
 use crate::core::authorization::AuthorizationService;
 use crate::core::config::RealtimeConfig;
+use crate::core::constants::pricing::MODELS_DEV_CACHE_PATH;
 use crate::core::host_metrics::{HostMetricsProvider, SystemHostMetricsProvider};
+use crate::core::model_pricing::{ModelPricingProvider, ModelsDevPricingCatalog};
 use crate::http::realtime::RealtimeHub;
 
 #[derive(Clone)]
@@ -31,6 +33,7 @@ pub struct AppState {
     pub artifacts: ArtifactStore,
     pub authorization: AuthorizationService,
     pub host_metrics: Arc<dyn HostMetricsProvider>,
+    pub pricing: Arc<dyn ModelPricingProvider>,
 }
 
 impl AppState {
@@ -95,6 +98,7 @@ impl AppState {
             artifacts,
             authorization: AuthorizationService::default(),
             host_metrics: Arc::new(SystemHostMetricsProvider::default()),
+            pricing: Arc::new(ModelsDevPricingCatalog::new(MODELS_DEV_CACHE_PATH)),
         })
     }
 
@@ -104,6 +108,15 @@ impl AppState {
     #[doc(hidden)]
     pub fn set_host_metrics_provider(&mut self, provider: Arc<dyn HostMetricsProvider>) {
         self.host_metrics = provider;
+    }
+
+    /// Replace the model-pricing catalog before building the router.
+    /// Production fetches the real models.dev catalog; HTTP tests inject a
+    /// `StaticPricingCatalog` through this seam so they never touch the
+    /// network.
+    #[doc(hidden)]
+    pub fn set_pricing_catalog(&mut self, provider: Arc<dyn ModelPricingProvider>) {
+        self.pricing = provider;
     }
 
     pub async fn set_jwt_secret(&self, secret: impl Into<String>) {

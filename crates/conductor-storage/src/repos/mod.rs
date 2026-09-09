@@ -26,5 +26,5 @@ pub use resource::{
 pub use resource_usage::{ResourceUsageQuery, ResourceUsageRepo};
 pub use role::{RoleRepo, TaxonomyDeleteResult};
 pub use secret::SecretRepo;
-pub use telemetry::TelemetryRepo;
+pub use telemetry::{TelemetryRepo, UnpricedModelCall};
 pub use user::{MemberDirectoryRecord, SsoLoginError, UserRepo};

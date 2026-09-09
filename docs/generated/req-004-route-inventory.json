@@ -2,7 +2,7 @@
   "schema_version": 1,
   "policy_revision": "req-004-v1",
   "generated_from": "conductor_server::http::authorization::route_manifest",
-  "route_count": 95,
+  "route_count": 97,
   "baseline_assumptions": [
     "role baselines use the current persisted active primary role",
     "browser and connection credentials are otherwise structurally valid",
@@ -108,6 +108,12 @@
           "permission": "member.tag_assignment.manage",
           "constraints": {
             "kind": "same_project"
+          }
+        },
+        {
+          "permission": "model_pricing.read",
+          "constraints": {
+            "kind": "any"
           }
         },
         {
@@ -301,6 +307,12 @@
           }
         },
         {
+          "permission": "model_pricing.read",
+          "constraints": {
+            "kind": "any"
+          }
+        },
+        {
           "permission": "project.branding.read",
           "constraints": {
             "kind": "same_project"
@@ -450,6 +462,12 @@
           "permission": "member.private.read_self",
           "constraints": {
             "kind": "self"
+          }
+        },
+        {
+          "permission": "model_pricing.read",
+          "constraints": {
+            "kind": "any"
           }
         },
         {
@@ -3489,6 +3507,178 @@
               },
               "route_selector": {
                 "kind": "self_member_path"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "route_id": "model_pricing.catalog.list",
+      "action": "model_pricing.catalog.list",
+      "method": "GET",
+      "path": "/api/model-pricing",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "model_pricing.catalog.list",
+          "alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "role_grant_constraints": {
+                "kind": "any"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "role_grant_constraints": {
+                "kind": "any"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "role_grant_constraints": {
+                "kind": "any"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "route_id": "model_pricing.catalog.refresh",
+      "action": "model_pricing.catalog.refresh",
+      "method": "POST",
+      "path": "/api/model-pricing/refresh",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "model_pricing.catalog.refresh",
+          "alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "role_grant_constraints": {
+                "kind": "any"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "role_grant_constraints": {
+                "kind": "any"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "model_pricing.read",
+              "role_grant_constraints": {
+                "kind": "any"
+              },
+              "route_selector": {
+                "kind": "project_member"
               },
               "target_dependent": true,
               "response_projection": "full"

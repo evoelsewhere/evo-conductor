@@ -5,15 +5,17 @@ use std::sync::{Arc, Mutex};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use conductor_auth::hash_token;
 use conductor_domain::{
-    AuthorizationAction, ClientPlatform, DecisionReason, PrimaryRole, SecretScope,
-    TelemetryBatchRequest, TelemetryEventStatus, TelemetryEventType, TelemetryToolCategory, User,
+    AuthorizationAction, ClientPlatform, DecisionReason, ModelCostRates, ModelPricing,
+    PrimaryRole, SecretScope, TelemetryBatchRequest, TelemetryEventStatus, TelemetryEventType,
+    TelemetryToolCategory, User,
 };
 use conductor_server::core::authorization::{
     AuthorizationDecisionObserver, AuthorizationEvent, AuthorizationResult, AuthorizationService,
     AuthorizationStage,
 };
+use conductor_server::core::model_pricing::StaticPricingCatalog;
 use serde_json::{json, Value};
-use support::{test_app, test_app_with_authorization, TestApp};
+use support::{test_app, test_app_with_authorization, test_app_with_pricing_catalog, TestApp};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -986,4 +988,110 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
     assert!(!body.to_string().contains("future_role"));
+}
+
+/// Conductor backfills `estimated_cost_usd_micros` for a `model_call` event
+/// the client did not price, using its own catalog — but a call the client
+/// already priced is never recomputed or overridden, because the client may
+/// know a rate (an account-specific service tier, say) Conductor's
+/// independent catalog does not.
+#[tokio::test]
+async fn conductor_backfills_missing_cost_without_overriding_client_supplied_cost() {
+    let pricing = Arc::new(StaticPricingCatalog::new().with_model(
+        "openai",
+        "gpt-5",
+        ModelPricing {
+            base: ModelCostRates {
+                input: Some(3.0),
+                output: Some(15.0),
+                cache_read: Some(0.3),
+                reasoning: Some(60.0),
+                ..Default::default()
+            },
+            tiers: Vec::new(),
+        },
+    ));
+    let app = test_app_with_pricing_catalog(pricing).await;
+    seed_instance(&app).await;
+    let member = app.seed_user(PrimaryRole::User).await;
+    let raw = "evc_telemetry_pricing";
+    seed_connection_token(&app, &member, raw).await;
+    let installation_id = register(&app, raw).await;
+
+    // `event_batch`'s model_call is openai:gpt-5, 100 in / 50 out / 20 cache
+    // read / 10 reasoning, with no cost — Conductor must price it.
+    let unpriced_request_id = Uuid::new_v4();
+    let mut batch = event_batch(&installation_id, unpriced_request_id);
+
+    // A second model_call for the same priced model, but the client already
+    // computed a cost — Conductor must leave it exactly as reported.
+    let client_priced_request_id = Uuid::new_v4();
+    batch["events"].as_array_mut().expect("events").push(json!({
+        "event_id": Uuid::new_v4(),
+        "request_id": client_priced_request_id,
+        "session_id": "session-priced",
+        "event_type": "model_call",
+        "sequence": 1,
+        "agent_name": "lead",
+        "provider": "openai",
+        "model": "gpt-5",
+        "tokens_in": 100,
+        "tokens_out": 50,
+        "cache_read_tokens": 0,
+        "reasoning_tokens": 0,
+        "tool_use_tokens": 0,
+        "duration_ms": 500,
+        "tool_name": null,
+        "tool_category": null,
+        "status": "success",
+        "error_category": null,
+        "estimated_cost_usd_micros": 999,
+        "cost_source": "evoflux_catalog",
+        "reported_at": chrono::Utc::now().to_rfc3339()
+    }));
+
+    let (status, response) = app.post("/api/v1/telemetry/batch", Some(raw), batch).await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    assert_eq!(response["accepted"], 3);
+
+    let browser_token = app.token_for(&member).await;
+
+    let (status, unpriced_detail) = app
+        .get(
+            &format!(
+                "/api/members/{}/activity/{}",
+                member.id, unpriced_request_id
+            ),
+            Some(&browser_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{unpriced_detail}");
+    let backfilled = unpriced_detail["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .find(|event| event["event_type"] == "model_call")
+        .expect("model_call event");
+    // cache_read: 20 * 0.3 + input: 80 * 3.0 + reasoning: 10 * 60.0 + output: 40 * 15.0, per million.
+    assert_eq!(backfilled["estimated_cost_usd_micros"], 1446);
+    assert_eq!(backfilled["cost_source"], "conductor_catalog");
+
+    let (status, priced_detail) = app
+        .get(
+            &format!(
+                "/api/members/{}/activity/{}",
+                member.id, client_priced_request_id
+            ),
+            Some(&browser_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{priced_detail}");
+    let untouched = priced_detail["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .find(|event| event["event_type"] == "model_call")
+        .expect("model_call event");
+    assert_eq!(untouched["estimated_cost_usd_micros"], 999);
+    assert_eq!(untouched["cost_source"], "evoflux_catalog");
 }

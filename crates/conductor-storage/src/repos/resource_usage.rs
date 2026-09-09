@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 use conductor_domain::{
     PrimaryRole, ResourceInventoryObservedState, ResourceKind, ResourceUsageActivityItem,
     ResourceUsageAnalytics, ResourceUsageBreakdown, ResourceUsageDay, ResourceUsageMember,
-    ResourceUsageModel, ResourceUsageRole, ResourceUsageScope, ResourceUsageTool,
-    ResourceUsageTotals, TelemetryEventStatus, TelemetryResourceRelation, TelemetryToolCategory,
-    UNKNOWN_TELEMETRY_LABEL,
+    ResourceUsageModel, ResourceUsagePeriodTotals, ResourceUsageRole, ResourceUsageScope,
+    ResourceUsageTool, ResourceUsageTotals, TelemetryEventStatus, TelemetryResourceRelation,
+    TelemetryToolCategory, UNKNOWN_TELEMETRY_LABEL,
 };
 use sqlx::{Any, Pool, QueryBuilder, Row};
 use uuid::Uuid;
@@ -31,6 +31,9 @@ pub struct ResourceUsageQuery {
     pub relation: Option<TelemetryResourceRelation>,
     pub tool_name: Option<String>,
     pub scope: ResourceUsageScope,
+    /// When true, `analytics()` also computes `previous_period`: the same
+    /// totals for the equal-length window immediately before `from`.
+    pub compare_previous: bool,
     pub limit: u32,
     pub offset: u32,
 }
@@ -67,22 +70,38 @@ impl ResourceUsageRepo {
                 Ok((Vec::new(), 0))
             }
         };
-        let (totals, daily, resources, members, models, roles, tools, activity_page) = tokio::try_join!(
-            self.totals(query),
-            self.daily(query),
-            resources,
-            self.members(query),
-            self.models(query),
-            self.roles(query),
-            self.tools(query),
-            activity_page,
-        )?;
+        let previous_period = async {
+            if !query.compare_previous {
+                return Ok(None);
+            }
+            let span = query.to - query.from;
+            let previous_query = ResourceUsageQuery {
+                from: query.from - span,
+                to: query.from,
+                compare_previous: false,
+                ..query.clone()
+            };
+            Ok(Some(self.period_totals(&previous_query).await?))
+        };
+        let (totals, daily, resources, members, models, roles, tools, activity_page, previous_period) =
+            tokio::try_join!(
+                self.totals(query),
+                self.daily(query),
+                resources,
+                self.members(query),
+                self.models(query),
+                self.roles(query),
+                self.tools(query),
+                activity_page,
+                previous_period,
+            )?;
         let (activity, activity_total) = activity_page;
         Ok(ResourceUsageAnalytics {
             from: query.from,
             to: query.to,
             scope: query.scope,
             totals,
+            previous_period,
             daily,
             resources,
             members,
@@ -109,9 +128,11 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.tokens_in),0) AS tokens_in,
               COALESCE(SUM(e.tokens_out),0) AS tokens_out,
               COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
+              COALESCE(SUM(e.cache_write_tokens),0) AS cache_write_tokens,
               COALESCE(SUM(e.reasoning_tokens),0) AS reasoning_tokens,
               COALESCE(SUM(e.tool_use_tokens),0) AS tool_use_tokens,
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
+              COALESCE(SUM(e.cache_savings_usd_micros),0) AS cache_savings_usd_micros,
               COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='request' THEN e.duration_ms ELSE 0 END),0) AS duration_ms "#,
         ));
@@ -121,6 +142,7 @@ impl ResourceUsageRepo {
         let tokens_in = n(row.get("tokens_in"));
         let tokens_out = n(row.get("tokens_out"));
         let cache_read_tokens = n(row.get("cache_read_tokens"));
+        let cache_write_tokens = n(row.get("cache_write_tokens"));
         let reasoning_tokens = n(row.get("reasoning_tokens"));
         let tool_use_tokens = n(row.get("tool_use_tokens"));
         // Cache-read, reasoning and tool-use counters are provider breakdowns
@@ -160,13 +182,52 @@ impl ResourceUsageRepo {
             tokens_in,
             tokens_out,
             cache_read_tokens,
+            cache_write_tokens,
             reasoning_tokens,
             tool_use_tokens,
             total_tokens,
             estimated_cost_usd_micros: n(row.get("cost_micros")),
+            // Signed and can legitimately be negative (a call that wrote far
+            // more to cache than it ever read back) — `n()` would clamp
+            // that to 0 and hide a real net loss, so read it straight.
+            cache_savings_usd_micros: row.get("cache_savings_usd_micros"),
             unpriced_model_calls: n(row.get("unpriced_model_calls")),
             average_tokens_per_request: total_tokens.checked_div(requests).unwrap_or_default(),
             average_duration_ms: duration_ms.checked_div(requests).unwrap_or_default(),
+        })
+    }
+
+    /// A leaner totals shape for an arbitrary window — used to price a
+    /// comparison period (`ResourceUsageQuery::compare_previous`), which
+    /// needs the same token/cost/savings figures as `totals()` but none of
+    /// its installation-inventory or scope-comparison bookkeeping.
+    async fn period_totals(
+        &self,
+        query: &ResourceUsageQuery,
+    ) -> Result<ResourceUsagePeriodTotals, sqlx::Error> {
+        let request_identity = request_identity_sql(self.kind, "e");
+        let mut builder = QueryBuilder::<Any>::new(format!(
+            r#"SELECT COUNT(DISTINCT ({request_identity})) AS requests,
+              COALESCE(SUM(e.tokens_in),0) AS tokens_in,
+              COALESCE(SUM(e.tokens_out),0) AS tokens_out,
+              COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
+              COALESCE(SUM(e.cache_write_tokens),0) AS cache_write_tokens,
+              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
+              COALESCE(SUM(e.cache_savings_usd_micros),0) AS cache_savings_usd_micros "#,
+        ));
+        push_scoped_events(&mut builder, query);
+        let row = builder.build().fetch_one(&self.pool).await?;
+        let tokens_in = n(row.get("tokens_in"));
+        let tokens_out = n(row.get("tokens_out"));
+        Ok(ResourceUsagePeriodTotals {
+            requests: n(row.get("requests")),
+            tokens_in,
+            tokens_out,
+            cache_read_tokens: n(row.get("cache_read_tokens")),
+            cache_write_tokens: n(row.get("cache_write_tokens")),
+            total_tokens: tokens_in.saturating_add(tokens_out),
+            estimated_cost_usd_micros: n(row.get("cost_micros")),
+            cache_savings_usd_micros: row.get("cache_savings_usd_micros"),
         })
     }
 
@@ -212,6 +273,7 @@ impl ResourceUsageRepo {
               COUNT(DISTINCT CASE WHEN e.event_type='request' AND e.status='cancelled' THEN {request_identity} END) AS cancelled,
               COALESCE(SUM(e.tokens_in),0) AS tokens_in,COALESCE(SUM(e.tokens_out),0) AS tokens_out,
               COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
+              COALESCE(SUM(e.cache_write_tokens),0) AS cache_write_tokens,
               COALESCE(SUM(e.reasoning_tokens),0) AS reasoning_tokens,
               COALESCE(SUM(e.tool_use_tokens),0) AS tool_use_tokens,
               COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
@@ -234,6 +296,7 @@ impl ResourceUsageRepo {
                 tokens_in: n(row.get("tokens_in")),
                 tokens_out: n(row.get("tokens_out")),
                 cache_read_tokens: n(row.get("cache_read_tokens")),
+                cache_write_tokens: n(row.get("cache_write_tokens")),
                 reasoning_tokens: n(row.get("reasoning_tokens")),
                 tool_use_tokens: n(row.get("tool_use_tokens")),
                 estimated_cost_usd_micros: n(row.get("cost_micros")),
@@ -346,7 +409,10 @@ impl ResourceUsageRepo {
         builder.push(") AS provider,COALESCE(e.model,");
         builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
         builder.push(r#") AS model,COUNT(*) AS calls,COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
+          COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
+          COALESCE(SUM(e.cache_write_tokens),0) AS cache_write_tokens,
           COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
+          COALESCE(SUM(e.cache_savings_usd_micros),0) AS cache_savings_usd_micros,
           COALESCE(SUM(CASE WHEN e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_calls "#);
         push_scoped_events(&mut builder, query);
         builder.push(" AND e.event_type='model_call' GROUP BY e.provider,e.model ORDER BY calls DESC LIMIT 20");
@@ -360,7 +426,10 @@ impl ResourceUsageRepo {
                 model: row.get("model"),
                 calls: n(row.get("calls")),
                 total_tokens: n(row.get("total_tokens")),
+                cache_read_tokens: n(row.get("cache_read_tokens")),
+                cache_write_tokens: n(row.get("cache_write_tokens")),
                 estimated_cost_usd_micros: n(row.get("cost_micros")),
+                cache_savings_usd_micros: row.get("cache_savings_usd_micros"),
                 unpriced_calls: n(row.get("unpriced_calls")),
             })
             .collect())

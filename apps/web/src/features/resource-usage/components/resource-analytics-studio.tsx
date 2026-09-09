@@ -143,7 +143,7 @@ const WIDGET_META: Record<
     defaultView: "area",
   },
   consumption: {
-    title: "Tokens & estimated cost",
+    title: "Tokens & cost",
     description: "Daily token volume with the priced model-call trend.",
     views: ["area", "line", "bar", "table"],
     defaultView: "area",
@@ -225,7 +225,7 @@ const REQUEST_CONFIG = {
 const CONSUMPTION_CONFIG = {
   total_tokens: { label: "Tokens", color: "var(--chart-series-2)" },
   estimated_cost_usd_micros: {
-    label: "Estimated cost",
+    label: "Cost",
     color: "var(--chart-series-5)",
   },
 } satisfies ChartConfig
@@ -1000,7 +1000,7 @@ function ConsumptionChart({
         )}
       </ChartContainer>
       <SeriesLegend config={config} />
-      <AccessibleChartTable caption="Daily token and cost data" rows={rows.map((item) => ({ ...item }))} columns={[{ key: "date", label: "Date" }, { key: "total_tokens", label: "Tokens" }, { key: "estimated_cost_usd_micros", label: "Estimated cost in USD micros" }]} />
+      <AccessibleChartTable caption="Daily token and cost data" rows={rows.map((item) => ({ ...item }))} columns={[{ key: "date", label: "Date" }, { key: "total_tokens", label: "Tokens" }, { key: "estimated_cost_usd_micros", label: "Cost in USD micros" }]} />
     </>
   )
 }

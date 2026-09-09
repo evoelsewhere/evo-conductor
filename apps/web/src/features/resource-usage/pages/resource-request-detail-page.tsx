@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import {
-  Activity,
   ArrowLeft,
   Bot,
   CircleDollarSign,
@@ -11,9 +10,9 @@ import {
 } from "lucide-react"
 import { useMemo } from "react"
 
-import { TelemetryStatusBadge } from "@/features/members/components/telemetry-status-badge"
 import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
 import { formatEstimatedCost, formatRelation } from "@/features/resource-usage/components/resource-usage-formatters"
+import { RequestEventTimeline } from "@/features/resource-usage/components/request-event-timeline"
 import { ResourceUsageNav } from "@/features/resource-usage/components/resource-usage-nav"
 import { api } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
@@ -25,17 +24,16 @@ import {
 } from "@/shared/constants/member"
 import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
 import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
-import { RESOURCE_USAGE_COST_SOURCE_LABELS, RESOURCE_USAGE_PATHS } from "@/shared/constants/resource-usage"
+import { RESOURCE_USAGE_PATHS } from "@/shared/constants/resource-usage"
 import {
   TELEMETRY_FALLBACK_LABELS,
   TELEMETRY_QUERY_KEYS,
-  TelemetryEventType,
-  TelemetryToolCategory,
 } from "@/shared/constants/telemetry"
 import { Badge } from "@/shared/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { ErrorState } from "@/shared/ui/empty-state"
 import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
+import { TelemetryStatusBadge } from "@/features/members/components/telemetry-status-badge"
 
 export function ResourceRequestDetailPage() {
   const { userId, requestId } = useParams({ strict: false }) as { userId: string; requestId: string }
@@ -92,40 +90,14 @@ export function ResourceRequestDetailPage() {
             <StatCard label="Model calls" value={request.model_calls} hint={`${tokenTotals.cache.toLocaleString()} cache · ${tokenTotals.reasoning.toLocaleString()} reasoning`} icon={Bot} />
             <StatCard label="Tool calls" value={request.tool_calls} hint={`${formatTokens(tokenTotals.toolUse)} tool-use tokens`} icon={Wrench} tone="success" />
             <StatCard label="Duration" value={formatDuration(request.duration_ms)} hint={`${events.length} reported events`} icon={Clock3} />
-            <StatCard label="Estimated cost" value={formatEstimatedCost(request.estimated_cost_usd_micros)} hint={`${request.unpriced_model_calls} unpriced model calls`} icon={CircleDollarSign} tone="warning" />
+            <StatCard label="Cost" value={formatEstimatedCost(request.estimated_cost_usd_micros)} hint={`${request.unpriced_model_calls} unpriced model calls`} icon={CircleDollarSign} tone="warning" />
           </StatCardGrid>
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
             <Card>
               <CardHeader><div><CardTitle>Execution timeline</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Sequence, model routing, token categories, cost, tool status and sanitized errors only.</p></div><TelemetryStatusBadge status={request.status} /></CardHeader>
               <CardContent>
-                <ol className="relative ml-3 border-l border-(--color-border)">
-                  {events.map((event) => {
-                    const isModel = event.event_type === TelemetryEventType.ModelCall
-                    const isRequest = event.event_type === TelemetryEventType.Request
-                    const title = isModel
-                      ? `${event.provider ?? TELEMETRY_FALLBACK_LABELS.providerName}:${event.model ?? TELEMETRY_FALLBACK_LABELS.modelIdentifier}`
-                      : isRequest ? "Request completed" : event.tool_name ?? TELEMETRY_FALLBACK_LABELS.tool
-                    return (
-                      <li key={event.event_id} className="relative pb-7 pl-6 last:pb-0">
-                        <span className="absolute -left-3 grid size-6 place-items-center rounded-full border border-(--color-border) bg-(--bg-card)">{isModel ? <ProviderBrandIcon providerId={event.provider ?? event.model} className="size-[1.125rem] rounded-full" /> : isRequest ? <Activity className="size-3" /> : <Wrench className="size-3" />}</span>
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div><div className="text-sm font-medium">{title}</div><div className="mt-0.5 text-xs text-(--color-text-subtle)">Sequence {event.sequence} · {event.agent_name ?? TELEMETRY_FALLBACK_LABELS.agent} · {new Date(event.reported_at).toLocaleString()} · {formatDuration(event.duration_ms)}</div></div>
-                          <TelemetryStatusBadge status={event.status} />
-                        </div>
-                        {isModel && (
-                          <div className="mt-2 grid gap-1.5 rounded-lg border border-(--border-soft) bg-(--bg-key)/25 p-2.5 text-xs text-(--color-text-muted) sm:grid-cols-2 lg:grid-cols-3">
-                            <span>{formatTokens(event.tokens_in)} input</span><span>{formatTokens(event.tokens_out)} output</span><span>{formatTokens(event.cache_read_tokens)} cache read</span><span>{formatTokens(event.reasoning_tokens)} reasoning</span><span>{formatTokens(event.tool_use_tokens)} tool use</span><span>{event.estimated_cost_usd_micros == null ? RESOURCE_USAGE_COST_SOURCE_LABELS.unpriced : `${formatEstimatedCost(event.estimated_cost_usd_micros)} · ${RESOURCE_USAGE_COST_SOURCE_LABELS[event.cost_source ?? "evoflux_catalog"]}`}</span>
-                            {event.response_model && event.response_model !== event.model && <span className="sm:col-span-2 lg:col-span-3">Response model: <code>{event.response_model}</code></span>}
-                          </div>
-                        )}
-                        {!isModel && !isRequest && <div className="mt-2 text-xs text-(--color-text-muted)">Tool category: {event.tool_category ?? TelemetryToolCategory.Other}</div>}
-                        {event.resources.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{event.resources.map((resource) => <Badge key={`${resource.resource_id}:${resource.version_id}:${resource.relation}`} tone="accent">{RESOURCE_KIND_LABEL[resource.kind]} · {resource.name} v{resource.version} · {formatRelation(resource.relation)}</Badge>)}</div>}
-                        {event.error_category && <div className="mt-2 rounded-md border border-(--color-error)/20 bg-(--color-error-subtle) px-2.5 py-1.5 text-xs text-(--color-error)">Sanitized error category: {event.error_category}</div>}
-                      </li>
-                    )
-                  })}
-                </ol>
+                <RequestEventTimeline events={events} />
               </CardContent>
             </Card>
 

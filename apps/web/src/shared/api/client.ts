@@ -152,6 +152,7 @@ export interface TelemetryEventDetail {
   tokens_in: number
   tokens_out: number
   cache_read_tokens: number
+  cache_write_tokens: number
   reasoning_tokens: number
   tool_use_tokens: number
   duration_ms: number
@@ -160,7 +161,7 @@ export interface TelemetryEventDetail {
   status: TelemetryEventStatus
   error_category: string | null
   estimated_cost_usd_micros: number | null
-  cost_source: "evoflux_catalog" | null
+  cost_source: "evoflux_catalog" | "conductor_catalog" | null
   resources: TelemetryResourceAttributionDetail[]
   reported_at: string
 }
@@ -216,13 +217,28 @@ export interface ResourceUsageTotals {
   tokens_in: number
   tokens_out: number
   cache_read_tokens: number
+  cache_write_tokens: number
   reasoning_tokens: number
   tool_use_tokens: number
   total_tokens: number
   estimated_cost_usd_micros: number
+  /** Net USD saved by cache discounts minus the cache-write premium — can be negative. */
+  cache_savings_usd_micros: number
   unpriced_model_calls: number
   average_tokens_per_request: number
   average_duration_ms: number
+}
+
+/** A leaner totals shape for a comparison window (e.g. the period right before the one being viewed). */
+export interface ResourceUsagePeriodTotals {
+  requests: number
+  tokens_in: number
+  tokens_out: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  total_tokens: number
+  estimated_cost_usd_micros: number
+  cache_savings_usd_micros: number
 }
 
 export interface ResourceUsageDay {
@@ -235,6 +251,7 @@ export interface ResourceUsageDay {
   tokens_in: number
   tokens_out: number
   cache_read_tokens: number
+  cache_write_tokens: number
   reasoning_tokens: number
   tool_use_tokens: number
   estimated_cost_usd_micros: number
@@ -280,7 +297,10 @@ export interface ResourceUsageModel {
   model: string
   calls: number
   total_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
   estimated_cost_usd_micros: number
+  cache_savings_usd_micros: number
   unpriced_calls: number
 }
 
@@ -333,6 +353,8 @@ export interface ResourceUsageAnalytics {
   to: string
   scope: ResourceUsageScope
   totals: ResourceUsageTotals
+  /** The equal-length period immediately before `from`, present only when `compare_previous` was requested. */
+  previous_period: ResourceUsagePeriodTotals | null
   daily: ResourceUsageDay[]
   resources: ResourceUsageBreakdown[]
   members: ResourceUsageMember[]
@@ -343,6 +365,37 @@ export interface ResourceUsageAnalytics {
   activity_total: number
   limit: number
   offset: number
+}
+
+/// USD per one million tokens. `null` means the catalog does not state that
+/// rate, not that it is free.
+export interface ModelCostRates {
+  input: number | null
+  output: number | null
+  cache_read: number | null
+  cache_write: number | null
+  reasoning: number | null
+}
+
+export interface ModelPricingCostTier {
+  above_tokens: number
+  rates: ModelCostRates
+}
+
+export interface ModelPricing {
+  base: ModelCostRates
+  tiers: ModelPricingCostTier[]
+}
+
+export interface ModelPricingCatalogEntry {
+  provider: string
+  model: string
+  pricing: ModelPricing
+}
+
+export interface ModelPricingCatalogSnapshot {
+  entries: ModelPricingCatalogEntry[]
+  fetched_at: string | null
 }
 
 export interface ResourceUsageParams extends DateRangeParams {
@@ -358,6 +411,7 @@ export interface ResourceUsageParams extends DateRangeParams {
   installation_id?: string
   relation?: TelemetryResourceRelation
   tool_name?: string
+  compare_previous?: boolean
   limit?: number
   offset?: number
 }
@@ -506,6 +560,7 @@ export const AUTHORIZATION_PERMISSION_KEYS = [
   "taxonomy.read",
   "taxonomy.definition.manage",
   "member.tag_assignment.manage",
+  "model_pricing.read",
   "resource.consume",
   "resource.author",
   "resource.access.manage",
@@ -1412,6 +1467,12 @@ export const api = {
     request<MemberToolsSummary>(
       `/members/${id}/tools${qs({ from: params.from, to: params.to })}`,
     ),
+  modelPricingCatalog: () =>
+    request<ModelPricingCatalogSnapshot>("/model-pricing"),
+  refreshModelPricingCatalog: () =>
+    request<ModelPricingCatalogSnapshot>("/model-pricing/refresh", {
+      method: "POST",
+    }),
   resourceUsage: (params: ResourceUsageParams = {}) =>
     request<ResourceUsageAnalytics>(
       `/analytics/resource-usage${qs({
@@ -1429,6 +1490,7 @@ export const api = {
         installation_id: params.installation_id,
         relation: params.relation,
         tool_name: params.tool_name,
+        compare_previous: params.compare_previous ? "true" : undefined,
         limit: params.limit,
         offset: params.offset,
       })}`,

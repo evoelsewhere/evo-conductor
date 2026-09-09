@@ -2,6 +2,7 @@
 
 pub mod http;
 pub mod oidc;
+pub mod pricing;
 pub mod resource;
 pub mod server;
 pub mod telemetry;

@@ -24,6 +24,7 @@ export const PERMISSION = {
   TAXONOMY_READ: "taxonomy.read",
   TAXONOMY_DEFINITION_MANAGE: "taxonomy.definition.manage",
   MEMBER_TAG_ASSIGNMENT_MANAGE: "member.tag_assignment.manage",
+  MODEL_PRICING_READ: "model_pricing.read",
   RESOURCE_CONSUME: "resource.consume",
   RESOURCE_AUTHOR: "resource.author",
   RESOURCE_ACCESS_MANAGE: "resource.access.manage",

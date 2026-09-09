@@ -17,6 +17,7 @@ pub mod client_installation;
 pub mod core;
 pub mod dashboard;
 pub mod instance;
+pub mod pricing;
 pub mod resource;
 pub mod resource_semver;
 pub mod role;
@@ -75,6 +76,10 @@ pub use resource::{
     ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest, UpdateResourceRequest,
     UpsertResourceFeedbackRequest, VersionMode,
 };
+pub use pricing::{
+    cache_savings_usd, estimate_cost_usd, resolve_rates, CostTier, ModelCostRates, ModelPricing,
+    ModelPricingCatalogEntry, ModelPricingCatalogSnapshot,
+};
 pub use resource_semver::{SemanticVersion, SemanticVersionError};
 pub use role::{
     CreateSubRoleRequest, CreateTagRequest, PrimaryRole, SubRole, Tag, UpdateSubRoleRequest,
@@ -85,8 +90,9 @@ pub use telemetry::{
     DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberPresence,
     MemberRequestDetail, MemberToolUsage, MemberToolsSummary, MemberUsageSummary,
     ModelUsageBreakdown, ResourceUsageActivityItem, ResourceUsageAnalytics, ResourceUsageBreakdown,
-    ResourceUsageDay, ResourceUsageMember, ResourceUsageModel, ResourceUsageRole,
-    ResourceUsageScope, ResourceUsageTool, ResourceUsageTotals, TelemetryBatchRequest,
+    ResourceUsageDay, ResourceUsageMember, ResourceUsageModel, ResourceUsagePeriodTotals,
+    ResourceUsageRole, ResourceUsageScope, ResourceUsageTool, ResourceUsageTotals,
+    TelemetryBatchRequest,
     TelemetryBatchResponse, TelemetryCostSource, TelemetryDeliverySummary, TelemetryEventDetail,
     TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
     TelemetryResourceAttributionDetail, TelemetryResourceRef, TelemetryResourceRelation,

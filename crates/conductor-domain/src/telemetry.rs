@@ -143,18 +143,25 @@ impl TelemetryResourceRelation {
 pub enum TelemetryCostSource {
     #[serde(rename = "evoflux_catalog")]
     EvoFluxCatalog,
+    /// Priced by Conductor itself at ingest time, using its own models.dev
+    /// catalog, because the reporting client did not send a cost — an older
+    /// client, or one whose own catalog lacked the model.
+    #[serde(rename = "conductor_catalog")]
+    ConductorCatalog,
 }
 
 impl TelemetryCostSource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::EvoFluxCatalog => "evoflux_catalog",
+            Self::ConductorCatalog => "conductor_catalog",
         }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "evoflux_catalog" => Some(Self::EvoFluxCatalog),
+            "conductor_catalog" => Some(Self::ConductorCatalog),
             _ => None,
         }
     }
@@ -189,6 +196,8 @@ pub struct TelemetryEventRequest {
     #[serde(default)]
     pub cache_read_tokens: u64,
     #[serde(default)]
+    pub cache_write_tokens: u64,
+    #[serde(default)]
     pub reasoning_tokens: u64,
     #[serde(default)]
     pub tool_use_tokens: u64,
@@ -200,6 +209,13 @@ pub struct TelemetryEventRequest {
     pub error_category: Option<String>,
     pub estimated_cost_usd_micros: Option<u64>,
     pub cost_source: Option<TelemetryCostSource>,
+    /// Never sent by a reporting client — always `None` on the wire and
+    /// filled in by the ingest handler (`compute_cache_savings`), the same
+    /// way `estimated_cost_usd_micros` is filled in when a client omits it.
+    /// Kept on this struct rather than threaded separately because this is
+    /// the exact value storage's `ingest()` already takes and inserts.
+    #[serde(default)]
+    pub cache_savings_usd_micros: Option<i64>,
     pub evoflux_version: Option<String>,
     #[serde(default)]
     pub resources: Vec<TelemetryResourceRef>,
@@ -318,6 +334,7 @@ pub struct TelemetryEventDetail {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     pub tool_use_tokens: u64,
     pub duration_ms: u64,
@@ -423,13 +440,34 @@ pub struct ResourceUsageTotals {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     pub tool_use_tokens: u64,
     pub total_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    /// Net USD saved thanks to cache discounts, minus the premium paid for
+    /// cache writes — can be negative. See
+    /// `conductor_domain::pricing::cache_savings_usd`.
+    pub cache_savings_usd_micros: i64,
     pub unpriced_model_calls: u64,
     pub average_tokens_per_request: u64,
     pub average_duration_ms: u64,
+}
+
+/// A leaner totals shape for a comparison window (e.g. "the equal-length
+/// period immediately before the one being viewed") — just the figures a
+/// period-over-period delta needs, not installation inventory or outcome
+/// breakdowns that don't make sense to diff against a different window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceUsagePeriodTotals {
+    pub requests: u64,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub total_tokens: u64,
+    pub estimated_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -443,6 +481,7 @@ pub struct ResourceUsageDay {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     pub tool_use_tokens: u64,
     pub estimated_cost_usd_micros: u64,
@@ -491,7 +530,10 @@ pub struct ResourceUsageModel {
     pub model: String,
     pub calls: u64,
     pub total_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: i64,
     pub unpriced_calls: u64,
 }
 
@@ -552,6 +594,10 @@ pub struct ResourceUsageAnalytics {
     /// governed view because they require a resource attribution.
     pub scope: ResourceUsageScope,
     pub totals: ResourceUsageTotals,
+    /// The equal-length period immediately preceding `from`..`to`, present
+    /// only when the caller asked for a comparison
+    /// (`ResourceUsageQuery::compare_previous`).
+    pub previous_period: Option<ResourceUsagePeriodTotals>,
     pub daily: Vec<ResourceUsageDay>,
     pub resources: Vec<ResourceUsageBreakdown>,
     pub members: Vec<ResourceUsageMember>,

@@ -23,7 +23,8 @@ fn allowed_roles(permission: PermissionKey) -> &'static [PrimaryRole] {
         | P::TelemetryMemberReadSelf
         | P::ConnectionTokenIssueSelf
         | P::ConnectionTokenReadSelf
-        | P::ConnectionTokenRevokeSelf => &[R::Admin, R::Contribute, R::User],
+        | P::ConnectionTokenRevokeSelf
+        | P::ModelPricingRead => &[R::Admin, R::Contribute, R::User],
 
         P::ProjectDashboardRead
         | P::MemberDirectoryRead

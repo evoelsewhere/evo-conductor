@@ -27,6 +27,7 @@ use conductor_domain::{
 use conductor_server::core::artifacts::ArtifactStore;
 use conductor_server::core::authorization::AuthorizationService;
 use conductor_server::core::host_metrics::HostMetricsProvider;
+use conductor_server::core::model_pricing::ModelPricingProvider;
 use conductor_server::{build_router, AppState, Config, RealtimeConfig};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
@@ -177,25 +178,40 @@ pub async fn test_app() -> TestApp {
 }
 
 pub async fn test_app_with_authorization(authorization: AuthorizationService) -> TestApp {
-    test_app_with_dependencies(authorization, None, RealtimeConfig::default()).await
+    test_app_with_dependencies(authorization, None, None, RealtimeConfig::default()).await
+}
+
+/// A test app whose pricing catalog is a fixed, in-memory map rather than
+/// the real fetcher — so a test can assert Conductor's own cost-backfill
+/// behavior deterministically, with no network access.
+pub async fn test_app_with_pricing_catalog(pricing: Arc<dyn ModelPricingProvider>) -> TestApp {
+    test_app_with_dependencies(
+        AuthorizationService::default(),
+        None,
+        Some(pricing),
+        RealtimeConfig::default(),
+    )
+    .await
 }
 
 pub async fn test_app_with_host_metrics(host_metrics: Arc<dyn HostMetricsProvider>) -> TestApp {
     test_app_with_dependencies(
         AuthorizationService::default(),
         Some(host_metrics),
+        None,
         RealtimeConfig::default(),
     )
     .await
 }
 
 pub async fn test_app_with_realtime_config(realtime: RealtimeConfig) -> TestApp {
-    test_app_with_dependencies(AuthorizationService::default(), None, realtime).await
+    test_app_with_dependencies(AuthorizationService::default(), None, None, realtime).await
 }
 
 async fn test_app_with_dependencies(
     authorization: AuthorizationService,
     host_metrics: Option<Arc<dyn HostMetricsProvider>>,
+    pricing: Option<Arc<dyn ModelPricingProvider>>,
     realtime: RealtimeConfig,
 ) -> TestApp {
     let database_url = test_database_url();
@@ -215,6 +231,9 @@ async fn test_app_with_dependencies(
     state.authorization = authorization;
     if let Some(host_metrics) = host_metrics {
         state.set_host_metrics_provider(host_metrics);
+    }
+    if let Some(pricing) = pricing {
+        state.set_pricing_catalog(pricing);
     }
 
     // Fact 1: without this every authenticated request returns 428.

@@ -7,8 +7,8 @@ use conductor_domain::{
     AuthorizationTarget, ConductorError, MemberActivityResponse, MemberRequestDetail,
     MemberToolsSummary, MemberUsageSummary, PrimaryRole, ResourceKind, ResourceUsageAnalytics,
     ResourceUsageScope, ResponseProjection, TargetType, TelemetryBatchRequest,
-    TelemetryBatchResponse, TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
-    TelemetryResourceRelation,
+    TelemetryBatchResponse, TelemetryCostSource, TelemetryEventRequest, TelemetryEventStatus,
+    TelemetryEventType, TelemetryResourceRelation,
 };
 use conductor_storage::repos::ResourceUsageQuery;
 use serde::Deserialize;
@@ -20,6 +20,7 @@ use crate::core::constants::telemetry::{
     MIN_ACTIVITY_LIMIT, MIN_LABEL_LENGTH,
 };
 use crate::core::error::ApiResult;
+use crate::core::model_pricing::{cache_savings_for_call, price_model_call};
 use crate::core::state::AppState;
 use crate::http::authorization::{
     authorize_current_browser_target, authorize_current_browser_target_with_aggregate_fact,
@@ -57,6 +58,7 @@ pub struct ResourceAnalyticsQuery {
     pub relation: Option<TelemetryResourceRelation>,
     pub tool_name: Option<String>,
     pub scope: Option<ResourceUsageScope>,
+    pub compare_previous: Option<bool>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -138,12 +140,15 @@ pub async fn ingest(
     for event in &request.events {
         validate_event(event)?;
     }
+    let mut events = request.events;
+    price_unpriced_model_calls(&state, &mut events).await;
+    compute_cache_savings(&state, &mut events).await;
     let visible_resources = state
         .db
         .resources()
         .visible_resource_ids(principal.user.id)
         .await?;
-    for event in &request.events {
+    for event in &events {
         for reference in &event.resources {
             if !visible_resources.contains(&reference.resource_id) {
                 return Err(ConductorError::Forbidden.into());
@@ -212,10 +217,71 @@ pub async fn ingest(
                 &principal.user,
                 request.installation_id,
                 &installation.evoflux_version,
-                &request.events,
+                &events,
             )
             .await?,
     ))
+}
+
+/// Fills in `estimated_cost_usd_micros` for `model_call` events the
+/// reporting client did not price itself — an older client, or one whose
+/// own catalog lacked the model. An event the client already priced is left
+/// untouched: the client may know about a rate Conductor's independent
+/// catalog does not (an account-specific service tier, for instance), so
+/// its number is always trusted over a Conductor-computed one.
+async fn price_unpriced_model_calls(state: &AppState, events: &mut [TelemetryEventRequest]) {
+    for event in events {
+        if event.event_type != TelemetryEventType::ModelCall
+            || event.estimated_cost_usd_micros.is_some()
+        {
+            continue;
+        }
+        let (Some(provider), Some(model)) = (event.provider.as_deref(), event.model.as_deref())
+        else {
+            continue;
+        };
+        if let Some(usd) = price_model_call(
+            state.pricing.as_ref(),
+            provider,
+            model,
+            event.tokens_in,
+            event.tokens_out,
+            event.cache_read_tokens,
+            event.cache_write_tokens,
+            event.reasoning_tokens,
+        )
+        .await
+        {
+            event.estimated_cost_usd_micros = Some((usd * 1_000_000.0).round().max(0.0) as u64);
+            event.cost_source = Some(TelemetryCostSource::ConductorCatalog);
+        }
+    }
+}
+
+/// Fills in `cache_savings_usd_micros` for every `model_call` event,
+/// regardless of who priced its `estimated_cost_usd_micros` — unlike cost,
+/// this is Conductor's own derived figure, not something a client ever
+/// reports, so there is no "already priced, leave it alone" case here.
+async fn compute_cache_savings(state: &AppState, events: &mut [TelemetryEventRequest]) {
+    for event in events {
+        if event.event_type != TelemetryEventType::ModelCall {
+            continue;
+        }
+        let (Some(provider), Some(model)) = (event.provider.as_deref(), event.model.as_deref())
+        else {
+            continue;
+        };
+        event.cache_savings_usd_micros = cache_savings_for_call(
+            state.pricing.as_ref(),
+            provider,
+            model,
+            event.tokens_in,
+            event.cache_read_tokens,
+            event.cache_write_tokens,
+        )
+        .await
+        .map(|usd| (usd * 1_000_000.0).round() as i64);
+    }
 }
 
 pub async fn usage_summary(
@@ -374,6 +440,7 @@ pub async fn resource_usage(
             relation: query.relation,
             tool_name: query.tool_name,
             scope,
+            compare_previous: query.compare_previous.unwrap_or(false),
             limit: query
                 .limit
                 .unwrap_or(DEFAULT_ACTIVITY_LIMIT)

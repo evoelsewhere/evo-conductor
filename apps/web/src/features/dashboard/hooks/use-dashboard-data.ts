@@ -68,6 +68,7 @@ export function useDashboardData() {
       api.resourceUsage({
         ...dateRange,
         scope,
+        compare_previous: true,
         limit: DASHBOARD_TOP_SIGNAL_LIMIT,
       }),
     staleTime: 60_000,

@@ -151,7 +151,7 @@ function MonitoringOverview({ usage, inventory, loading }: { usage?: ResourceUsa
           <MonitoringMetric label="Installed members" value={totals?.installed_members ?? 0} hint="aggregate only" icon={Users} />
           <MonitoringMetric label="Model calls" value={totals?.model_calls ?? 0} hint={`${usage?.models.length ?? 0} models`} icon={Bot} />
           <MonitoringMetric label="Tool calls" value={totals?.tool_calls ?? 0} hint={`${usage?.tools.length ?? 0} tools`} icon={Wrench} />
-          <MonitoringMetric label="Est. cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} />
+          <MonitoringMetric label="Cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} />
         </div>
       </div>
       {!hasAnalyticsData(usage) ? (
@@ -288,7 +288,7 @@ function ActivitySkeleton() {
     "Model",
     "Calls",
     "Tokens",
-    "Est. cost",
+    "Cost",
     "Duration",
     "Outcome",
   ]
@@ -366,15 +366,15 @@ function UsagePanel({
         allowMemberDetail={showMemberDetail}
       />
       {showMemberDetail && (
-        <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and estimated cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
+        <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
       )}
       <Breakdown title="Calls by role" description="Requests, model calls and tool calls by the role captured at ingest time.">{data?.roles.length ? <ResourceRoleBreakdownTable items={data.roles} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Tool calls" description="Which tools this resource drives most, including outcome, average duration and last use.">{data?.tools.length ? <ResourceToolBreakdownTable items={data.tools} /> : <UsageEmpty />}</Breakdown>
-      <Breakdown title="Provider and model calls" description="Model volume, total tokens, estimated cost and pricing coverage.">{data?.models.length ? <ResourceModelBreakdownTable items={data.models} /> : <UsageEmpty />}</Breakdown>
+      <Breakdown title="Provider and model calls" description="Model volume, total tokens, cost and pricing coverage.">{data?.models.length ? <ResourceModelBreakdownTable items={data.models} /> : <UsageEmpty />}</Breakdown>
       <div className="mt-4 grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-3 sm:divide-x sm:divide-(--border-soft)">
         <MonitoringMetric label="Total tokens" value={formatTokens(data?.totals.total_tokens ?? 0)} hint={`${formatTokens(data?.totals.average_tokens_per_request ?? 0)} average/request`} icon={Activity} />
         <MonitoringMetric label="Average duration" value={formatDuration(data?.totals.average_duration_ms ?? 0)} hint="terminal request duration" icon={Gauge} />
-        <MonitoringMetric label="Estimated cost" value={formatEstimatedCost(data?.totals.estimated_cost_usd_micros ?? 0)} hint={`${data?.totals.unpriced_model_calls ?? 0} unpriced calls`} icon={CircleDollarSign} />
+        <MonitoringMetric label="Cost" value={formatEstimatedCost(data?.totals.estimated_cost_usd_micros ?? 0)} hint={`${data?.totals.unpriced_model_calls ?? 0} unpriced calls`} icon={CircleDollarSign} />
       </div>
     </>
   )
