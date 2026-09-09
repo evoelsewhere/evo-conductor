@@ -46,7 +46,7 @@ const OUTCOME_CONFIG = {
 const TOKEN_COST_CONFIG = {
   tokens_in: { label: "Input", color: "var(--chart-series-1)" },
   tokens_out: { label: "Output", color: "var(--chart-series-2)" },
-  estimated_cost_usd_micros: { label: "Estimated cost", color: "var(--chart-series-5)" },
+  estimated_cost_usd_micros: { label: "Cost", color: "var(--chart-series-5)" },
 } satisfies ChartConfig
 const RESOURCE_CONFIG = { uses: { label: "Uses", color: "var(--chart-series-1)" } } satisfies ChartConfig
 const MODEL_CONFIG = { calls: { label: "Calls", color: "var(--chart-series-3)" } } satisfies ChartConfig
@@ -102,7 +102,7 @@ export function TokenCostChart({
 }) {
   return (
     <ChartCard
-      title="Tokens & estimated cost"
+      title="Tokens & cost"
       description={`${scope === "all" ? "All received activity" : "Governed activity"}. Input/output totals include their token breakdowns.`}
     >
       <EmptyAware hasData={daily.length > 0}>

@@ -86,7 +86,7 @@ export function buildDashboardAttention(
       id: "unpriced",
       tone: "warning",
       label: `${formatCount(totals?.unpriced_model_calls ?? 0)} model calls are unpriced`,
-      detail: "Estimated cost excludes calls without a catalog estimate.",
+      detail: "Cost excludes calls without a catalog rate.",
     })
   }
   if (pendingMembers > 0) {

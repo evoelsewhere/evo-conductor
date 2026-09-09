@@ -148,7 +148,7 @@ export function MemberActivityPanel({
                     <MobileDatum label="Governed uses" value={member.resource_uses.toLocaleString()} />
                     <MobileDatum label="Model / tool" value={`${member.model_calls.toLocaleString()} / ${member.tool_calls.toLocaleString()}`} />
                     <MobileDatum label="Tokens" value={formatTokens(member.total_tokens)} />
-                    <MobileDatum label="Estimated cost" value={formatEstimatedCost(member.estimated_cost_usd_micros)} />
+                    <MobileDatum label="Cost" value={formatEstimatedCost(member.estimated_cost_usd_micros)} />
                     <MobileDatum label="Last received" value={formatLastReceived(member.last_received_at)} />
                   </dl>
                   <a

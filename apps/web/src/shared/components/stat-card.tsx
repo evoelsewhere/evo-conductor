@@ -14,7 +14,7 @@ export function StatCard({
 }: {
   label: string
   value: React.ReactNode
-  hint?: string
+  hint?: React.ReactNode
   icon?: LucideIcon
   tone?: "neutral" | "accent" | "success" | "warning"
   className?: string
@@ -52,7 +52,7 @@ export function StatCard({
         {value}
       </div>
       {hint && (
-        <div className="mt-1.5 truncate text-xs text-(--color-text-subtle)">
+        <div className="mt-1.5 break-words text-xs text-(--color-text-subtle)">
           {hint}
         </div>
       )}
