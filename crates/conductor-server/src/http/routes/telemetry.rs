@@ -58,6 +58,7 @@ pub struct ResourceAnalyticsQuery {
     pub relation: Option<TelemetryResourceRelation>,
     pub tool_name: Option<String>,
     pub scope: Option<ResourceUsageScope>,
+    pub compare_previous: Option<bool>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -439,6 +440,7 @@ pub async fn resource_usage(
             relation: query.relation,
             tool_name: query.tool_name,
             scope,
+            compare_previous: query.compare_previous.unwrap_or(false),
             limit: query
                 .limit
                 .unwrap_or(DEFAULT_ACTIVITY_LIMIT)

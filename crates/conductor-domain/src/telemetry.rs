@@ -440,13 +440,34 @@ pub struct ResourceUsageTotals {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     pub tool_use_tokens: u64,
     pub total_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    /// Net USD saved thanks to cache discounts, minus the premium paid for
+    /// cache writes — can be negative. See
+    /// `conductor_domain::pricing::cache_savings_usd`.
+    pub cache_savings_usd_micros: i64,
     pub unpriced_model_calls: u64,
     pub average_tokens_per_request: u64,
     pub average_duration_ms: u64,
+}
+
+/// A leaner totals shape for a comparison window (e.g. "the equal-length
+/// period immediately before the one being viewed") — just the figures a
+/// period-over-period delta needs, not installation inventory or outcome
+/// breakdowns that don't make sense to diff against a different window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceUsagePeriodTotals {
+    pub requests: u64,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub total_tokens: u64,
+    pub estimated_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -509,7 +530,10 @@ pub struct ResourceUsageModel {
     pub model: String,
     pub calls: u64,
     pub total_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: i64,
     pub unpriced_calls: u64,
 }
 
@@ -570,6 +594,10 @@ pub struct ResourceUsageAnalytics {
     /// governed view because they require a resource attribution.
     pub scope: ResourceUsageScope,
     pub totals: ResourceUsageTotals,
+    /// The equal-length period immediately preceding `from`..`to`, present
+    /// only when the caller asked for a comparison
+    /// (`ResourceUsageQuery::compare_previous`).
+    pub previous_period: Option<ResourceUsagePeriodTotals>,
     pub daily: Vec<ResourceUsageDay>,
     pub resources: Vec<ResourceUsageBreakdown>,
     pub members: Vec<ResourceUsageMember>,
