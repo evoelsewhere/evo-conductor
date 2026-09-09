@@ -54,6 +54,7 @@ export const RESOURCE_USAGE_NAV_ITEMS = [
 
 export const RESOURCE_USAGE_COST_SOURCE_LABELS = {
   evoflux_catalog: "EvoFlux catalog estimate",
+  conductor_catalog: "Conductor catalog estimate",
   unpriced: "Unpriced",
 } as const
 

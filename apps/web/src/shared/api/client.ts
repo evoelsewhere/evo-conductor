@@ -160,7 +160,7 @@ export interface TelemetryEventDetail {
   status: TelemetryEventStatus
   error_category: string | null
   estimated_cost_usd_micros: number | null
-  cost_source: "evoflux_catalog" | null
+  cost_source: "evoflux_catalog" | "conductor_catalog" | null
   resources: TelemetryResourceAttributionDetail[]
   reported_at: string
 }
