@@ -5,8 +5,10 @@ import {
   CircleDollarSign,
   Clock3,
   Gauge,
+  PiggyBank,
   Wifi,
 } from "lucide-react"
+import type { ReactNode } from "react"
 
 import type { DashboardAttentionItem } from "@/features/dashboard/lib/dashboard-model"
 import {
@@ -17,7 +19,11 @@ import {
   formatTimestamp,
 } from "@/features/dashboard/lib/dashboard-formatters"
 import { formatDuration } from "@/features/members/components/usage-formatters"
-import { formatEstimatedCost } from "@/features/resource-usage/components/resource-usage-formatters"
+import {
+  formatCacheSavings,
+  formatEstimatedCost,
+} from "@/features/resource-usage/components/resource-usage-formatters"
+import { PeriodDeltaBadge } from "@/features/resource-usage/components/period-delta-badge"
 import type {
   DashboardSummary,
   ResourceUsageAnalytics,
@@ -115,13 +121,26 @@ export function DashboardMetricGrid({
       loading: analyticsLoading,
     },
     {
-      label: "Estimated cost",
+      label: "Cost",
       value: analytics
         ? formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)
         : "—",
-      hint: analytics
-        ? `${scope === "all" ? "All received" : "Governed"} · ${totals?.unpriced_model_calls ?? 0} unpriced calls`
-        : "Selected range unavailable",
+      hint: analytics ? (
+        <span className="flex flex-wrap items-center gap-x-1.5">
+          <span>
+            {scope === "all" ? "All received" : "Governed"} ·{" "}
+            {totals?.unpriced_model_calls ?? 0} unpriced calls
+          </span>
+          <PeriodDeltaBadge
+            current={totals?.estimated_cost_usd_micros ?? 0}
+            previous={analytics.previous_period?.estimated_cost_usd_micros}
+            formatValue={formatEstimatedCost}
+            higherIsBetter={false}
+          />
+        </span>
+      ) : (
+        "Selected range unavailable"
+      ),
       icon: CircleDollarSign,
       tone: (totals?.unpriced_model_calls ?? 0) > 0 ? "warning" : "neutral",
       loading: analyticsLoading,
@@ -145,6 +164,7 @@ export function DashboardMetricGrid({
           <MetricStripItem key={metric.label} {...metric} index={index} />
         ))}
       </dl>
+      <CacheSavingsStrip analytics={analytics} loading={analyticsLoading} />
       {summaryLoading ? (
         <div className="border-t border-(--border-soft) px-4 py-2.5">
           <Skeleton className="h-3 w-4/5 max-w-xl" />
@@ -153,6 +173,42 @@ export function DashboardMetricGrid({
         <HostRuntimeStrip summary={summary} />
       )}
     </Card>
+  )
+}
+
+function CacheSavingsStrip({
+  analytics,
+  loading,
+}: {
+  analytics: ResourceUsageAnalytics | undefined
+  loading: boolean
+}) {
+  if (loading) {
+    return (
+      <div className="border-t border-(--border-soft) px-4 py-2">
+        <Skeleton className="h-3 w-2/5 max-w-sm" />
+      </div>
+    )
+  }
+  const totals = analytics?.totals
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--border-soft) px-4 py-2 text-[0.68rem]">
+      <span className="inline-flex items-center gap-1.5 font-medium text-(--color-text-muted)">
+        <PiggyBank className="size-3.5" />
+        Cache savings
+      </span>
+      <strong className="font-medium text-(--color-text)">
+        {analytics ? formatCacheSavings(totals?.cache_savings_usd_micros ?? 0) : "—"}
+      </strong>
+      {analytics && (
+        <PeriodDeltaBadge
+          current={totals?.cache_savings_usd_micros ?? 0}
+          previous={analytics.previous_period?.cache_savings_usd_micros}
+          formatValue={formatCacheSavings}
+          higherIsBetter
+        />
+      )}
+    </div>
   )
 }
 
@@ -202,7 +258,7 @@ function MetricStripItem({
 }: {
   label: string
   value: string
-  hint: string
+  hint: ReactNode
   icon: typeof Wifi
   tone: "neutral" | "accent" | "success" | "warning"
   loading: boolean
@@ -242,7 +298,7 @@ function MetricStripItem({
           <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
             {value}
           </dd>
-          <dd className="mt-0.5 truncate text-[0.65rem] text-(--color-text-subtle)">
+          <dd className="mt-0.5 text-[0.65rem] break-words text-(--color-text-subtle)">
             {hint}
           </dd>
         </>

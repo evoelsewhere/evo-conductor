@@ -3,6 +3,7 @@ import { ArrowUpRight, Eye } from "lucide-react"
 
 import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
 import {
+  formatCacheSavings,
   formatEstimatedCost,
   formatRelation,
 } from "@/features/resource-usage/components/resource-usage-formatters"
@@ -42,7 +43,7 @@ export function ResourceBreakdownTable({ items }: { items: ResourceUsageBreakdow
             <TableTh>Model / tool calls</TableTh>
             <TableTh>Outcome</TableTh>
             <TableTh>Tokens</TableTh>
-            <TableTh>Est. cost</TableTh>
+            <TableTh>Cost</TableTh>
             <TableTh>Last used</TableTh>
             <TableTh><span className="sr-only">Actions</span></TableTh>
           </tr>
@@ -101,7 +102,7 @@ export function ResourceMemberBreakdownTable({ items }: { items: ResourceUsageMe
   return (
     <TableWrap className="rounded-none border-0">
       <Table>
-        <TableHead><tr><TableTh>Member</TableTh><TableTh>Current role</TableTh><TableTh>Requests</TableTh><TableTh>Resource uses</TableTh><TableTh>Tokens</TableTh><TableTh>Est. cost</TableTh><TableTh><span className="sr-only">Actions</span></TableTh></tr></TableHead>
+        <TableHead><tr><TableTh>Member</TableTh><TableTh>Current role</TableTh><TableTh>Requests</TableTh><TableTh>Resource uses</TableTh><TableTh>Tokens</TableTh><TableTh>Cost</TableTh><TableTh><span className="sr-only">Actions</span></TableTh></tr></TableHead>
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.user_id}>
@@ -124,14 +125,25 @@ export function ResourceModelBreakdownTable({ items }: { items: ResourceUsageMod
   return (
     <TableWrap className="rounded-none border-0">
       <Table>
-        <TableHead><tr><TableTh>Provider / model</TableTh><TableTh>Calls</TableTh><TableTh>Tokens</TableTh><TableTh>Est. cost</TableTh><TableTh>Pricing coverage</TableTh><TableTh><span className="sr-only">Actions</span></TableTh></tr></TableHead>
+        <TableHead><tr><TableTh>Provider / model</TableTh><TableTh>Calls</TableTh><TableTh>Tokens</TableTh><TableTh>Cache</TableTh><TableTh>Cost</TableTh><TableTh>Pricing coverage</TableTh><TableTh><span className="sr-only">Actions</span></TableTh></tr></TableHead>
         <TableBody>
           {items.map((item) => (
             <TableRow key={`${item.provider}:${item.model}`}>
               <TableTd><div className="flex items-center gap-2"><ProviderBrandIcon providerId={item.provider} /><div><div className="font-medium">{item.model}</div><div className="text-xs text-(--color-text-subtle)">{item.provider}</div></div></div></TableTd>
               <TableTd className="tabular-nums">{item.calls.toLocaleString()}</TableTd>
               <TableTd className="font-medium tabular-nums">{formatTokens(item.total_tokens)}</TableTd>
-              <TableTd className="tabular-nums">{formatEstimatedCost(item.estimated_cost_usd_micros)}</TableTd>
+              <TableTd className="tabular-nums">
+                <div>{formatTokens(item.cache_read_tokens)} read</div>
+                <div className="text-xs text-(--color-text-subtle)">{formatTokens(item.cache_write_tokens)} write</div>
+              </TableTd>
+              <TableTd className="tabular-nums">
+                <div>{formatEstimatedCost(item.estimated_cost_usd_micros)}</div>
+                {item.cache_savings_usd_micros !== 0 && (
+                  <div className={cn("text-xs", item.cache_savings_usd_micros > 0 ? "text-(--color-success)" : "text-(--color-warning)")}>
+                    {formatCacheSavings(item.cache_savings_usd_micros)} saved
+                  </div>
+                )}
+              </TableTd>
               <TableTd>{item.unpriced_calls > 0 ? <Badge tone="warning">{item.unpriced_calls} unpriced</Badge> : <Badge tone="success">Fully priced</Badge>}</TableTd>
               <TableTd><a href={usageHref({ provider: item.provider, model: item.model })} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8")}><Eye className="size-3.5" />Activity</a></TableTd>
             </TableRow>
@@ -146,7 +158,7 @@ export function ResourceRoleBreakdownTable({ items }: { items: ResourceUsageRole
   return (
     <TableWrap className="rounded-none border-0">
       <Table>
-        <TableHead><tr><TableTh>Recorded role</TableTh><TableTh>Requests</TableTh><TableTh>Model calls</TableTh><TableTh>Tool calls</TableTh><TableTh>Tokens</TableTh><TableTh>Est. cost</TableTh></tr></TableHead>
+        <TableHead><tr><TableTh>Recorded role</TableTh><TableTh>Requests</TableTh><TableTh>Model calls</TableTh><TableTh>Tool calls</TableTh><TableTh>Tokens</TableTh><TableTh>Cost</TableTh></tr></TableHead>
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.primary_role}>
