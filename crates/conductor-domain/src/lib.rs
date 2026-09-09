@@ -17,6 +17,7 @@ pub mod client_installation;
 pub mod core;
 pub mod dashboard;
 pub mod instance;
+pub mod pricing;
 pub mod resource;
 pub mod resource_semver;
 pub mod role;
@@ -74,6 +75,10 @@ pub use resource::{
     ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus,
     ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest, UpdateResourceRequest,
     UpsertResourceFeedbackRequest, VersionMode,
+};
+pub use pricing::{
+    cache_savings_usd, estimate_cost_usd, resolve_rates, CostTier, ModelCostRates, ModelPricing,
+    ModelPricingCatalogEntry, ModelPricingCatalogSnapshot,
 };
 pub use resource_semver::{SemanticVersion, SemanticVersionError};
 pub use role::{
