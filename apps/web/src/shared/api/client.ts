@@ -506,6 +506,7 @@ export const AUTHORIZATION_PERMISSION_KEYS = [
   "taxonomy.read",
   "taxonomy.definition.manage",
   "member.tag_assignment.manage",
+  "model_pricing.read",
   "resource.consume",
   "resource.author",
   "resource.access.manage",
@@ -1412,6 +1413,12 @@ export const api = {
     request<MemberToolsSummary>(
       `/members/${id}/tools${qs({ from: params.from, to: params.to })}`,
     ),
+  modelPricingCatalog: () =>
+    request<ModelPricingCatalogSnapshot>("/model-pricing"),
+  refreshModelPricingCatalog: () =>
+    request<ModelPricingCatalogSnapshot>("/model-pricing/refresh", {
+      method: "POST",
+    }),
   resourceUsage: (params: ResourceUsageParams = {}) =>
     request<ResourceUsageAnalytics>(
       `/analytics/resource-usage${qs({

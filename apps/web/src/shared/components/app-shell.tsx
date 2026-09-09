@@ -127,6 +127,7 @@ export function AppShell() {
     const canReadResources = mayRequest(can(PERMISSION.RESOURCE_CONSUME))
     const canReadTelemetry = mayRequest(can(PERMISSION.TELEMETRY_PROJECT_READ))
     const canReadTaxonomy = mayRequest(can(PERMISSION.TAXONOMY_READ))
+    const canReadModelPricing = mayRequest(can(PERMISSION.MODEL_PRICING_READ))
     const canReadOwnTokens = mayRequest(
       can(PERMISSION.CONNECTION_TOKEN_READ_SELF, { ownerId: user?.id }),
     )
@@ -159,6 +160,14 @@ export function AppShell() {
         to: "/app/resources/usage",
         label: "Usage",
         icon: ChartNoAxesCombined,
+        end: false,
+      })
+    }
+    if (canReadModelPricing) {
+      resourceItems.push({
+        to: "/app/resources/pricing",
+        label: "Model Pricing",
+        icon: Tags,
         end: false,
       })
     }
