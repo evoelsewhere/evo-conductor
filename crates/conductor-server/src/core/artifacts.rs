@@ -564,6 +564,13 @@ impl GitObjectStore {
             .await?;
         self.run_checked(&["config", "user.email", GIT_AUTHOR_EMAIL])
             .await?;
+        // Object paths are `evo-conductor/sha256/xx/<64 hex>`, so a checkout
+        // root of any depth pushes them past the 260-character limit Windows
+        // Git enforces by default and every add fails with "Filename too
+        // long". Ignored on other platforms. Set on each initialize so an
+        // existing checkout is repaired too, not only a fresh one.
+        self.run_checked(&["config", "core.longpaths", "true"])
+            .await?;
 
         let _guard = self.operation.lock().await;
         self.recover_managed_checkout_locked().await?;

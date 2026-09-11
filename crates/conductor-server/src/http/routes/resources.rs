@@ -843,7 +843,7 @@ fn parse_target_modes(value: &serde_json::Value) -> ApiResult<Vec<ResourceTarget
         let mode = value
             .as_str()
             .and_then(ResourceTargetMode::parse)
-            .ok_or_else(|| ConductorError::msg("modes may contain only work, coding and aim"))?;
+            .ok_or_else(|| ConductorError::msg("modes may contain only work and coding"))?;
         if !selected.contains(&mode) {
             selected.push(mode);
         }

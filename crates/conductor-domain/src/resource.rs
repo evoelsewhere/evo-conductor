@@ -19,25 +19,27 @@ pub enum ResourceKind {
 pub enum ResourceTargetMode {
     Work,
     Coding,
-    Aim,
 }
 
 impl ResourceTargetMode {
-    pub const ALL: [Self; 3] = [Self::Work, Self::Coding, Self::Aim];
+    pub const ALL: [Self; 2] = [Self::Work, Self::Coding];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Work => "work",
             Self::Coding => "coding",
-            Self::Aim => "aim",
         }
     }
 
+    /// `aim` was a third mode Conductor published and EvoFlux never
+    /// implemented, so a resource carrying it could not be applied at all.
+    /// It is retired and unknown to this parser. EvoFlux drops it from a
+    /// release that already carries it, so those stay installable on the
+    /// modes that remain.
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "work" => Some(Self::Work),
             "coding" => Some(Self::Coding),
-            "aim" => Some(Self::Aim),
             _ => None,
         }
     }
@@ -823,16 +825,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn target_mode_round_trips_aim() {
-        assert_eq!(
-            ResourceTargetMode::parse("aim"),
-            Some(ResourceTargetMode::Aim)
-        );
-        assert_eq!(ResourceTargetMode::Aim.as_str(), "aim");
-        assert_eq!(
-            serde_json::to_value(ResourceTargetMode::Aim).unwrap(),
-            serde_json::json!("aim")
-        );
+    fn target_modes_round_trip_on_the_wire() {
+        for (mode, wire) in [
+            (ResourceTargetMode::Work, "work"),
+            (ResourceTargetMode::Coding, "coding"),
+        ] {
+            assert_eq!(ResourceTargetMode::parse(wire), Some(mode));
+            assert_eq!(mode.as_str(), wire);
+            assert_eq!(serde_json::to_value(mode).unwrap(), serde_json::json!(wire));
+        }
+    }
+
+    /// `aim` was published by Conductor and never implemented by EvoFlux, so
+    /// any resource carrying it failed to apply. It is no longer a mode.
+    #[test]
+    fn the_retired_aim_mode_is_not_a_mode() {
+        assert_eq!(ResourceTargetMode::parse("aim"), None);
+        assert!(!ResourceTargetMode::ALL
+            .iter()
+            .any(|mode| mode.as_str() == "aim"));
     }
 
     #[test]

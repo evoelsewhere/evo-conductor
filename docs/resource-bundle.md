@@ -10,11 +10,19 @@ Agent and Skill drafts use `.evoflux.json` to declare where they are available:
 
 ```json
 {
-  "modes": ["work", "coding", "aim"]
+  "modes": ["work", "coding"]
 }
 ```
 
-The array must be non-empty, contain each selected value once, and use only `work`, `coding` or `aim`. Missing mode metadata on a newly scaffolded resource defaults to all three modes. EvoFlux should treat the list as an allow-list, not as display-only metadata.
+The array must be non-empty, contain each selected value once, and use only
+`work` or `coding`. Missing mode metadata on a newly scaffolded resource
+defaults to both. EvoFlux treats the list as an allow-list, not as
+display-only metadata.
+
+A third mode, `aim`, was published by Conductor but never implemented by
+EvoFlux, so any resource declaring it failed to apply. It is retired: new
+input naming it is rejected, and a release that already carries it is served
+on the modes that remain.
 
 ## Canonical JSON shape
 

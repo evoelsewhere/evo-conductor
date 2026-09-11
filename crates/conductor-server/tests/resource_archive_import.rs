@@ -73,7 +73,7 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
 
     let (status, created) = app
         .post_bytes(
-            "/api/resources/imports/agent?slug=release_review&name=Release%20Review&visibility=shared&modes=aim",
+            "/api/resources/imports/agent?slug=release_review&name=Release%20Review&visibility=shared&modes=coding",
             Some(&token),
             "application/zip",
             package,
@@ -100,7 +100,7 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
         .expect("mode scope file");
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(mode_file["content"].as_str().unwrap()).unwrap(),
-        serde_json::json!({ "modes": ["aim"] })
+        serde_json::json!({ "modes": ["coding"] })
     );
 
     let (status, released) = app

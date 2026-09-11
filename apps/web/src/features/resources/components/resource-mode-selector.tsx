@@ -1,4 +1,4 @@
-import { Code2, PanelsTopLeft, Waypoints } from "lucide-react"
+import { Code2, PanelsTopLeft } from "lucide-react"
 
 import {
   RESOURCE_TARGET_MODE,
@@ -18,12 +18,6 @@ const MODE_OPTIONS = [
     label: "Coding",
     description: "Repository, project, worktree and review sessions",
     icon: Code2,
-  },
-  {
-    value: RESOURCE_TARGET_MODE.AIM,
-    label: "AIM",
-    description: "Governed modernization, traceability and migration pipelines",
-    icon: Waypoints,
   },
 ] as const
 

@@ -532,7 +532,7 @@ fn parse_archive_modes(value: Option<&str>) -> ApiResult<Vec<ResourceTargetMode>
         .filter(|value| !value.is_empty())
     {
         let mode = ResourceTargetMode::parse(raw)
-            .ok_or_else(|| ConductorError::msg("modes may contain only work, coding and aim"))?;
+            .ok_or_else(|| ConductorError::msg("modes may contain only work and coding"))?;
         if !selected.contains(&mode) {
             selected.push(mode);
         }
@@ -1669,15 +1669,22 @@ mod tests {
     use conductor_domain::{FileManifestEntry, ReleaseChannel, ResourceBundle, ResourceBundleKind};
 
     #[test]
-    fn archive_modes_accept_aim_and_keep_canonical_order() {
-        let modes = match parse_archive_modes(Some("aim,work")) {
-            Ok(modes) => modes,
-            Err(_) => panic!("AIM mode should be accepted"),
+    fn archive_modes_keep_canonical_order_regardless_of_input_order() {
+        let Ok(modes) = parse_archive_modes(Some("coding,work")) else {
+            panic!("work and coding are valid modes")
         };
         assert_eq!(
             modes,
-            vec![ResourceTargetMode::Work, ResourceTargetMode::Aim]
+            vec![ResourceTargetMode::Work, ResourceTargetMode::Coding]
         );
+    }
+
+    /// `aim` is retired. A caller still asking for it is told, rather than
+    /// being handed a resource EvoFlux would refuse to apply.
+    #[test]
+    fn archive_modes_refuse_the_retired_aim_mode() {
+        assert!(parse_archive_modes(Some("aim,work")).is_err());
+        assert!(parse_archive_modes(Some("aim")).is_err());
     }
 
     #[test]

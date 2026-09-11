@@ -57,10 +57,7 @@ pub fn import_zip(bytes: Vec<u8>) -> Result<Vec<DraftFile>, String> {
         let enclosed = entry
             .enclosed_name()
             .ok_or_else(|| "ZIP paths must not escape the package root.".to_string())?;
-        let path = enclosed
-            .to_str()
-            .ok_or_else(|| "ZIP paths must use UTF-8 names.".to_string())?
-            .to_string();
+        let path = zip_entry_path(&enclosed)?;
         if !safe_relative_path(&path) {
             return Err(format!("Unsafe ZIP path: {path}"));
         }
@@ -407,6 +404,30 @@ pub fn versioned_plugin_files(
     Ok(updated)
 }
 
+/// Spell a ZIP entry's path the way the archive declared it.
+///
+/// `enclosed_name` returns a platform `PathBuf` — its traversal check is what
+/// we want, but on Windows it hands the components back joined with
+/// backslashes, which [`safe_relative_path`] rejects. Every nested entry would
+/// then fail to import on a Windows host. ZIP paths are always `/`-separated,
+/// so rejoin the components the archive actually declared. On Unix this is a
+/// no-op: a name containing a literal backslash stays one component and is
+/// still refused.
+fn zip_entry_path(enclosed: &std::path::Path) -> Result<String, String> {
+    let mut path = String::new();
+    for component in enclosed.components() {
+        let part = component
+            .as_os_str()
+            .to_str()
+            .ok_or_else(|| "ZIP paths must use UTF-8 names.".to_string())?;
+        if !path.is_empty() {
+            path.push('/');
+        }
+        path.push_str(part);
+    }
+    Ok(path)
+}
+
 pub fn safe_relative_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= 240
@@ -625,7 +646,7 @@ fn validate_target_modes(files: &[DraftFile], diagnostics: &mut Vec<ResourceDiag
     if modes.is_empty()
         || modes.iter().any(|mode| {
             mode.as_str()
-                .is_none_or(|mode| !matches!(mode, "work" | "coding" | "aim"))
+                .is_none_or(|mode| ResourceTargetMode::parse(mode).is_none())
         })
         || modes
             .iter()
@@ -634,7 +655,7 @@ fn validate_target_modes(files: &[DraftFile], diagnostics: &mut Vec<ResourceDiag
     {
         diagnostics.push(diagnostic(
             "resource_modes_invalid",
-            "modes must contain work, coding and/or aim exactly once.",
+            "modes must contain work and/or coding exactly once.",
             RESOURCE_MODE_SCOPE_FILENAME,
         ));
     }
@@ -1075,12 +1096,9 @@ mod tests {
     }
 
     #[test]
-    fn target_modes_use_evoflux_work_coding_and_aim_contract() {
+    fn target_modes_use_the_evoflux_work_and_coding_contract() {
         let mut files = starter_files(ResourceKind::Agent, "reviewer", "Reviewer");
-        set_target_modes(
-            &mut files,
-            &[ResourceTargetMode::Coding, ResourceTargetMode::Aim],
-        );
+        set_target_modes(&mut files, &[ResourceTargetMode::Coding]);
         let result = validate_draft(ResourceKind::Agent, "reviewer", 0, &files);
         assert!(result.valid, "{:?}", result.diagnostics);
         let scope = files
@@ -1089,7 +1107,30 @@ mod tests {
             .unwrap();
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&scope.content).unwrap(),
-            serde_json::json!({ "modes": ["coding", "aim"] })
+            serde_json::json!({ "modes": ["coding"] })
+        );
+    }
+
+    /// A draft still carrying the retired `aim` mode is invalid, and the
+    /// diagnostic points at the file the author has to edit.
+    #[test]
+    fn a_draft_still_naming_the_retired_aim_mode_is_reported() {
+        let mut files = starter_files(ResourceKind::Agent, "reviewer", "Reviewer");
+        for file in files.iter_mut() {
+            if file.path == RESOURCE_MODE_SCOPE_FILENAME {
+                file.content = "{\"modes\": [\"work\", \"aim\"]}".into();
+            }
+        }
+        let result = validate_draft(ResourceKind::Agent, "reviewer", 0, &files);
+        assert!(!result.valid);
+        let diagnostic = result
+            .diagnostics
+            .iter()
+            .find(|item| item.code == "resource_modes_invalid")
+            .expect("the retired mode is reported");
+        assert_eq!(
+            diagnostic.path.as_deref(),
+            Some(RESOURCE_MODE_SCOPE_FILENAME)
         );
     }
 
@@ -1165,5 +1206,18 @@ mod tests {
     fn rejects_traversal_in_zip() {
         let result = import_zip(archive(&[("../escape.md", "no")]));
         assert!(result.is_err());
+    }
+
+    /// A nested entry has to keep the archive's own separator. `PathBuf` joins
+    /// with a backslash on Windows, which `safe_relative_path` refuses, so
+    /// without this every ZIP with a subdirectory failed to import there.
+    #[test]
+    fn a_nested_zip_entry_keeps_forward_slashes_on_every_platform() {
+        let native = std::path::PathBuf::from("skills")
+            .join("manifest-proof")
+            .join("SKILL.md");
+        let path = zip_entry_path(&native).expect("utf-8 path");
+        assert_eq!(path, "skills/manifest-proof/SKILL.md");
+        assert!(safe_relative_path(&path));
     }
 }
