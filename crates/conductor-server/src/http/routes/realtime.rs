@@ -309,7 +309,18 @@ async fn current_connection_owner(
     owner_user_id: Uuid,
     required_scope: SecretScope,
 ) -> Result<Option<User>, conductor_storage::StorageError> {
-    let Some(secret) = state.db.secrets().find_by_id(secret_id).await? else {
+    // Every open connection re-runs this per heartbeat tick, so it dominates
+    // the pool at high connection counts. Neither lookup needs the other's
+    // result, so running them concurrently halves the time a revalidation
+    // holds a pool connection.
+    let secrets = state.db.secrets();
+    let users = state.db.users();
+    let (secret, owner) = tokio::try_join!(
+        secrets.find_by_id(secret_id),
+        users.find_by_id(owner_user_id)
+    )?;
+
+    let Some(secret) = secret else {
         return Ok(None);
     };
     if secret.owner_user_id != owner_user_id
@@ -322,7 +333,7 @@ async fn current_connection_owner(
         return Ok(None);
     }
 
-    let Some(owner) = state.db.users().find_by_id(owner_user_id).await? else {
+    let Some(owner) = owner else {
         return Ok(None);
     };
     if owner.status != UserStatus::Active

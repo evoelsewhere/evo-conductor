@@ -1,5 +1,7 @@
 mod support;
 
+// Only `assert_fd_budget` needs it, and that is Unix-only.
+#[cfg(unix)]
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
