@@ -2,15 +2,16 @@ use sqlx::any::AnyPoolOptions;
 use sqlx::{Any, Pool};
 
 use crate::core::constants::database::{
-    POOL_MAX_CONNECTIONS, SQLITE_BUSY_TIMEOUT_PRAGMA, SQLITE_FOREIGN_KEYS_PRAGMA,
-    SQLITE_MEMORY_PATH, SQLITE_SYNCHRONOUS_PRAGMA, SQLITE_WAL_PRAGMA,
+    ENV_POOL_MAX_CONNECTIONS, POOL_MAX_CONNECTIONS, SQLITE_BUSY_TIMEOUT_PRAGMA,
+    SQLITE_FOREIGN_KEYS_PRAGMA, SQLITE_MEMORY_PATH, SQLITE_SYNCHRONOUS_PRAGMA, SQLITE_WAL_PRAGMA,
 };
 use crate::core::dialect::DatabaseKind;
-use crate::core::url::sqlite_path;
+use crate::core::url::{normalize_database_url, sqlite_path};
 use crate::migrate;
 use crate::repos::{
     AnalyticsViewRepo, ClientInstallationRepo, DashboardRepo, InstanceRepo, MemberAccessRepo,
-    ResourceRepo, ResourceUsageRepo, RoleRepo, SecretRepo, TelemetryRepo, UserRepo,
+    ProjectIdCache, ResourceRepo, ResourceUsageRepo, RoleRepo, SecretRepo, TelemetryRepo,
+    UserRepo,
 };
 
 /// Database handle. Cheap to clone (shares the connection pool).
@@ -20,10 +21,16 @@ use crate::repos::{
 pub struct Db {
     pool: Pool<Any>,
     kind: DatabaseKind,
+    /// Shared by every `instance()` repo, so the project id resolves once per
+    /// process rather than once or twice per request.
+    project_id_cache: ProjectIdCache,
 }
 
 impl Db {
     pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
+        // Both SQLite scheme spellings reach here; the driver only opens one
+        // of them for an absolute path. See `normalize_database_url`.
+        let database_url = &normalize_database_url(database_url);
         let kind = DatabaseKind::detect(database_url).ok_or_else(|| {
             sqlx::Error::Configuration(
                 format!(
@@ -42,7 +49,7 @@ impl Db {
 
         let sqlite = kind == DatabaseKind::Sqlite;
         let pool = AnyPoolOptions::new()
-            .max_connections(POOL_MAX_CONNECTIONS)
+            .max_connections(pool_max_connections())
             .after_connect(move |connection, _metadata| {
                 Box::pin(async move {
                     if sqlite {
@@ -68,7 +75,11 @@ impl Db {
 
         migrate::run(&pool).await?;
         tracing::info!(dialect = kind.as_str(), "database connected");
-        Ok(Self { pool, kind })
+        Ok(Self {
+            pool,
+            kind,
+            project_id_cache: ProjectIdCache::default(),
+        })
     }
 
     pub fn pool(&self) -> &Pool<Any> {
@@ -80,7 +91,7 @@ impl Db {
     }
 
     pub fn instance(&self) -> InstanceRepo {
-        InstanceRepo::new(self.pool.clone())
+        InstanceRepo::with_project_id_cache(self.pool.clone(), self.project_id_cache.clone())
     }
 
     pub fn users(&self) -> UserRepo {
@@ -122,6 +133,15 @@ impl Db {
     pub fn resource_usage(&self) -> ResourceUsageRepo {
         ResourceUsageRepo::new(self.pool.clone(), self.kind)
     }
+}
+
+/// Zero is rejected along with unset and non-numeric: sqlx refuses an empty pool.
+fn pool_max_connections() -> u32 {
+    std::env::var(ENV_POOL_MAX_CONNECTIONS)
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|&value| value > 0)
+        .unwrap_or(POOL_MAX_CONNECTIONS)
 }
 
 fn is_file_backed_sqlite(database_url: &str) -> bool {

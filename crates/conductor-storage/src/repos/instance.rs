@@ -1,3 +1,5 @@
+use std::sync::{Arc, OnceLock};
+
 use chrono::Utc;
 use conductor_domain::{
     InstanceConfig, PrimaryRole, RealtimeSettings, SetupRequest, SetupStatus, SsoConfig,
@@ -12,9 +14,15 @@ use crate::core::error::{
 };
 use crate::core::mapping::parse_dt;
 
+/// Process-lifetime memo for the singleton project id, not a TTL cache:
+/// `complete_setup` writes `instance.id` and nothing ever updates it, so a
+/// resolved value cannot go stale and needs no expiry or invalidation.
+pub type ProjectIdCache = Arc<OnceLock<Uuid>>;
+
 #[derive(Clone)]
 pub struct InstanceRepo {
     pool: Pool<Any>,
+    project_id_cache: ProjectIdCache,
 }
 
 pub struct SsoConfigUpdate<'a> {
@@ -45,8 +53,20 @@ pub struct NetworkOverrides {
 }
 
 impl InstanceRepo {
+    /// Private memo, so an ad hoc repo keeps today's uncached behaviour;
+    /// [`crate::Db::instance`] shares one via [`Self::with_project_id_cache`].
     pub fn new(pool: Pool<Any>) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            project_id_cache: ProjectIdCache::default(),
+        }
+    }
+
+    pub fn with_project_id_cache(pool: Pool<Any>, project_id_cache: ProjectIdCache) -> Self {
+        Self {
+            pool,
+            project_id_cache,
+        }
     }
 
     pub async fn project_id(&self) -> Result<Option<Uuid>, sqlx::Error> {
@@ -60,7 +80,15 @@ impl InstanceRepo {
 
     /// Load the singleton project identity for an authorization decision.
     /// A configured-but-corrupt UUID is security state, not "not configured".
+    ///
+    /// Memoized per process ([`ProjectIdCache`]). Only a validated id is, so
+    /// the checks below keep running until one succeeds — a server awaiting
+    /// setup must not memoize "no project".
     pub async fn authorization_project_id(&self) -> StorageResult<Option<Uuid>> {
+        if let Some(project_id) = self.project_id_cache.get() {
+            return Ok(Some(*project_id));
+        }
+
         let mut values = sqlx::query_scalar::<_, String>(
             "SELECT id FROM instance ORDER BY created_at ASC LIMIT 2",
         )
@@ -72,9 +100,9 @@ impl InstanceRepo {
             )
             .into());
         }
-        values
+        let project_id = values
             .pop()
-            .map(|value| {
+            .map(|value| -> StorageResult<Uuid> {
                 Uuid::parse_str(&value).map_err(|_| {
                     InvalidPersistedPrincipal::new(
                         None,
@@ -84,7 +112,12 @@ impl InstanceRepo {
                     .into()
                 })
             })
-            .transpose()
+            .transpose()?;
+        if let Some(project_id) = project_id {
+            // A racing caller may have set it already; same immutable row.
+            let _ = self.project_id_cache.set(project_id);
+        }
+        Ok(project_id)
     }
 
     pub async fn storage_settings(&self) -> Result<StorageSettings, sqlx::Error> {

@@ -11,8 +11,11 @@ pub const MYSQL_SCHEME: &str = "mysql://";
 /// The SQLite path meaning "no file at all".
 pub const SQLITE_MEMORY_PATH: &str = ":memory:";
 
-/// Connections the pool may open.
+/// Connections the pool may open, unless [`ENV_POOL_MAX_CONNECTIONS`]
+/// overrides it. Sized for local SQLite dev.
 pub const POOL_MAX_CONNECTIONS: u32 = 10;
+
+pub const ENV_POOL_MAX_CONNECTIONS: &str = "CONDUCTOR_DB_POOL_MAX_CONNECTIONS";
 
 /// SQLite does not enforce foreign keys unless asked, per connection.
 pub const SQLITE_FOREIGN_KEYS_PRAGMA: &str = "PRAGMA foreign_keys = ON;";
