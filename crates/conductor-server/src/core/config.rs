@@ -45,6 +45,27 @@ impl RealtimeConfig {
     }
 }
 
+/// Sync schedule for the models.dev price catalog. Conductor prices telemetry
+/// from its own rate table, so this is what keeps that table current.
+#[derive(Debug, Clone)]
+pub struct ModelPricingConfig {
+    pub enabled: bool,
+    pub url: String,
+    pub refresh_hours: u64,
+}
+
+impl Default for ModelPricingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            url: crate::core::model_pricing::MODELS_DEV_URL.to_string(),
+            // Matches EvoFlux's own catalog TTL, so the two sides drift by at
+            // most one refresh window.
+            refresh_hours: 24,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -52,11 +73,13 @@ pub struct Config {
     pub port: u16,
     pub web_dist: PathBuf,
     pub realtime: RealtimeConfig,
+    pub model_pricing: ModelPricingConfig,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         let realtime_defaults = RealtimeConfig::default();
+        let pricing_defaults = ModelPricingConfig::default();
         Self {
             database_url: std::env::var(ENV_DATABASE_URL)
                 .unwrap_or_else(|_| DEFAULT_DATABASE_URL.into()),
@@ -91,6 +114,15 @@ impl Config {
                 )
                 .clamp(5, 300),
             },
+            model_pricing: ModelPricingConfig {
+                enabled: env_bool("CONDUCTOR_MODEL_PRICING_ENABLED", pricing_defaults.enabled),
+                url: std::env::var("CONDUCTOR_MODEL_PRICING_URL").unwrap_or(pricing_defaults.url),
+                refresh_hours: env_u64(
+                    "CONDUCTOR_MODEL_PRICING_REFRESH_HOURS",
+                    pricing_defaults.refresh_hours,
+                )
+                .clamp(1, 24 * 30),
+            },
         }
     }
 
@@ -105,6 +137,16 @@ fn env_usize(name: &str, default: usize) -> usize {
         .and_then(|value| value.parse().ok())
         .unwrap_or(default)
         .max(1)
+}
+
+fn env_bool(name: &str, default: bool) -> bool {
+    match std::env::var(name) {
+        Ok(value) => !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no" | "off"
+        ),
+        Err(_) => default,
+    }
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {

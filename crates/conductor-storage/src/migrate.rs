@@ -2,8 +2,82 @@ use conductor_domain::{TelemetryEventStatus, TelemetryEventType};
 use sqlx::{Any, Pool, Row};
 use uuid::Uuid;
 
+use crate::core::dialect::DatabaseKind;
+
+/// Money columns, in micro-USD.
+///
+/// These must be `BIGINT`, not `INTEGER`: Postgres and MySQL read `INTEGER` as
+/// 32 bits, so anything above about $2,147 overflows on insert — an ordinary
+/// monthly budget. SQLite widens `INTEGER` on its own, which is why the fault
+/// was invisible there. Token and duration columns stay `INTEGER` because
+/// ingest caps them well inside 32 bits.
+const MONEY_COLUMNS: &[(&str, &str)] = &[
+    ("spend_limits", "limit_usd_micros"),
+    ("telemetry_events", "estimated_cost_usd_micros"),
+    ("telemetry_events", "server_cost_usd_micros"),
+    ("model_prices", "input_micro_per_million"),
+    ("model_prices", "output_micro_per_million"),
+    ("model_prices", "cache_read_micro_per_million"),
+    ("model_prices", "cache_write_micro_per_million"),
+    ("model_prices", "reasoning_micro_per_million"),
+];
+
+/// Widen money columns on a database created while they were `INTEGER`.
+///
+/// Checked rather than best-effort: a silent failure here leaves a Postgres
+/// deployment that rejects any allowance over about $2,147, which is the very
+/// fault this repairs. SQLite needs nothing — its `INTEGER` already holds 64
+/// bits — and re-running the widening on a column that is already `BIGINT` is
+/// a no-op on both other engines.
+async fn widen_money_columns(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error> {
+    // The schema function differs, and both engines spell the widened type
+    // "bigint" in `information_schema`.
+    let current_schema = match kind {
+        DatabaseKind::Sqlite => return Ok(()),
+        DatabaseKind::Postgres => "current_schema()",
+        DatabaseKind::Mysql => "DATABASE()",
+    };
+    let probe = format!(
+        "SELECT data_type FROM information_schema.columns          WHERE table_schema = {current_schema} AND table_name = ? AND column_name = ?"
+    );
+
+    for (table, column) in MONEY_COLUMNS {
+        let observed: Option<String> = sqlx::query_scalar(&probe)
+            .bind(table)
+            .bind(column)
+            .fetch_optional(pool)
+            .await?;
+        // Absent means the table predates this column; the ALTER above adds it
+        // already widened. Already "bigint" means there is nothing to do — and
+        // skipping it matters, because on Postgres the statement takes an
+        // exclusive lock on a table this size at every startup.
+        let Some(observed) = observed else { continue };
+        if observed.eq_ignore_ascii_case("bigint") {
+            continue;
+        }
+
+        let statement = match kind {
+            DatabaseKind::Sqlite => unreachable!("returned above"),
+            DatabaseKind::Postgres => {
+                format!("ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT")
+            }
+            // MySQL restates the definition, and `MODIFY` keeps the existing
+            // nullability only if it is repeated.
+            DatabaseKind::Mysql => match *column {
+                "limit_usd_micros" => {
+                    format!("ALTER TABLE {table} MODIFY {column} BIGINT NOT NULL")
+                }
+                _ => format!("ALTER TABLE {table} MODIFY {column} BIGINT"),
+            },
+        };
+        tracing::info!(table, column, from = %observed, "widening money column to BIGINT");
+        sqlx::query(&statement).execute(pool).await?;
+    }
+    Ok(())
+}
+
 /// Portable schema (TEXT ids, INTEGER flags) — works on SQLite, Postgres, MySQL.
-pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
+pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error> {
     let telemetry_table = format!(
         r#"
         CREATE TABLE IF NOT EXISTS telemetry_events (
@@ -22,6 +96,7 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             tokens_in INTEGER NOT NULL DEFAULT 0,
             tokens_out INTEGER NOT NULL DEFAULT 0,
             cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_write_tokens INTEGER NOT NULL DEFAULT 0,
             reasoning_tokens INTEGER NOT NULL DEFAULT 0,
             tool_use_tokens INTEGER NOT NULL DEFAULT 0,
             duration_ms INTEGER NOT NULL DEFAULT 0,
@@ -29,8 +104,13 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             tool_category TEXT,
             status TEXT NOT NULL DEFAULT '{}',
             error_category TEXT,
-            estimated_cost_usd_micros INTEGER,
+            estimated_cost_usd_micros BIGINT,
             cost_source TEXT,
+            service_tier TEXT,
+            server_cost_usd_micros BIGINT,
+            priced_catalog_version TEXT,
+            pricing_basis TEXT,
+            unpriced_reason TEXT,
             evoflux_version TEXT,
             primary_role_snapshot TEXT,
             sub_role_ids_snapshot TEXT,
@@ -361,6 +441,57 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
             UNIQUE(resource_id, user_id)
         )
         "#,
+        // `subject_id` is the member id for a member limit and the primary
+        // role for a role limit; project limits leave it as the empty string
+        // so the uniqueness constraint stays usable (NULL would not dedupe).
+        r#"
+        CREATE TABLE IF NOT EXISTS spend_limits (
+            id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            subject_id TEXT NOT NULL DEFAULT '',
+            period TEXT NOT NULL,
+            limit_usd_micros BIGINT NOT NULL,
+            warn_percent INTEGER NOT NULL DEFAULT 80,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, scope, subject_id, period),
+            FOREIGN KEY(project_id) REFERENCES instance(id)
+        )
+        "#,
+        r#"
+        CREATE TABLE IF NOT EXISTS model_price_catalogs (
+            version TEXT PRIMARY KEY NOT NULL,
+            source TEXT NOT NULL,
+            source_url TEXT,
+            fetched_at TEXT NOT NULL,
+            model_count INTEGER NOT NULL DEFAULT 0,
+            priced_model_count INTEGER NOT NULL DEFAULT 0,
+            changed_model_count INTEGER NOT NULL DEFAULT 0
+        )
+        "#,
+        r#"
+        CREATE TABLE IF NOT EXISTS model_prices (
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            effective_from TEXT NOT NULL,
+            catalog_version TEXT NOT NULL,
+            input_micro_per_million BIGINT,
+            output_micro_per_million BIGINT,
+            cache_read_micro_per_million BIGINT,
+            cache_write_micro_per_million BIGINT,
+            reasoning_micro_per_million BIGINT,
+            -- Long-context bands and alternate service tiers, as JSON. Both
+            -- are variable-length lists rather than a fixed rate set, and
+            -- both are only ever read as a whole for one model, so a column
+            -- each beats a side table that every price lookup would join.
+            tiers_json TEXT,
+            service_tiers_json TEXT,
+            PRIMARY KEY (provider, model, effective_from),
+            FOREIGN KEY(catalog_version) REFERENCES model_price_catalogs(version)
+        )
+        "#,
         r#"
         CREATE TABLE IF NOT EXISTS analytics_views (
             id TEXT PRIMARY KEY NOT NULL,
@@ -426,6 +557,9 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "CREATE INDEX IF NOT EXISTS idx_resource_feedback_resource ON resource_feedback(resource_id, updated_at)",
         "CREATE INDEX IF NOT EXISTS idx_analytics_views_project_visibility ON analytics_views(project_id, visibility, updated_at)",
         "CREATE INDEX IF NOT EXISTS idx_analytics_views_owner ON analytics_views(project_id, owner_user_id, updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_model_prices_catalog ON model_prices(catalog_version)",
+        "CREATE INDEX IF NOT EXISTS idx_spend_limits_project ON spend_limits(project_id, enabled)",
+        "CREATE INDEX IF NOT EXISTS idx_model_price_catalogs_fetched ON model_price_catalogs(fetched_at)",
     ];
 
     for sql in statements {
@@ -506,17 +640,31 @@ pub async fn run(pool: &Pool<Any>) -> Result<(), sqlx::Error> {
         "ALTER TABLE telemetry_events ADD COLUMN tool_category TEXT",
         telemetry_status_alter.as_str(),
         "ALTER TABLE telemetry_events ADD COLUMN error_category TEXT",
-        "ALTER TABLE telemetry_events ADD COLUMN estimated_cost_usd_micros INTEGER",
+        "ALTER TABLE telemetry_events ADD COLUMN estimated_cost_usd_micros BIGINT",
         "ALTER TABLE telemetry_events ADD COLUMN cost_source TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN evoflux_version TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN primary_role_snapshot TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN sub_role_ids_snapshot TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN tag_ids_snapshot TEXT",
         "ALTER TABLE telemetry_events ADD COLUMN received_at TEXT",
+        // Conductor-computed cost. `estimated_cost_usd_micros` stays as the
+        // client's own figure so the two can be compared; these three are the
+        // authoritative value, the rate snapshot that produced it, and why it
+        // is absent when it is.
+        "ALTER TABLE telemetry_events ADD COLUMN server_cost_usd_micros BIGINT",
+        "ALTER TABLE telemetry_events ADD COLUMN priced_catalog_version TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN unpriced_reason TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE telemetry_events ADD COLUMN service_tier TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN pricing_basis TEXT",
+        "ALTER TABLE model_prices ADD COLUMN tiers_json TEXT",
+        "ALTER TABLE model_prices ADD COLUMN service_tiers_json TEXT",
     ];
     for sql in alters {
         let _ = sqlx::query(sql).execute(pool).await;
     }
+
+    widen_money_columns(pool, kind).await?;
 
     // Backfill singleton-project rows created before project-scoped resources.
     for sql in [
@@ -675,7 +823,9 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory database");
-        run(&pool).await.expect("run initial migration");
+        run(&pool, DatabaseKind::Sqlite)
+            .await
+            .expect("run initial migration");
 
         sqlx::query("DROP INDEX idx_connection_secrets_token_hash")
             .execute(&pool)
@@ -699,7 +849,7 @@ mod tests {
             .expect("seed duplicate legacy credential");
         }
 
-        let error = run(&pool)
+        let error = run(&pool, DatabaseKind::Sqlite)
             .await
             .expect_err("migration must reject ambiguous token hashes");
         let rendered = error.to_string();
@@ -757,7 +907,9 @@ mod tests {
         .await
         .expect("insert legacy project");
 
-        run(&pool).await.expect("upgrade schema");
+        run(&pool, DatabaseKind::Sqlite)
+            .await
+            .expect("upgrade schema");
 
         let description = sqlx::query_scalar::<_, Option<String>>(
             "SELECT description FROM instance WHERE id = 'project-id'",
@@ -776,7 +928,9 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory database");
-        run(&pool).await.expect("run initial migration");
+        run(&pool, DatabaseKind::Sqlite)
+            .await
+            .expect("run initial migration");
 
         let project_id = Uuid::new_v4().to_string();
         let owner_id = Uuid::new_v4().to_string();
@@ -850,7 +1004,9 @@ mod tests {
         .await
         .expect("insert legacy draft version");
 
-        run(&pool).await.expect("rerun migration");
+        run(&pool, DatabaseKind::Sqlite)
+            .await
+            .expect("rerun migration");
 
         let version_count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM resource_versions WHERE resource_id = ?",

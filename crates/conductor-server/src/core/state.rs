@@ -11,8 +11,9 @@ use tokio::sync::RwLock;
 
 use crate::core::artifacts::ArtifactStore;
 use crate::core::authorization::AuthorizationService;
-use crate::core::config::RealtimeConfig;
+use crate::core::config::{ModelPricingConfig, RealtimeConfig};
 use crate::core::host_metrics::{HostMetricsProvider, SystemHostMetricsProvider};
+use crate::core::model_pricing::SharedRateTable;
 use crate::http::realtime::RealtimeHub;
 
 #[derive(Clone)]
@@ -31,6 +32,12 @@ pub struct AppState {
     pub artifacts: ArtifactStore,
     pub authorization: AuthorizationService,
     pub host_metrics: Arc<dyn HostMetricsProvider>,
+    /// Current model rates, so pricing a telemetry batch needs no queries.
+    pub model_rates: SharedRateTable,
+    /// Where the catalog comes from and whether syncing it is permitted at
+    /// all. Set by `build_router` from the process configuration, so a manual
+    /// sync cannot reach an upstream the background sync was told to avoid.
+    pub model_pricing: ModelPricingConfig,
 }
 
 impl AppState {
@@ -87,6 +94,13 @@ impl AppState {
             );
         }
 
+        let model_rates = SharedRateTable::default();
+        // A database that already holds a synced catalog must price correctly
+        // before the first refresh completes.
+        if let Err(error) = model_rates.reload(&db).await {
+            tracing::warn!(%error, "could not load model rates at startup");
+        }
+
         Ok(Self {
             db,
             jwt,
@@ -95,6 +109,8 @@ impl AppState {
             artifacts,
             authorization: AuthorizationService::default(),
             host_metrics: Arc::new(SystemHostMetricsProvider::default()),
+            model_rates,
+            model_pricing: ModelPricingConfig::default(),
         })
     }
 

@@ -1,4 +1,6 @@
+use conductor_server::cli;
 use conductor_server::core::constants::server::{ENV_HOST, ENV_PORT};
+use conductor_server::core::model_pricing;
 use conductor_server::http::realtime::{RealtimeHub, RealtimeSignal};
 use conductor_server::{build_router, AppState, Config};
 use std::net::SocketAddr;
@@ -8,6 +10,16 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+
+    // Any argument means an operator command rather than a server run: it
+    // does its work and exits without ever binding the listener. Usage is
+    // answered before the database is touched, so it still works on a host
+    // that cannot reach one.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if cli::wants_usage(&args) {
+        print!("{}", cli::USAGE);
+        return Ok(());
+    }
 
     tracing_subscriber::registry()
         .with(
@@ -19,7 +31,12 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::from_env();
     let state = AppState::new(&config.database_url, config.realtime.clone()).await?;
+
+    if !args.is_empty() {
+        return cli::run(&args, &state).await;
+    }
     let realtime = state.realtime.clone();
+    spawn_model_pricing_sync(state.clone(), &config);
     let app = build_router(state.clone(), &config);
 
     let addr = bind_addr(&config, &state).await?;
@@ -30,6 +47,50 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal(realtime))
         .await?;
     Ok(())
+}
+
+/// Keep the price catalog current in the background.
+///
+/// Detached on purpose: an unreachable models.dev must not delay or fail
+/// startup. A failed sync leaves the previous rate rows in place, so pricing
+/// degrades to "slightly stale" rather than to "unpriced".
+fn spawn_model_pricing_sync(state: AppState, config: &Config) {
+    if !config.model_pricing.enabled {
+        tracing::info!("model pricing sync disabled");
+        return;
+    }
+    let url = config.model_pricing.url.clone();
+    let period = Duration::from_secs(config.model_pricing.refresh_hours * 3600);
+    tokio::spawn(async move {
+        loop {
+            match model_pricing::sync_from_models_dev(&state.db, &url).await {
+                Ok(outcome) if outcome.unchanged => {
+                    tracing::debug!(version = %outcome.version, "price catalog unchanged");
+                }
+                Ok(outcome) => {
+                    tracing::info!(
+                        version = %outcome.version,
+                        models = outcome.model_count,
+                        priced = outcome.priced_model_count,
+                        changed = outcome.changed_model_count,
+                        "price catalog synced"
+                    );
+                    // Ingest prices from the in-memory table, so it has to be
+                    // rebuilt or the new rates would not reach new events.
+                    match state.model_rates.reload(&state.db).await {
+                        Ok(loaded) => tracing::info!(models = loaded, "model rates reloaded"),
+                        Err(error) => {
+                            tracing::warn!(%error, "could not reload model rates after sync")
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "price catalog sync failed; keeping existing rates");
+                }
+            }
+            tokio::time::sleep(period).await;
+        }
+    });
 }
 
 /// Environment variables win; otherwise fall back to the bind address saved

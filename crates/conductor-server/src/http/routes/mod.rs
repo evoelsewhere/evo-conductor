@@ -4,6 +4,7 @@ mod auth;
 mod client;
 mod dashboard;
 mod health;
+mod pricing;
 mod realtime;
 mod resource_delivery;
 mod resources;
@@ -739,6 +740,68 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             Selector::VisibleResourcePath,
         ),
         resources::upsert_feedback,
+    );
+
+
+    routes.get(
+        "/spend-limits",
+        browser(
+            A::SpendLimitList,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        pricing::list_spend_limits,
+    );
+    routes.put(
+        "/spend-limits",
+        browser(
+            A::SpendLimitUpsert,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        pricing::upsert_spend_limit,
+    );
+    routes.delete(
+        "/spend-limits",
+        browser(
+            A::SpendLimitDelete,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        pricing::delete_spend_limit,
+    );
+    routes.get(
+        "/model-pricing",
+        browser(
+            A::ModelPricingCatalogRead,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        pricing::model_pricing_status,
+    );
+    routes.post(
+        "/model-pricing/sync",
+        browser(
+            A::ModelPricingSync,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        pricing::sync_model_pricing,
+    );
+    routes.post(
+        "/model-pricing/reprice",
+        browser(
+            A::ModelPricingReprice,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        pricing::reprice_model_calls,
     );
 
     routes.get(

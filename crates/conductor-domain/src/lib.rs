@@ -17,10 +17,12 @@ pub mod client_installation;
 pub mod core;
 pub mod dashboard;
 pub mod instance;
+pub mod pricing;
 pub mod resource;
 pub mod resource_semver;
 pub mod role;
 pub mod secret;
+pub mod spend;
 pub mod telemetry;
 pub mod user;
 
@@ -57,6 +59,11 @@ pub use instance::{
     StorageMigrationResult, StorageSettings, UpdateDataPolicyRequest, UpdateInstanceRequest,
     UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
 };
+pub use pricing::{
+    normalize_model_key, price_components, price_model_call, price_model_call_tiered,
+    rate_from_usd_per_million, resolve_rates, CostComponents, ModelPricing, ModelRates, PricedCost,
+    PricingBasis, RateTier, ServiceTierRates, TokenUsage, UnpricedReason,
+};
 pub use resource::{
     CreateDraftFileRequest, CreateResourceRequest, DeleteDraftEntryRequest,
     DeprecateResourceVersionRequest, DiagnosticSeverity, DraftFile, DraftFileTree,
@@ -81,6 +88,11 @@ pub use role::{
     UpdateTagRequest,
 };
 pub use secret::{ConnectionSecret, CreateSecretRequest, CreatedSecret, SecretScope};
+pub use spend::{
+    evaluate_limit, validate_warn_percent, LimitEvaluation, LimitPeriod, LimitScope, LimitState,
+    SpendLimitListResponse, SpendLimitPeriodStatus, SpendLimitSelector, SpendLimitView,
+    UpsertSpendLimitRequest,
+};
 pub use telemetry::{
     DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberPresence,
     MemberRequestDetail, MemberToolUsage, MemberToolsSummary, MemberUsageSummary,

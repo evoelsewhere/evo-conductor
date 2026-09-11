@@ -16,7 +16,11 @@ use tower_http::trace::TraceLayer;
 use crate::core::constants::http::{API_PREFIX, SPA_INDEX_FILE};
 use crate::core::{AppState, Config};
 
-pub fn build_router(state: AppState, config: &Config) -> Router {
+pub fn build_router(mut state: AppState, config: &Config) -> Router {
+    // The manual catalog sync must obey the same switch and URL the background
+    // one does, so it travels with the state the handler is given rather than
+    // being read from the environment behind the caller's back.
+    state.model_pricing = config.model_pricing.clone();
     let api = routes::router(state);
 
     Router::new()

@@ -10,8 +10,8 @@ use crate::core::url::{normalize_database_url, sqlite_path};
 use crate::migrate;
 use crate::repos::{
     AnalyticsViewRepo, ClientInstallationRepo, DashboardRepo, InstanceRepo, MemberAccessRepo,
-    ProjectIdCache, ResourceRepo, ResourceUsageRepo, RoleRepo, SecretRepo, TelemetryRepo,
-    UserRepo,
+    ModelPriceRepo, ProjectIdCache, ResourceRepo, ResourceUsageRepo, RoleRepo, SecretRepo,
+    SpendLimitRepo, TelemetryRepo, UserRepo,
 };
 
 /// Database handle. Cheap to clone (shares the connection pool).
@@ -73,7 +73,7 @@ impl Db {
             sqlx::query(SQLITE_WAL_PRAGMA).execute(&pool).await?;
         }
 
-        migrate::run(&pool).await?;
+        migrate::run(&pool, kind).await?;
         tracing::info!(dialect = kind.as_str(), "database connected");
         Ok(Self {
             pool,
@@ -128,6 +128,14 @@ impl Db {
 
     pub fn telemetry(&self) -> TelemetryRepo {
         TelemetryRepo::new(self.pool.clone(), self.kind)
+    }
+
+    pub fn spend_limits(&self) -> SpendLimitRepo {
+        SpendLimitRepo::new(self.pool.clone(), self.kind)
+    }
+
+    pub fn model_prices(&self) -> ModelPriceRepo {
+        ModelPriceRepo::new(self.pool.clone(), self.kind)
     }
 
     pub fn resource_usage(&self) -> ResourceUsageRepo {
