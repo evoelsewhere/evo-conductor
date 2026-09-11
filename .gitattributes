@@ -1,0 +1,4 @@
+# Generated snapshots are compared byte for byte against renderer output,
+# which always emits LF. Without this, Git's Windows checkout rewrites them to
+# CRLF and the drift test fails on a tree nobody has touched.
+docs/generated/*.json text eol=lf
