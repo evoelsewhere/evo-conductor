@@ -31,7 +31,6 @@ export interface ResourceUsageFilterState {
   relation: string
   provider: string
   model: string
-  toolName: string
 }
 
 export const EMPTY_RESOURCE_USAGE_FILTERS: ResourceUsageFilterState = {
@@ -45,7 +44,6 @@ export const EMPTY_RESOURCE_USAGE_FILTERS: ResourceUsageFilterState = {
   relation: RESOURCE_USAGE_ALL_FILTER,
   provider: "",
   model: "",
-  toolName: "",
 }
 
 export function ResourceUsageFilters({
@@ -96,13 +94,13 @@ export function ResourceUsageFilters({
       key === "resourceKind" && lockedKind
         ? false
         :
-      key === "provider" || key === "model" || key === "toolName"
+      key === "provider" || key === "model"
         ? Boolean(item)
         : item !== RESOURCE_USAGE_ALL_FILTER,
   )
   const activeCount = Object.entries(value).filter(([key, item]) => {
     if (key === "resourceKind" && lockedKind) return false
-    if (key === "provider" || key === "model" || key === "toolName") return Boolean(item)
+    if (key === "provider" || key === "model") return Boolean(item)
     return item !== RESOURCE_USAGE_ALL_FILTER
   }).length
 
@@ -265,7 +263,6 @@ export function ResourceUsageFilters({
             <Select value={value.relation} onValueChange={(next) => set("relation", next)} options={[...RESOURCE_USAGE_RELATION_OPTIONS]} aria-label="Filter by attribution relation" />
             <SearchField value={value.provider} onChange={(next) => set("provider", next)} placeholder="Provider" ariaLabel="Filter by provider" />
             <SearchField value={value.model} onChange={(next) => set("model", next)} placeholder="Model" ariaLabel="Filter by model" />
-            <SearchField value={value.toolName} onChange={(next) => set("toolName", next)} placeholder="Tool name" ariaLabel="Filter by tool name" />
             {lockedKind && (
               <div className="flex h-9 items-center rounded-md border border-(--border-soft) bg-(--bg-key) px-3 text-xs font-medium capitalize text-(--color-text-muted)">
                 Locked to {lockedKind}s

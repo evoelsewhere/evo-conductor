@@ -11,11 +11,15 @@ pub mod config;
 pub mod constants;
 pub mod error;
 pub mod host_metrics;
+pub mod member_cost_report;
+pub mod model_cost_report;
+pub mod model_pricing;
+pub mod reprice;
 pub mod request_context;
 pub mod resource_authoring;
 pub mod routes;
 pub mod state;
 
-pub use config::{Config, RealtimeConfig};
+pub use config::{Config, ModelPricingConfig, RealtimeConfig};
 pub use error::{ApiError, ApiResult};
 pub use state::AppState;

@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Bot,
   Check,
+  Coins,
   Copy,
   KeyRound,
   Pencil,
@@ -24,6 +25,7 @@ import {
   MemberActivityTableSkeleton,
 } from "@/features/members/components/member-activity-table"
 import { MemberNav } from "@/features/members/components/member-nav"
+import { formatEstimatedCost } from "@/features/resource-usage/components/resource-usage-formatters"
 import {
   formatTokens,
   ModelDonutChart,
@@ -222,6 +224,17 @@ export function MemberDetailPage() {
             hint={`${formatTokens(usage.data?.tokens_in ?? 0)} in · ${formatTokens(usage.data?.tokens_out ?? 0)} out`}
             icon={Activity}
             tone="accent"
+          />
+          <StatCard
+            label="Estimated cost"
+            value={formatEstimatedCost(usage.data?.estimated_cost_usd_micros ?? 0)}
+            hint={
+              (usage.data?.unpriced_model_calls ?? 0) > 0
+                ? `${usage.data?.unpriced_model_calls} model calls are unpriced`
+                : "Priced from the project catalog"
+            }
+            icon={Coins}
+            tone={(usage.data?.unpriced_model_calls ?? 0) > 0 ? "warning" : undefined}
           />
           <StatCard
             label="Requests"

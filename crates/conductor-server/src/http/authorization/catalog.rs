@@ -7,7 +7,7 @@ use conductor_domain::{
 };
 use serde::Serialize;
 
-pub const EXPECTED_ROUTE_ACTIONS: usize = 95;
+pub const EXPECTED_ROUTE_ACTIONS: usize = 102;
 pub const MAX_LOGO_BYTES: usize = 512 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]

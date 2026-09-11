@@ -1,13 +1,12 @@
-import { Activity, ArrowRight, Boxes } from "lucide-react"
 import type { ReactNode } from "react"
+import { ArrowRight, Boxes } from "lucide-react"
 
 import { DASHBOARD_TOP_SIGNAL_LIMIT } from "@/features/dashboard/lib/dashboard-config"
-import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
+import { formatTokens } from "@/features/members/components/usage-formatters"
 import type {
   ResourceUsageBreakdown,
   ResourceUsageModel,
   ResourceUsageScope,
-  ResourceUsageTool,
 } from "@/shared/api/client"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
 import { RESOURCE_KIND_LABEL } from "@/shared/constants/resource"
@@ -25,7 +24,6 @@ import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 export function TopSignals({
   resources,
   models,
-  tools,
   scope,
   loading,
   analyticsHref,
@@ -34,7 +32,6 @@ export function TopSignals({
 }: {
   resources: ResourceUsageBreakdown[]
   models: ResourceUsageModel[]
-  tools: ResourceUsageTool[]
   scope: ResourceUsageScope
   loading: boolean
   analyticsHref: (filters?: Record<string, string>) => string
@@ -83,7 +80,6 @@ export function TopSignals({
               <ResourceSignals items={resources} analyticsHref={analyticsHref} />
             )}
             <ModelSignals items={models} analyticsHref={analyticsHref} scope={scope} />
-            <ToolSignals items={tools} analyticsHref={analyticsHref} scope={scope} />
           </>
         )}
       </CardContent>
@@ -194,59 +190,6 @@ function ModelSignals({
               {item.unpriced_calls > 0
                 ? `${item.unpriced_calls} unpriced`
                 : "priced"}
-            </span>
-          </span>
-        </a>
-      ))}
-    </SignalSection>
-  )
-}
-
-function ToolSignals({
-  items,
-  analyticsHref,
-  scope,
-}: {
-  items: ResourceUsageTool[]
-  analyticsHref: (filters?: Record<string, string>) => string
-  scope: ResourceUsageScope
-}) {
-  return (
-    <SignalSection
-      id="dashboard-tools"
-      title="Tools"
-      description={scope === "all" ? "All received calls and outcomes" : "Governed calls and outcomes"}
-      empty="No tool activity"
-      hasItems={items.length > 0}
-    >
-      {items.slice(0, DASHBOARD_TOP_SIGNAL_LIMIT).map((item) => (
-        <a
-          key={`${item.category}:${item.tool_name}`}
-          href={analyticsHref({ tool_name: item.tool_name })}
-          className="group flex items-center gap-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-(--focus-ring)/35"
-        >
-          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-(--bg-key) text-(--color-text-subtle)">
-            <Activity className="size-3.5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium">
-              {item.tool_name}
-            </span>
-            <span className="block truncate text-[0.68rem] text-(--color-text-subtle)">
-              {formatDuration(item.average_duration_ms)} avg
-            </span>
-          </span>
-          <span className="text-right text-xs font-semibold tabular-nums">
-            {item.calls.toLocaleString()}
-            <span
-              className={cn(
-                "block text-[0.62rem] font-normal",
-                item.errors + item.blocked > 0
-                  ? "text-(--color-warning)"
-                  : "text-(--color-text-subtle)",
-              )}
-            >
-              {item.errors + item.blocked} issues
             </span>
           </span>
         </a>

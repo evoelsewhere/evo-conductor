@@ -4,9 +4,8 @@ use chrono::{DateTime, Utc};
 use conductor_domain::{
     PrimaryRole, ResourceInventoryObservedState, ResourceKind, ResourceUsageActivityItem,
     ResourceUsageAnalytics, ResourceUsageBreakdown, ResourceUsageDay, ResourceUsageMember,
-    ResourceUsageModel, ResourceUsageRole, ResourceUsageScope, ResourceUsageTool,
-    ResourceUsageTotals, TelemetryEventStatus, TelemetryResourceRelation, TelemetryToolCategory,
-    UNKNOWN_TELEMETRY_LABEL,
+    ResourceUsageModel, ResourceUsageRole, ResourceUsageScope, ResourceUsageTotals,
+    TelemetryEventStatus, TelemetryResourceRelation, UNKNOWN_TELEMETRY_LABEL,
 };
 use sqlx::{Any, Pool, QueryBuilder, Row};
 use uuid::Uuid;
@@ -29,7 +28,6 @@ pub struct ResourceUsageQuery {
     pub model: Option<String>,
     pub installation_id: Option<Uuid>,
     pub relation: Option<TelemetryResourceRelation>,
-    pub tool_name: Option<String>,
     pub scope: ResourceUsageScope,
     pub limit: u32,
     pub offset: u32,
@@ -67,28 +65,33 @@ impl ResourceUsageRepo {
                 Ok((Vec::new(), 0))
             }
         };
-        let (totals, daily, resources, members, models, roles, tools, activity_page) = tokio::try_join!(
+        let (totals, daily, resources, members, models, roles, activity_page) = tokio::try_join!(
             self.totals(query),
             self.daily(query),
             resources,
             self.members(query),
             self.models(query),
             self.roles(query),
-            self.tools(query),
             activity_page,
         )?;
         let (activity, activity_total) = activity_page;
+        // Every figure below is a floor unless this says otherwise: an
+        // installation that never checked in contributes nothing and looks
+        // exactly like one that checked in and used nothing.
+        let coverage = crate::repos::InstallationContactRepo::new(self.pool.clone(), self.kind)
+            .coverage(query.project_id, query.from, query.to, Utc::now())
+            .await?;
         Ok(ResourceUsageAnalytics {
             from: query.from,
             to: query.to,
             scope: query.scope,
+            coverage,
             totals,
             daily,
             resources,
             members,
             models,
             roles,
-            tools,
             activity,
             activity_total,
             limit: query.limit,
@@ -111,8 +114,8 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
               COALESCE(SUM(e.reasoning_tokens),0) AS reasoning_tokens,
               COALESCE(SUM(e.tool_use_tokens),0) AS tool_use_tokens,
-              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
-              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
+              COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
+              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='request' THEN e.duration_ms ELSE 0 END),0) AS duration_ms "#,
         ));
         push_scoped_events(&mut builder, query);
@@ -214,8 +217,8 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
               COALESCE(SUM(e.reasoning_tokens),0) AS reasoning_tokens,
               COALESCE(SUM(e.tool_use_tokens),0) AS tool_use_tokens,
-              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
-              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls "#,
+              COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
+              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls "#,
         ));
         push_scoped_events(&mut builder, query);
         builder.push(" GROUP BY SUBSTR(e.received_at,1,10) ORDER BY date");
@@ -256,7 +259,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
               COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
-              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
+              COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
               MAX(e.received_at) AS last_used_at "#,
         ));
         push_filtered_from(&mut builder, query);
@@ -304,7 +307,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
               COUNT(DISTINCT e.installation_id) AS installations,
               COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
-              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
+              COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
               MAX(e.received_at) AS last_received_at "#,
         ));
         push_scoped_events(&mut builder, query);
@@ -346,8 +349,8 @@ impl ResourceUsageRepo {
         builder.push(") AS provider,COALESCE(e.model,");
         builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
         builder.push(r#") AS model,COUNT(*) AS calls,COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
-          COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
-          COALESCE(SUM(CASE WHEN e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_calls "#);
+          COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
+          COALESCE(SUM(CASE WHEN e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_calls "#);
         push_scoped_events(&mut builder, query);
         builder.push(" AND e.event_type='model_call' GROUP BY e.provider,e.model ORDER BY calls DESC LIMIT 20");
         Ok(builder
@@ -377,7 +380,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
               COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
-              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros "#,
+              COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros "#,
         ));
         push_scoped_events(&mut builder, query);
         builder.push(
@@ -398,48 +401,6 @@ impl ResourceUsageRepo {
                     tool_calls: n(row.get("tool_calls")),
                     total_tokens: n(row.get("total_tokens")),
                     estimated_cost_usd_micros: n(row.get("cost_micros")),
-                })
-            })
-            .collect())
-    }
-
-    async fn tools(
-        &self,
-        query: &ResourceUsageQuery,
-    ) -> Result<Vec<ResourceUsageTool>, sqlx::Error> {
-        let mut builder = QueryBuilder::<Any>::new("SELECT COALESCE(e.tool_name,");
-        builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
-        builder.push(") AS tool_name,COALESCE(e.tool_category,");
-        builder.push_bind(TelemetryToolCategory::Other.as_str());
-        builder.push(
-            r#") AS category,COUNT(*) AS calls,
-              COALESCE(SUM(CASE WHEN e.status='success' THEN 1 ELSE 0 END),0) AS successes,
-              COALESCE(SUM(CASE WHEN e.status='error' THEN 1 ELSE 0 END),0) AS errors,
-              COALESCE(SUM(CASE WHEN e.status='blocked' THEN 1 ELSE 0 END),0) AS blocked,
-              COALESCE(SUM(CASE WHEN e.status='cancelled' THEN 1 ELSE 0 END),0) AS cancelled,
-              CAST(COALESCE(AVG(e.duration_ms),0) AS BIGINT) AS average_duration_ms,
-              MAX(e.received_at) AS last_used_at "#,
-        );
-        push_scoped_events(&mut builder, query);
-        builder.push(" AND e.event_type='tool_call' GROUP BY e.tool_name,e.tool_category ORDER BY calls DESC LIMIT 25");
-        Ok(builder
-            .build()
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .filter_map(|row| {
-                Some(ResourceUsageTool {
-                    tool_name: row.get("tool_name"),
-                    category: TelemetryToolCategory::parse(
-                        row.get::<String, _>("category").as_str(),
-                    )?,
-                    calls: n(row.get("calls")),
-                    successes: n(row.get("successes")),
-                    errors: n(row.get("errors")),
-                    blocked: n(row.get("blocked")),
-                    cancelled: n(row.get("cancelled")),
-                    average_duration_ms: n(row.get("average_duration_ms")),
-                    last_used_at: parse_dt(row.get("last_used_at")),
                 })
             })
             .collect())
@@ -521,8 +482,8 @@ impl ResourceUsageRepo {
               COALESCE(SUM(CASE WHEN e.event_type='model_call' THEN 1 ELSE 0 END),0) AS model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
               COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
-              COALESCE(SUM(e.estimated_cost_usd_micros),0) AS cost_micros,
-              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
+              COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
+              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(MAX(CASE WHEN e.event_type='request' THEN e.duration_ms END),
                        SUM(CASE WHEN e.event_type<>'request' THEN e.duration_ms ELSE 0 END),0) AS duration_ms "#,
         );
@@ -619,6 +580,15 @@ fn push_inventory_filters(builder: &mut QueryBuilder<'_, Any>, query: &ResourceU
     }
 }
 
+/// Events joined **through** their attributions, so a row is one attribution
+/// rather than one event.
+///
+/// An event carrying several attributions is duplicated once per attribution,
+/// which is what lets a panel group by resource at all — but it means every
+/// aggregate built on this source reads as "of the requests that used this"
+/// and none of them sum to the project totals. Anything that has to stay
+/// additive must filter with [`push_filtered_events`], which uses an EXISTS
+/// and so keeps one row per event.
 fn push_filtered_from(builder: &mut QueryBuilder<'_, Any>, query: &ResourceUsageQuery) {
     builder.push(" FROM telemetry_resource_attributions a JOIN telemetry_events e ON e.id=a.event_id JOIN resources r ON r.id=a.resource_id JOIN resource_versions rv ON rv.id=a.version_id JOIN users u ON u.id=e.user_id WHERE e.project_id=");
     builder.push_bind(query.project_id.to_string());
@@ -749,18 +719,6 @@ fn push_request_event_filters(builder: &mut QueryBuilder<'_, Any>, query: &Resou
             builder.push(" AND model_event.model=");
             builder.push_bind(model.to_string());
         }
-        builder.push(")");
-    }
-    if let Some(tool_name) = query.tool_name.as_deref() {
-        builder.push(
-            " AND EXISTS (SELECT 1 FROM telemetry_events tool_event \
-             WHERE tool_event.project_id=e.project_id \
-             AND tool_event.user_id=e.user_id \
-             AND tool_event.request_id=e.request_id \
-             AND tool_event.event_type='tool_call' \
-             AND tool_event.tool_name=",
-        );
-        builder.push_bind(tool_name.to_string());
         builder.push(")");
     }
 }

@@ -37,7 +37,9 @@ export function exportResourceAnalytics(
   window.setTimeout(() => URL.revokeObjectURL(href), 0)
 }
 
-function buildCsv(
+/** Exported so the resource block's non-additive warning can be tested; a
+ * download still goes through `exportResourceAnalytics`. */
+export function buildCsv(
   data: ResourceUsageAnalytics,
   scopeLabel: string,
   generatedAt: string,
@@ -79,6 +81,12 @@ function buildCsv(
       item.unpriced_model_calls,
     ]),
     [],
+    // Spelled out in the file itself: a spreadsheet will happily sum a column
+    // that counts a multi-resource request once per resource it used.
+    [
+      "note",
+      "resource rows are per attribution — a request that used several resources is counted in full against each, so these columns rank versions and do not sum to the daily totals above",
+    ],
     [
       "resources",
       "name",
@@ -93,7 +101,7 @@ function buildCsv(
       "model_calls",
       "tool_calls",
       "total_tokens",
-      "estimated_cost_usd_micros",
+      "attributed_request_cost_usd_micros",
       "last_used_at",
     ],
     ...data.resources.map((item) => [
@@ -137,19 +145,6 @@ function buildCsv(
       item.unpriced_calls,
     ]),
     [],
-    ["tools", "tool_name", "category", "calls", "successes", "errors", "blocked", "cancelled", "average_duration_ms", "last_used_at"],
-    ...data.tools.map((item) => [
-      "tool",
-      item.tool_name,
-      item.category,
-      item.calls,
-      item.successes,
-      item.errors,
-      item.blocked,
-      item.cancelled,
-      item.average_duration_ms,
-      item.last_used_at,
-    ]),
   ]
 
   return rows.map((row) => row.map(csvCell).join(",")).join("\n")

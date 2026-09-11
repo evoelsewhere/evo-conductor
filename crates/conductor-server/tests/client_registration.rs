@@ -59,8 +59,7 @@ fn registration_body(key: Uuid, name: &str) -> Value {
         "installation_key": key,
         "display_name": name,
         "platform": "macos",
-        "evoflux_version": "0.8.0",
-        "workspace_association": "Marketing site"
+        "evoflux_version": "0.8.0"
     })
 }
 
@@ -238,17 +237,19 @@ async fn registration_rejects_missing_idempotency_invalid_labels_and_unknown_tok
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let mut unsafe_workspace = registration_body(Uuid::new_v4(), "Desktop");
-    unsafe_workspace["workspace_association"] = json!("/Users/member/private-project");
+    // A field retired from the contract must be ignored, not rejected: older
+    // installations keep sending it, and refusing would strand them.
+    let mut retired_field = registration_body(Uuid::new_v4(), "Desktop");
+    retired_field["workspace_association"] = json!("/Users/member/private-project");
     let (status, _) = app
         .post_with_headers(
             "/api/v1/client/register",
             Some(RAW_TOKEN),
             idempotency_headers(Uuid::new_v4()),
-            unsafe_workspace,
+            retired_field,
         )
         .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::OK);
 
     let (status, _) = app
         .post_with_headers(

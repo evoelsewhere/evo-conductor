@@ -11,7 +11,6 @@ export type ResourceKind = (typeof RESOURCE_KIND)[keyof typeof RESOURCE_KIND]
 export const RESOURCE_TARGET_MODE = {
   WORK: "work",
   CODING: "coding",
-  AIM: "aim",
 } as const
 
 export type ResourceTargetMode =
@@ -20,7 +19,6 @@ export type ResourceTargetMode =
 export const RESOURCE_TARGET_MODES = [
   RESOURCE_TARGET_MODE.WORK,
   RESOURCE_TARGET_MODE.CODING,
-  RESOURCE_TARGET_MODE.AIM,
 ] as const
 
 export const RESOURCE_MODE_SCOPE_FILENAME = ".evoflux.json" as const

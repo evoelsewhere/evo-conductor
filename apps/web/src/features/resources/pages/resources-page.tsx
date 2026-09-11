@@ -220,7 +220,6 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
     <PageFrame
       title={meta.title}
       subtitle={meta.subtitle}
-      className="max-w-7xl"
       action={
         canCreate ? (
           <Button variant="gradient" onClick={() => setShowCreate(true)}>

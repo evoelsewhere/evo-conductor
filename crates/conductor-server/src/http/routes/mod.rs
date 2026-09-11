@@ -820,11 +820,6 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
         telemetry::request_detail,
     );
     routes.get(
-        "/members/{id}/tools",
-        member_telemetry(A::MemberToolsSummaryRead),
-        telemetry::tools_summary,
-    );
-    routes.get(
         "/analytics/resource-usage",
         browser_alternatives(
             A::AnalyticsResourceUsageRead,
@@ -836,6 +831,26 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             ],
         ),
         telemetry::resource_usage,
+    );
+    routes.get(
+        "/analytics/model-cost-report",
+        browser(
+            A::ModelCostReportRead,
+            Target::Project,
+            P::TelemetryProjectRead,
+            project_member(),
+        ),
+        telemetry::model_cost_report,
+    );
+    routes.get(
+        "/analytics/member-cost-report",
+        browser(
+            A::MemberCostReportRead,
+            Target::Project,
+            P::TelemetryProjectRead,
+            project_member(),
+        ),
+        telemetry::member_cost_report,
     );
     routes.get(
         "/analytics/views",

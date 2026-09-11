@@ -57,8 +57,7 @@ async fn configured_app() -> (TestApp, String, Uuid) {
                 "installation_key": Uuid::new_v4(),
                 "display_name": "EvoFlux smart fetch",
                 "platform": "linux",
-                "evoflux_version": "1.0.0",
-                "workspace_association": "smart-fetch"
+                "evoflux_version": "1.0.0"
             }),
         )
         .await;

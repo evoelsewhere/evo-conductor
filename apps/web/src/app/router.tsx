@@ -24,14 +24,15 @@ import { MembersPage } from "@/features/members/pages/members-page"
 import { MemberActivityPage } from "@/features/members/pages/member-activity-page"
 import { MemberDetailPage } from "@/features/members/pages/member-detail-page"
 import { MemberRequestDetailPage } from "@/features/members/pages/member-request-detail-page"
-import { MemberToolsPage } from "@/features/members/pages/member-tools-page"
 import { DashboardPage } from "@/features/dashboard/pages/dashboard-page"
 import { ResourcesPage } from "@/features/resources/pages/resources-page"
 import { ResourceGovernancePage } from "@/features/resources/pages/resource-governance-page"
 import { ResourceStudioPage } from "@/features/resources/pages/resource-studio-page"
 import { ResourceUsagePage } from "@/features/resource-usage/pages/resource-usage-page"
+import { MonitoringPage } from "@/features/monitoring/pages/monitoring-page"
 import { ResourceRequestDetailPage } from "@/features/resource-usage/pages/resource-request-detail-page"
 import { RolesPage } from "@/features/roles/pages/roles-page"
+import { SpendPage } from "@/features/spend/pages/spend-page"
 import { SecretsPage } from "@/features/secrets/pages/secrets-page"
 import { SetupPage } from "@/features/setup/pages/setup-page"
 import { TagsPage } from "@/features/tags/pages/tags-page"
@@ -269,12 +270,6 @@ const memberRequestDetailRoute = createRoute({
   component: () => <MemberTelemetryBoundary><MemberRequestDetailPage /></MemberTelemetryBoundary>,
 })
 
-const memberToolsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/members/$userId/tools",
-  component: () => <MemberTelemetryBoundary><MemberToolsPage /></MemberTelemetryBoundary>,
-})
-
 const resourcesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/resources",
@@ -412,6 +407,18 @@ const tagsRoute = createRoute({
   component: () => <PermissionBoundary permissions={[PERMISSION.TAXONOMY_READ]}><TagsPage /></PermissionBoundary>,
 })
 
+const monitoringRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/monitoring",
+  component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_PROJECT_READ]}><MonitoringPage /></PermissionBoundary>,
+})
+
+const spendRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/spend",
+  component: () => <PermissionBoundary permissions={[PERMISSION.PROJECT_SETTINGS_MANAGE]}><SpendPage /></PermissionBoundary>,
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings",
@@ -434,7 +441,6 @@ const routeTree = rootRoute.addChildren([
     memberDetailRoute,
     memberActivityRoute,
     memberRequestDetailRoute,
-    memberToolsRoute,
     resourcesRoute,
     resourceUsageRoute,
     resourceUsageActivityRoute,
@@ -457,6 +463,8 @@ const routeTree = rootRoute.addChildren([
     secretsRoute,
     rolesRoute,
     tagsRoute,
+    monitoringRoute,
+    spendRoute,
     settingsRoute,
   ]),
 ])

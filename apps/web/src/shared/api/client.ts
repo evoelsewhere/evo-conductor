@@ -7,7 +7,6 @@ import type { SecretScope } from "@/shared/constants/secret"
 import type {
   TelemetryEventStatus,
   TelemetryEventType,
-  TelemetryToolCategory,
 } from "@/shared/constants/telemetry"
 import type {
   ReleaseChannel,
@@ -81,6 +80,8 @@ export interface ModelUsageBreakdown {
   tokens_in: number
   tokens_out: number
   total_tokens: number
+  estimated_cost_usd_micros: number
+  unpriced_calls: number
 }
 
 export interface DailyTokenUsage {
@@ -89,6 +90,7 @@ export interface DailyTokenUsage {
   tokens_in: number
   tokens_out: number
   total_tokens: number
+  estimated_cost_usd_micros: number
 }
 
 export interface MemberUsageSummary {
@@ -103,6 +105,8 @@ export interface MemberUsageSummary {
   total_tokens: number
   cache_read_tokens: number
   reasoning_tokens: number
+  estimated_cost_usd_micros: number
+  unpriced_model_calls: number
   models: ModelUsageBreakdown[]
   daily: DailyTokenUsage[]
 }
@@ -155,12 +159,10 @@ export interface TelemetryEventDetail {
   reasoning_tokens: number
   tool_use_tokens: number
   duration_ms: number
-  tool_name: string | null
-  tool_category: TelemetryToolCategory | null
   status: TelemetryEventStatus
   error_category: string | null
+  /** Conductor's own price, absent when it could not price the call. */
   estimated_cost_usd_micros: number | null
-  cost_source: "evoflux_catalog" | null
   resources: TelemetryResourceAttributionDetail[]
   reported_at: string
 }
@@ -168,25 +170,6 @@ export interface TelemetryEventDetail {
 export interface MemberRequestDetail {
   request: MemberActivityItem
   events: TelemetryEventDetail[]
-}
-
-export interface MemberToolUsage {
-  tool_name: string
-  category: TelemetryToolCategory
-  calls: number
-  successes: number
-  errors: number
-  average_duration_ms: number
-  last_used_at: string
-}
-
-export interface MemberToolsSummary {
-  from: string
-  to: string
-  total_calls: number
-  successful_calls: number
-  failed_calls: number
-  tools: MemberToolUsage[]
 }
 
 export type TelemetryResourceRelation =
@@ -219,6 +202,8 @@ export interface ResourceUsageTotals {
   reasoning_tokens: number
   tool_use_tokens: number
   total_tokens: number
+  /** Conductor's own price. Clients report usage, never cost, so what
+   *  Conductor could not price is missing here and counted below. */
   estimated_cost_usd_micros: number
   unpriced_model_calls: number
   average_tokens_per_request: number
@@ -293,18 +278,6 @@ export interface ResourceUsageRole {
   estimated_cost_usd_micros: number
 }
 
-export interface ResourceUsageTool {
-  tool_name: string
-  category: TelemetryToolCategory
-  calls: number
-  successes: number
-  errors: number
-  blocked: number
-  cancelled: number
-  average_duration_ms: number
-  last_used_at: string
-}
-
 export interface ResourceUsageActivityItem {
   request_id: string
   user_id: string
@@ -328,17 +301,111 @@ export interface ResourceUsageActivityItem {
   duration_ms: number
 }
 
+export type LimitScope = "project" | "member" | "role"
+export type LimitPeriod = "day" | "week" | "month"
+export type LimitState = "within" | "warning" | "exceeded"
+
+export interface SpendLimitPeriodStatus {
+  period_start: string
+  state: LimitState
+  spent_usd_micros: number
+  used_percent: number
+}
+
+export interface SpendLimitView {
+  scope: LimitScope
+  subject_id: string
+  /** Member display name, or the role; absent for a project limit. */
+  subject_label: string | null
+  period: LimitPeriod
+  limit_usd_micros: number
+  warn_percent: number
+  enabled: boolean
+  /** Absent for a disabled limit: configured, but not evaluated. */
+  status: SpendLimitPeriodStatus | null
+}
+
+export interface SpendLimitListResponse {
+  limits: SpendLimitView[]
+  evaluated_at: string
+}
+
+export interface UpsertSpendLimitRequest {
+  scope: LimitScope
+  subject_id?: string
+  period: LimitPeriod
+  limit_usd_micros: number
+  warn_percent: number
+  enabled: boolean
+}
+
+export interface ModelPricingCatalog {
+  version: string
+  source: string
+  fetched_at: string
+  model_count: number
+  priced_model_count: number
+  changed_model_count: number
+}
+
+export interface ModelPricingStatus {
+  /** Absent until the first sync; until then nothing Conductor ingests is priced. */
+  catalog: ModelPricingCatalog | null
+  priced_models: number
+  sync_enabled: boolean
+  source_url: string
+}
+
+export interface ModelPricingSyncResult {
+  version: string
+  model_count: number
+  priced_model_count: number
+  changed_model_count: number
+  /** The fetched catalog matched the last one, so nothing was written. */
+  unchanged: boolean
+  reloaded_models: number
+}
+
+export interface RepriceReport {
+  examined: number
+  priced_in_force: number
+  priced_from_earliest: number
+  left_unpriced: number
+}
+
+export type UsageCoverageState = 'complete' | 'incomplete' | 'unknown'
+
+/** Whether the fleet actually accounted for the window.
+ *
+ *  An installation that never checked in and one that checked in and used
+ *  nothing produce the same zero. Only the first means a total is
+ *  understated, so read this before trusting any figure in the report. */
+export interface UsageCoverage {
+  state: UsageCoverageState
+  /** Last fully-elapsed UTC day judged. Today is never counted against a
+   *  client, since the day has not finished. */
+  through_day: string | null
+  expected_installation_days: number
+  covered_installation_days: number
+  missing_installation_days: number
+  /** Installations that existed in the window but were never in contact. */
+  silent_installations: number
+  expected_installations: number
+  /** Covered share in basis points; 10000 is complete. */
+  covered_bps: number
+}
+
 export interface ResourceUsageAnalytics {
   from: string
   to: string
   scope: ResourceUsageScope
+  coverage: UsageCoverage
   totals: ResourceUsageTotals
   daily: ResourceUsageDay[]
   resources: ResourceUsageBreakdown[]
   members: ResourceUsageMember[]
   models: ResourceUsageModel[]
   roles: ResourceUsageRole[]
-  tools: ResourceUsageTool[]
   activity: ResourceUsageActivityItem[]
   activity_total: number
   limit: number
@@ -357,9 +424,79 @@ export interface ResourceUsageParams extends DateRangeParams {
   model?: string
   installation_id?: string
   relation?: TelemetryResourceRelation
-  tool_name?: string
   limit?: number
   offset?: number
+}
+
+export interface ModelCostReportRow {
+  provider: string
+  model: string
+  calls: number
+  unpriced_calls: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  input_cost_usd_micros: number
+  output_cost_usd_micros: number
+  cache_read_cost_usd_micros: number
+  cache_write_cost_usd_micros: number
+  total_cost_usd_micros: number
+  avg_usd_micros_per_million_tokens: number
+}
+
+export interface ModelCostReportTotals {
+  calls: number
+  unpriced_calls: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  total_cost_usd_micros: number
+}
+
+export interface ModelCostReport {
+  from: string
+  to: string
+  rows: ModelCostReportRow[]
+  totals: ModelCostReportTotals
+}
+
+/** Shared by the model and member cost reports: a window plus optional
+ * monitoring filters -- role, tag, provider or model. */
+export interface CostReportParams extends DateRangeParams {
+  primary_role?: PrimaryRole
+  tag_id?: string
+  provider?: string
+  model?: string
+}
+
+export interface MemberCostReportRow {
+  user_id: string
+  display_name: string
+  email: string
+  primary_role: PrimaryRole
+  calls: number
+  unpriced_calls: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  total_cost_usd_micros: number
+  avg_usd_micros_per_million_tokens: number
+}
+
+export interface MemberCostReport {
+  from: string
+  to: string
+  rows: MemberCostReportRow[]
+  totals: ModelCostReportTotals
 }
 
 export type AnalyticsViewVisibility = "private" | "shared"
@@ -404,7 +541,6 @@ export type AnalyticsDimension =
   | "role"
   | "provider"
   | "model"
-  | "tool"
   | "installation"
 export type AnalyticsVisualization =
   | "kpi"
@@ -431,7 +567,6 @@ export interface AnalyticsQuery {
   model?: string | null
   installation_id?: string | null
   relation?: TelemetryResourceRelation | null
-  tool_name?: string | null
 }
 
 export interface AnalyticsWidget {
@@ -1408,9 +1543,27 @@ export const api = {
     request<MemberRequestDetail>(
       `/members/${id}/activity/${encodeURIComponent(requestId)}`,
     ),
-  memberTools: (id: string, params: DateRangeParams = {}) =>
-    request<MemberToolsSummary>(
-      `/members/${id}/tools${qs({ from: params.from, to: params.to })}`,
+  modelCostReport: (params: CostReportParams = {}) =>
+    request<ModelCostReport>(
+      `/analytics/model-cost-report${qs({
+        from: params.from,
+        to: params.to,
+        primary_role: params.primary_role,
+        tag_id: params.tag_id,
+        provider: params.provider,
+        model: params.model,
+      })}`,
+    ),
+  memberCostReport: (params: CostReportParams = {}) =>
+    request<MemberCostReport>(
+      `/analytics/member-cost-report${qs({
+        from: params.from,
+        to: params.to,
+        primary_role: params.primary_role,
+        tag_id: params.tag_id,
+        provider: params.provider,
+        model: params.model,
+      })}`,
     ),
   resourceUsage: (params: ResourceUsageParams = {}) =>
     request<ResourceUsageAnalytics>(
@@ -1428,7 +1581,6 @@ export const api = {
         model: params.model,
         installation_id: params.installation_id,
         relation: params.relation,
-        tool_name: params.tool_name,
         limit: params.limit,
         offset: params.offset,
       })}`,
@@ -1533,6 +1685,28 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  spendLimits: () => request<SpendLimitListResponse>("/spend-limits"),
+  upsertSpendLimit: (body: UpsertSpendLimitRequest) =>
+    request<SpendLimitView>("/spend-limits", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteSpendLimit: (scope: LimitScope, period: LimitPeriod, subjectId?: string) =>
+    request<{ removed: boolean }>(
+      `/spend-limits${qs({ scope, period, subject_id: subjectId })}`,
+      { method: "DELETE" },
+    ),
+  modelPricing: () => request<ModelPricingStatus>("/model-pricing"),
+  syncModelPricing: () =>
+    request<ModelPricingSyncResult>("/model-pricing/sync", { method: "POST" }),
+  repriceModelCalls: (estimatePreCatalog = false) =>
+    request<RepriceReport>(
+      `/model-pricing/reprice${qs({
+        estimate_pre_catalog: estimatePreCatalog ? "true" : undefined,
+      })}`,
+      { method: "POST" },
+    ),
+
   updateDataPolicy: (collectionLevel: CollectionLevel) =>
     request<ProjectSettings>("/settings/data-policy", {
       method: "PUT",

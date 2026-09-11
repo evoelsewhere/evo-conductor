@@ -94,15 +94,16 @@ pub use spend::{
     UpsertSpendLimitRequest,
 };
 pub use telemetry::{
-    DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberPresence,
-    MemberRequestDetail, MemberToolUsage, MemberToolsSummary, MemberUsageSummary,
-    ModelUsageBreakdown, ResourceUsageActivityItem, ResourceUsageAnalytics, ResourceUsageBreakdown,
-    ResourceUsageDay, ResourceUsageMember, ResourceUsageModel, ResourceUsageRole,
-    ResourceUsageScope, ResourceUsageTool, ResourceUsageTotals, TelemetryBatchRequest,
-    TelemetryBatchResponse, TelemetryCostSource, TelemetryDeliverySummary, TelemetryEventDetail,
+    DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberCostReport,
+    MemberCostReportRow, MemberPresence, MemberRequestDetail, MemberUsageSummary, ModelCostReport,
+    ModelCostReportRow, ModelCostReportTotals, ModelUsageBreakdown, ResourceUsageActivityItem,
+    ResourceUsageAnalytics, ResourceUsageBreakdown, ResourceUsageDay, ResourceUsageMember,
+    ResourceUsageModel, ResourceUsageRole, ResourceUsageScope, ResourceUsageTotals,
+    TelemetryBatchRequest, TelemetryBatchResponse, TelemetryDeliverySummary, TelemetryEventDetail,
     TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
     TelemetryResourceAttributionDetail, TelemetryResourceRef, TelemetryResourceRelation,
-    TelemetrySnapshot, TelemetryToolCategory, UNKNOWN_TELEMETRY_LABEL,
+    TelemetrySnapshot, UsageCoverage, UsageCoverageState, RETIRED_TELEMETRY_EVENT_FIELDS,
+    UNKNOWN_TELEMETRY_LABEL,
 };
 pub use user::{
     ApproveMemberRequest, AuthSession, ChangePasswordRequest, CreateMemberRequest, CreatedMember,

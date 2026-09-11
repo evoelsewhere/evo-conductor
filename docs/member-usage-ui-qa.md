@@ -2,6 +2,13 @@
 
 Validated on 2026-08-10 against the local Conductor API and a seeded SQLite QA database.
 
+The cost KPI below regressed after that run — `MemberUsageSummary` carried no
+cost field, so the overview showed tokens only — and was restored when
+Conductor started pricing telemetry itself. Every figure on this page — KPIs,
+daily series, activity and tools — is now windowed on `received_at`, the same
+clock `/analytics/resource-usage` and spend limits use, so the member view and
+the admin view agree for a given range.
+
 ## Acceptance checklist
 
 - [x] Member rows navigate to `/app/members/:userId` with mouse, Enter, and Space.
@@ -40,10 +47,6 @@ The Vite production build reports only its existing large-chunk and `__dirname` 
 ### Request audit detail — desktop
 
 ![Member request audit detail on desktop](assets/member-usage-ui/member-request-detail-desktop.jpg)
-
-### Tool usage — desktop
-
-![Member tool usage on desktop](assets/member-usage-ui/member-tools-desktop.jpg)
 
 ### Member overview — mobile
 

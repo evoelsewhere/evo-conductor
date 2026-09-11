@@ -1,9 +1,11 @@
 mod support;
 
 use chrono::Utc;
+use conductor_domain::UnpricedReason;
 use conductor_domain::{
     PrimaryRole, TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
 };
+use conductor_storage::repos::PricedTelemetryEvent;
 use conductor_storage::Db;
 use sqlx::Row;
 use uuid::Uuid;
@@ -67,18 +69,16 @@ async fn concurrent_idempotent_telemetry_waits_for_the_sqlite_writer() {
         tokens_in: 0,
         tokens_out: 0,
         cache_read_tokens: 0,
+        cache_write_tokens: 0,
         reasoning_tokens: 0,
         tool_use_tokens: 0,
         duration_ms: 10,
-        tool_name: None,
-        tool_category: None,
         status: TelemetryEventStatus::Success,
         error_category: None,
-        estimated_cost_usd_micros: None,
-        cost_source: None,
-        evoflux_version: Some("0.9.0".into()),
+        service_tier: None,
         resources: vec![],
         reported_at: Utc::now(),
+        unknown: Default::default(),
     };
 
     let mut tasks = Vec::new();
@@ -87,7 +87,9 @@ async fn concurrent_idempotent_telemetry_waits_for_the_sqlite_writer() {
         let user = user.clone();
         let event = event.clone();
         tasks.push(tokio::spawn(async move {
-            repo.ingest(project_id, &user, installation_id, "0.9.0", &[event])
+            // This suite proves concurrent insert behaviour, not pricing.
+            let priced = PricedTelemetryEvent::unpriced(&event, UnpricedReason::NoCatalog);
+            repo.ingest(project_id, &user, installation_id, &[priced])
                 .await
         }));
     }

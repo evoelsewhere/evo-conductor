@@ -100,8 +100,7 @@ async fn register(app: &TestApp, installation_key: Uuid, label: &str) -> Value {
                 "installation_key": installation_key,
                 "display_name": format!("Role freshness {label}"),
                 "platform": "linux",
-                "evoflux_version": "1.0.0",
-                "workspace_association": "role-freshness"
+                "evoflux_version": "1.0.0"
             }),
         )
         .await;
@@ -148,13 +147,8 @@ async fn exercise_telemetry_scope(app: &TestApp, installation_id: &Value) {
                     "reasoning_tokens": 0,
                     "tool_use_tokens": 0,
                     "duration_ms": 1,
-                    "tool_name": null,
-                    "tool_category": null,
                     "status": "success",
                     "error_category": null,
-                    "estimated_cost_usd_micros": null,
-                    "cost_source": null,
-                    "evoflux_version": "1.0.0",
                     "resources": [],
                     "reported_at": chrono::Utc::now()
                 }]

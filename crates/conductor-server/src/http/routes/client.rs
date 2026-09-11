@@ -167,6 +167,15 @@ pub async fn heartbeat(
         .await?
         .ok_or_else(|| ConductorError::NotFound("client installation".into()))?;
 
+    // A heartbeat is the only proof of life an idle installation gives. Note
+    // it as contact for the day so a member who simply did no AI work reads
+    // as a genuine zero, not as missing data.
+    state
+        .db
+        .installation_contacts()
+        .record(request.installation_id, instance.id, Utc::now(), 0, 1)
+        .await?;
+
     Ok(Json(ClientHeartbeatResponse {
         server_time: Utc::now(),
         heartbeat_interval_seconds: CLIENT_HEARTBEAT_INTERVAL_SECONDS,
@@ -230,29 +239,11 @@ fn parse_idempotency_key(headers: &HeaderMap) -> ApiResult<Uuid> {
 fn validate_registration(request: &mut RegisterClientRequest) -> ApiResult<()> {
     request.display_name = request.display_name.trim().to_string();
     request.evoflux_version = request.evoflux_version.trim().to_string();
-    request.workspace_association = request.workspace_association.take().and_then(|value| {
-        let value = value.trim().to_string();
-        (!value.is_empty()).then_some(value)
-    });
-
     if request.display_name.is_empty() || request.display_name.len() > 120 {
         return Err(ConductorError::msg("display_name must be 1–120 characters").into());
     }
     if request.evoflux_version.is_empty() || request.evoflux_version.len() > 64 {
         return Err(ConductorError::msg("evoflux_version must be 1–64 characters").into());
-    }
-    if let Some(value) = request.workspace_association.as_deref() {
-        if value.len() > 120
-            || value.contains('/')
-            || value.contains('\\')
-            || value == "."
-            || value == ".."
-        {
-            return Err(ConductorError::msg(
-                "workspace_association must be a short label, not a local path",
-            )
-            .into());
-        }
     }
     Ok(())
 }

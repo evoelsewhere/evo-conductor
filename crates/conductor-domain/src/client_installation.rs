@@ -12,14 +12,15 @@ pub enum ClientPlatform {
     Windows,
 }
 
+/// Tolerant of unknown fields for the same reason the telemetry batch is:
+/// a field retired from this contract keeps arriving from installations on
+/// older builds, and rejecting registration would strand them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RegisterClientRequest {
     pub installation_key: Uuid,
     pub display_name: String,
     pub platform: ClientPlatform,
     pub evoflux_version: String,
-    pub workspace_association: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +32,6 @@ pub struct ClientInstallation {
     pub display_name: String,
     pub platform: ClientPlatform,
     pub evoflux_version: String,
-    pub workspace_association: Option<String>,
     pub connected_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,

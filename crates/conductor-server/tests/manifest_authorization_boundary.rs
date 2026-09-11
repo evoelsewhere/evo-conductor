@@ -17,9 +17,9 @@ use serde_json::Value;
 use support::{test_app, TestApp};
 use tower::ServiceExt;
 
-const EXPECTED_BROWSER_ACTIONS: usize = 77;
+const EXPECTED_BROWSER_ACTIONS: usize = 84;
 const EXPECTED_CONNECTION_ACTIONS: usize = 11;
-const EXPECTED_DENIED_ROLE_ACTION_CASES: usize = 81;
+const EXPECTED_DENIED_ROLE_ACTION_CASES: usize = 95;
 
 const PATH_ID: &str = "00000000-0000-0000-0000-000000000001";
 const PATH_VERSION_ID: &str = "00000000-0000-0000-0000-000000000002";

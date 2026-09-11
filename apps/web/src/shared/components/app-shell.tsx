@@ -8,6 +8,7 @@ import {
   ChartNoAxesCombined,
   ChevronDown,
   ChevronsUpDown,
+  CircleDollarSign,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -24,6 +25,7 @@ import {
   Tags,
   UserRound,
   Users,
+  Wallet,
   X,
   type LucideIcon,
 } from "lucide-react"
@@ -102,6 +104,21 @@ export function AppShell() {
     refetchInterval: 30_000,
   })
 
+  // Same query key the Spend page uses, so opening it reuses this result
+  // rather than re-running one aggregate per allowance.
+  const canManageSpend = mayRequest(can(PERMISSION.PROJECT_SETTINGS_MANAGE))
+  const { data: spend } = useQuery({
+    queryKey: ["spend-limits"],
+    queryFn: () => api.spendLimits(),
+    enabled: authorizationStatus === "ready" && canManageSpend,
+    refetchInterval: 60_000,
+  })
+  // What the operator asked to be told about: past their own warning
+  // threshold, or past the allowance itself.
+  const spendNeedingAttention = spend?.limits.filter(
+    (limit) => limit.status?.state === "warning" || limit.status?.state === "exceeded",
+  ).length
+
   const { data: branding } = useQuery({
     queryKey: ["project"],
     queryFn: () => api.project(),
@@ -172,6 +189,25 @@ export function AppShell() {
       })
     }
 
+    if (canReadTelemetry) {
+      workspaceItems.push({
+        to: "/app/monitoring",
+        label: "Monitoring",
+        icon: CircleDollarSign,
+        end: false,
+      })
+    }
+
+    if (mayRequest(can(PERMISSION.PROJECT_SETTINGS_MANAGE))) {
+      workspaceItems.push({
+        to: "/app/spend",
+        label: "Spend",
+        icon: Wallet,
+        end: false,
+        badge: spendNeedingAttention || undefined,
+      })
+    }
+
     const accessItems: NavItemDef[] = []
     if (canReadOwnTokens) {
       accessItems.push({
@@ -203,7 +239,14 @@ export function AppShell() {
       { id: "access", label: "Access", items: accessItems },
     ]
     return groups
-  }, [authorization, can, canManageMembers, pending?.count, user?.id])
+  }, [
+    authorization,
+    can,
+    canManageMembers,
+    pending?.count,
+    spendNeedingAttention,
+    user?.id,
+  ])
 
   useEffect(() => {
     hydrateUi()

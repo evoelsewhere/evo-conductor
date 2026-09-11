@@ -3,19 +3,117 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use conductor_domain::{
     DailyTokenUsage, MemberActivityItem, MemberActivityResponse, MemberRequestDetail,
-    MemberToolUsage, MemberToolsSummary, MemberUsageSummary, ModelUsageBreakdown, ResourceKind,
-    TelemetryBatchResponse, TelemetryCostSource, TelemetryDeliverySummary, TelemetryEventDetail,
-    TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
-    TelemetryResourceAttributionDetail, TelemetryResourceRelation, TelemetryToolCategory, User,
-    UNKNOWN_TELEMETRY_LABEL,
+    MemberUsageSummary, ModelUsageBreakdown, PricedCost, PricingBasis, PrimaryRole, ResourceKind,
+    TelemetryBatchResponse, TelemetryDeliverySummary, TelemetryEventDetail, TelemetryEventRequest,
+    TelemetryEventStatus, TelemetryEventType, TelemetryResourceAttributionDetail,
+    TelemetryResourceRelation, UnpricedReason, User, UNKNOWN_TELEMETRY_LABEL,
 };
-use sqlx::{Any, Pool, Row};
+use sqlx::{Any, Pool, QueryBuilder, Row};
 use uuid::Uuid;
 
 use crate::core::mapping::parse_dt;
 use crate::DatabaseKind;
 
-#[derive(Clone)]
+/// An event paired with the cost Conductor computed for it.
+///
+/// One value rather than two parallel slices, so the event and its price
+/// cannot silently misalign and attribute one member's cost to another.
+#[derive(Debug, Clone)]
+pub struct PricedTelemetryEvent<'a> {
+    pub event: &'a TelemetryEventRequest,
+    pub cost: PricedCost,
+    /// The rate snapshot the cost came from; `None` when unpriced.
+    pub catalog_version: Option<String>,
+    /// Whether the rate actually covered the event, or was an estimate.
+    pub basis: Option<PricingBasis>,
+}
+
+impl<'a> PricedTelemetryEvent<'a> {
+    /// An event Conductor has not priced, for callers that do not price at
+    /// all (fixtures, and the legacy paths that only store client figures).
+    pub fn unpriced(event: &'a TelemetryEventRequest, reason: UnpricedReason) -> Self {
+        Self {
+            event,
+            cost: PricedCost::Unpriced { reason },
+            catalog_version: None,
+            basis: None,
+        }
+    }
+}
+
+/// Narrowing shared by the model and member cost reports, so the two always
+/// answer for the same population.
+#[derive(Debug, Clone, Default)]
+pub struct CostReportFilters {
+    pub primary_role: Option<PrimaryRole>,
+    pub tag_id: Option<Uuid>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+/// Per-model token and cost sums straight from storage, before components
+/// are split out against the rate table.
+#[derive(Debug, Clone)]
+pub struct RawModelCostRow {
+    pub provider: String,
+    pub model: String,
+    pub calls: u64,
+    /// Calls Conductor could not price. Their tokens are in the sums above;
+    /// their cost is absent rather than zero.
+    pub unpriced_calls: u64,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub total_cost_usd_micros: u64,
+}
+
+/// Per-member token and cost sums, with the member's current identity joined
+/// in: a cost report names people as they are today, not as they were at call
+/// time.
+#[derive(Debug, Clone)]
+pub struct RawMemberCostRow {
+    pub user_id: Uuid,
+    pub display_name: String,
+    pub email: String,
+    pub primary_role: PrimaryRole,
+    pub calls: u64,
+    pub unpriced_calls: u64,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub total_cost_usd_micros: u64,
+}
+
+/// One stored event that carries no server price yet, with everything needed
+/// to price it as of when it happened.
+#[derive(Debug, Clone)]
+pub struct RepriceCandidate {
+    pub id: Uuid,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    /// The lane the call was billed under, carried through so repriced
+    /// history lands on the same rate a freshly ingested call would.
+    pub service_tier: Option<String>,
+    pub reported_at: DateTime<Utc>,
+    pub usage: conductor_domain::TokenUsage,
+}
+
+/// The outcome of pricing one candidate, ready to write back.
+///
+/// An unpriced outcome is still recorded: the reason is what makes unpriced
+/// volume explainable rather than looking like an oversight.
+#[derive(Debug, Clone)]
+pub struct RepricedCost {
+    pub id: Uuid,
+    pub cost: PricedCost,
+    pub catalog_version: Option<String>,
+    pub basis: Option<PricingBasis>,
+}
+
 pub struct TelemetryRepo {
     pool: Pool<Any>,
     kind: DatabaseKind,
@@ -26,13 +124,17 @@ impl TelemetryRepo {
         Self { pool, kind }
     }
 
+    /// Persist a batch, recording Conductor's own cost alongside the client's.
+    ///
+    /// Pricing arrives already computed rather than being looked up here: the
+    /// caller holds the in-memory rate table, so a batch costs no extra
+    /// queries in the common case.
     pub async fn ingest(
         &self,
         project_id: Uuid,
         user: &User,
         installation_id: Uuid,
-        evoflux_version: &str,
-        events: &[TelemetryEventRequest],
+        events: &[PricedTelemetryEvent<'_>],
     ) -> Result<TelemetryBatchResponse, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let mut accepted = 0u32;
@@ -42,19 +144,23 @@ impl TelemetryRepo {
             serde_json::to_string(&user.sub_role_ids).unwrap_or_else(|_| "[]".into());
         let tag_ids = serde_json::to_string(&user.tag_ids).unwrap_or_else(|_| "[]".into());
 
-        for event in events {
+        for priced in events {
+            let event = priced.event;
             let insert = match self.kind {
                 DatabaseKind::Mysql => {
                     r#"
                 INSERT INTO telemetry_events (
                     id, project_id, user_id, installation_id, request_id, session_id, event_type,
                     sequence, agent_name, provider, model, response_model, tokens_in, tokens_out,
-                    cache_read_tokens, reasoning_tokens, tool_use_tokens, duration_ms,
-                    tool_name, tool_category, status, error_category, reported_at,
-                    received_at, estimated_cost_usd_micros, cost_source, evoflux_version,
-                    primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
-                    tool_calls, active_agents
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                    tool_use_tokens, duration_ms,
+                    status, error_category, reported_at,
+                    received_at, service_tier,
+                    server_cost_usd_micros, priced_catalog_version, pricing_basis,
+                    unpriced_reason,
+                    primary_role_snapshot, sub_role_ids_snapshot,
+                    tag_ids_snapshot, tool_calls, active_agents
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 ON DUPLICATE KEY UPDATE id = id
                 "#
                 }
@@ -63,12 +169,15 @@ impl TelemetryRepo {
                 INSERT INTO telemetry_events (
                     id, project_id, user_id, installation_id, request_id, session_id, event_type,
                     sequence, agent_name, provider, model, response_model, tokens_in, tokens_out,
-                    cache_read_tokens, reasoning_tokens, tool_use_tokens, duration_ms,
-                    tool_name, tool_category, status, error_category, reported_at,
-                    received_at, estimated_cost_usd_micros, cost_source, evoflux_version,
-                    primary_role_snapshot, sub_role_ids_snapshot, tag_ids_snapshot,
-                    tool_calls, active_agents
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                    tool_use_tokens, duration_ms,
+                    status, error_category, reported_at,
+                    received_at, service_tier,
+                    server_cost_usd_micros, priced_catalog_version, pricing_basis,
+                    unpriced_reason,
+                    primary_role_snapshot, sub_role_ids_snapshot,
+                    tag_ids_snapshot, tool_calls, active_agents
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 ON CONFLICT (id) DO NOTHING
                 "#
                 }
@@ -89,18 +198,19 @@ impl TelemetryRepo {
                 .bind(to_i64(event.tokens_in))
                 .bind(to_i64(event.tokens_out))
                 .bind(to_i64(event.cache_read_tokens))
+                .bind(to_i64(event.cache_write_tokens))
                 .bind(to_i64(event.reasoning_tokens))
                 .bind(to_i64(event.tool_use_tokens))
                 .bind(to_i64(event.duration_ms))
-                .bind(event.tool_name.as_deref())
-                .bind(event.tool_category.map(TelemetryToolCategory::as_str))
                 .bind(event.status.as_str())
                 .bind(event.error_category.as_deref())
                 .bind(event.reported_at.to_rfc3339())
                 .bind(&received_at)
-                .bind(event.estimated_cost_usd_micros.map(to_i64))
-                .bind(event.cost_source.map(|value| value.as_str()))
-                .bind(evoflux_version)
+                .bind(event.service_tier.as_deref())
+                .bind(priced.cost.cost_micros())
+                .bind(priced.catalog_version.as_deref())
+                .bind(priced.basis.map(PricingBasis::as_str))
+                .bind(priced.cost.unpriced_reason().map(|reason| reason.as_str()))
                 .bind(user.primary_role.as_str())
                 .bind(&sub_role_ids)
                 .bind(&tag_ids)
@@ -136,6 +246,27 @@ impl TelemetryRepo {
             accepted += 1;
         }
 
+        // Inside the same transaction as the events it accounts for. A
+        // contact row that could commit without its events -- or events that
+        // could commit without their contact row -- would record a state
+        // that never existed, and coverage would be wrong in exactly the
+        // situations it is meant to detect.
+        //
+        // Recorded even for a batch of nothing but duplicates: the client
+        // did reach the server that day, which is the fact coverage asks
+        // about. Only accepted events are counted, so the tally stays a
+        // count of stored events rather than of delivery attempts.
+        crate::repos::record_contact(
+            &mut *tx,
+            self.kind,
+            installation_id,
+            project_id,
+            Utc::now(),
+            accepted,
+            0,
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(TelemetryBatchResponse {
             accepted,
@@ -167,8 +298,8 @@ impl TelemetryRepo {
                    COALESCE(SUM(e.tokens_in), 0) AS tokens_in,
                    COALESCE(SUM(e.tokens_out), 0) AS tokens_out,
                    COALESCE(SUM(e.cache_read_tokens), 0) AS cache_read_tokens,
-                   COALESCE(SUM(e.estimated_cost_usd_micros), 0) AS estimated_cost_usd_micros,
-                   COALESCE(SUM(CASE WHEN e.event_type = 'model_call' AND e.estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
+                   COALESCE(SUM(e.server_cost_usd_micros), 0) AS estimated_cost_usd_micros,
+                   COALESCE(SUM(CASE WHEN e.event_type = 'model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
                    COALESCE(SUM(CASE WHEN EXISTS (
                        SELECT 1 FROM telemetry_resource_attributions a
                        WHERE a.event_id = e.id AND a.project_id = e.project_id
@@ -188,7 +319,7 @@ impl TelemetryRepo {
                    COALESCE(SUM(CASE WHEN EXISTS (
                        SELECT 1 FROM telemetry_resource_attributions a
                        WHERE a.event_id = e.id AND a.project_id = e.project_id
-                   ) THEN e.estimated_cost_usd_micros ELSE 0 END), 0) AS attributed_estimated_cost_usd_micros
+                   ) THEN e.server_cost_usd_micros ELSE 0 END), 0) AS attributed_estimated_cost_usd_micros
             FROM telemetry_events e
             WHERE e.project_id = {project}
               AND e.user_id = {user}
@@ -230,6 +361,14 @@ impl TelemetryRepo {
         })
     }
 
+    /// Windowed on `received_at`, like the project analytics and spend limits.
+    ///
+    /// `reported_at` is when EvoFlux says the work happened, which a client
+    /// controls and can backdate by a whole outbox drain; `received_at` is when
+    /// Conductor learned of it. Accounting figures use the second, so a closed
+    /// period stays closed and a member's own page cannot disagree with the
+    /// admin analytics for the same range. The event timestamps this returns
+    /// stay on `reported_at` — those describe when the work ran.
     pub async fn usage_summary(
         &self,
         user_id: Uuid,
@@ -248,10 +387,14 @@ impl TelemetryRepo {
                    COALESCE(SUM(tokens_in), 0) AS tokens_in,
                    COALESCE(SUM(tokens_out), 0) AS tokens_out,
                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
-                   COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens
+                   COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+                   COALESCE(SUM(server_cost_usd_micros), 0) AS cost_micros,
+                   COALESCE(SUM(CASE WHEN event_type = 'model_call'
+                                      AND server_cost_usd_micros IS NULL
+                                 THEN 1 ELSE 0 END), 0) AS unpriced_model_calls
             FROM telemetry_events
             WHERE user_id = ? AND request_id IS NOT NULL
-              AND reported_at >= ? AND reported_at <= ?
+              AND received_at >= ? AND received_at <= ?
             "#,
         )
         .bind(TelemetryEventType::ModelCall.as_str())
@@ -269,10 +412,13 @@ impl TelemetryRepo {
                    COALESCE(model, ?) AS model,
                    COUNT(*) AS calls,
                    COALESCE(SUM(tokens_in), 0) AS tokens_in,
-                   COALESCE(SUM(tokens_out), 0) AS tokens_out
+                   COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                   COALESCE(SUM(server_cost_usd_micros), 0) AS cost_micros,
+                   COALESCE(SUM(CASE WHEN server_cost_usd_micros IS NULL
+                                 THEN 1 ELSE 0 END), 0) AS unpriced_calls
             FROM telemetry_events
             WHERE user_id = ? AND event_type = ?
-              AND reported_at >= ? AND reported_at <= ?
+              AND received_at >= ? AND received_at <= ?
             GROUP BY provider, model
             ORDER BY (COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0)) DESC
             "#,
@@ -296,20 +442,23 @@ impl TelemetryRepo {
                 tokens_in,
                 tokens_out,
                 total_tokens: tokens_in.saturating_add(tokens_out),
+                estimated_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                unpriced_calls: non_negative(row.get::<i64, _>("unpriced_calls")),
             }
         })
         .collect();
 
         let daily = sqlx::query(
             r#"
-            SELECT SUBSTR(reported_at, 1, 10) AS date,
+            SELECT SUBSTR(received_at, 1, 10) AS date,
                    COUNT(DISTINCT request_id) AS requests,
                    COALESCE(SUM(tokens_in), 0) AS tokens_in,
-                   COALESCE(SUM(tokens_out), 0) AS tokens_out
+                   COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                   COALESCE(SUM(server_cost_usd_micros), 0) AS cost_micros
             FROM telemetry_events
             WHERE user_id = ? AND request_id IS NOT NULL
-              AND reported_at >= ? AND reported_at <= ?
-            GROUP BY SUBSTR(reported_at, 1, 10)
+              AND received_at >= ? AND received_at <= ?
+            GROUP BY SUBSTR(received_at, 1, 10)
             ORDER BY date
             "#,
         )
@@ -328,6 +477,7 @@ impl TelemetryRepo {
                 tokens_in,
                 tokens_out,
                 total_tokens: tokens_in.saturating_add(tokens_out),
+                estimated_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
             }
         })
         .collect();
@@ -346,9 +496,138 @@ impl TelemetryRepo {
             total_tokens: tokens_in.saturating_add(tokens_out),
             cache_read_tokens: non_negative(row.get::<i64, _>("cache_read_tokens")),
             reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
+            estimated_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+            unpriced_model_calls: non_negative(row.get::<i64, _>("unpriced_model_calls")),
             models,
             daily,
         })
+    }
+
+    /// Raw per-model token and cost sums for the whole project, windowed on
+    /// `received_at` like every other accounting view.
+    ///
+    /// Deliberately not scoped to governed/attributed activity: this is a
+    /// spend report, and a model call that never touched a managed resource
+    /// still costs money. Component-level cost (input vs output vs cache) is
+    /// not computed here -- that needs the live rate table, which belongs to
+    /// the server layer, not storage -- so the caller combines these sums
+    /// with `conductor_domain::price_components`.
+    pub async fn model_cost_totals(
+        &self,
+        project_id: Uuid,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        filters: &CostReportFilters,
+    ) -> Result<Vec<RawModelCostRow>, sqlx::Error> {
+        let mut builder = QueryBuilder::<Any>::new("SELECT COALESCE(e.provider,");
+        builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
+        builder.push(") AS provider, COALESCE(e.model,");
+        builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
+        builder.push(
+            r#") AS model,
+               COUNT(*) AS calls,
+               COALESCE(SUM(CASE WHEN e.server_cost_usd_micros IS NULL
+                             THEN 1 ELSE 0 END), 0) AS unpriced_calls,
+               COALESCE(SUM(e.tokens_in), 0) AS tokens_in,
+               COALESCE(SUM(e.tokens_out), 0) AS tokens_out,
+               COALESCE(SUM(e.cache_read_tokens), 0) AS cache_read_tokens,
+               COALESCE(SUM(e.cache_write_tokens), 0) AS cache_write_tokens,
+               COALESCE(SUM(e.reasoning_tokens), 0) AS reasoning_tokens,
+               COALESCE(SUM(e.server_cost_usd_micros), 0) AS cost_micros
+            FROM telemetry_events e
+            WHERE e.project_id="#,
+        );
+        builder.push_bind(project_id.to_string());
+        builder.push(" AND e.event_type=");
+        builder.push_bind(TelemetryEventType::ModelCall.as_str());
+        builder.push(" AND e.received_at>=");
+        builder.push_bind(from.to_rfc3339());
+        builder.push(" AND e.received_at<=");
+        builder.push_bind(to.to_rfc3339());
+        push_cost_report_filters(&mut builder, filters, "e");
+        builder.push(" GROUP BY e.provider, e.model ORDER BY cost_micros DESC");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| RawModelCostRow {
+                provider: row.get("provider"),
+                model: row.get("model"),
+                calls: non_negative(row.get("calls")),
+                unpriced_calls: non_negative(row.get("unpriced_calls")),
+                tokens_in: non_negative(row.get::<i64, _>("tokens_in")),
+                tokens_out: non_negative(row.get::<i64, _>("tokens_out")),
+                cache_read_tokens: non_negative(row.get::<i64, _>("cache_read_tokens")),
+                cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
+                reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
+                total_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+            })
+            .collect())
+    }
+
+    /// Raw per-member token and cost sums for the whole project, windowed and
+    /// narrowed the same way as `model_cost_totals`. The member's current
+    /// display name, email and role are joined in directly, since a cost
+    /// report is read for people as they are today, not as they were at call
+    /// time.
+    pub async fn member_cost_totals(
+        &self,
+        project_id: Uuid,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+        filters: &CostReportFilters,
+    ) -> Result<Vec<RawMemberCostRow>, sqlx::Error> {
+        let mut builder = QueryBuilder::<Any>::new(
+            r#"SELECT e.user_id, u.display_name, u.email, u.primary_role,
+               COUNT(*) AS calls,
+               COALESCE(SUM(CASE WHEN e.server_cost_usd_micros IS NULL
+                             THEN 1 ELSE 0 END), 0) AS unpriced_calls,
+               COALESCE(SUM(e.tokens_in), 0) AS tokens_in,
+               COALESCE(SUM(e.tokens_out), 0) AS tokens_out,
+               COALESCE(SUM(e.cache_read_tokens), 0) AS cache_read_tokens,
+               COALESCE(SUM(e.cache_write_tokens), 0) AS cache_write_tokens,
+               COALESCE(SUM(e.reasoning_tokens), 0) AS reasoning_tokens,
+               COALESCE(SUM(e.server_cost_usd_micros), 0) AS cost_micros
+            FROM telemetry_events e JOIN users u ON u.id=e.user_id
+            WHERE e.project_id="#,
+        );
+        builder.push_bind(project_id.to_string());
+        builder.push(" AND e.event_type=");
+        builder.push_bind(TelemetryEventType::ModelCall.as_str());
+        builder.push(" AND e.received_at>=");
+        builder.push_bind(from.to_rfc3339());
+        builder.push(" AND e.received_at<=");
+        builder.push_bind(to.to_rfc3339());
+        if let Some(role) = filters.primary_role {
+            builder.push(" AND u.primary_role=");
+            builder.push_bind(role.as_str());
+        }
+        push_cost_report_common_filters(&mut builder, filters, "e");
+        builder.push(" GROUP BY e.user_id, u.display_name, u.email, u.primary_role ORDER BY cost_micros DESC");
+
+        let rows = builder.build().fetch_all(&self.pool).await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let user_id = Uuid::parse_str(&row.get::<String, _>("user_id")).ok()?;
+                let primary_role =
+                    PrimaryRole::parse(row.get::<String, _>("primary_role").as_str())?;
+                Some(RawMemberCostRow {
+                    user_id,
+                    display_name: row.get("display_name"),
+                    email: row.get("email"),
+                    primary_role,
+                    calls: non_negative(row.get("calls")),
+                    unpriced_calls: non_negative(row.get("unpriced_calls")),
+                    tokens_in: non_negative(row.get::<i64, _>("tokens_in")),
+                    tokens_out: non_negative(row.get::<i64, _>("tokens_out")),
+                    cache_read_tokens: non_negative(row.get::<i64, _>("cache_read_tokens")),
+                    cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
+                    reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
+                    total_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                })
+            })
+            .collect())
     }
 
     pub async fn activity(
@@ -364,7 +643,7 @@ impl TelemetryRepo {
         let to_value = to.to_rfc3339();
         let total: i64 = sqlx::query_scalar(
             "SELECT COUNT(DISTINCT request_id) FROM telemetry_events \
-             WHERE user_id = ? AND request_id IS NOT NULL AND reported_at >= ? AND reported_at <= ?",
+             WHERE user_id = ? AND request_id IS NOT NULL AND received_at >= ? AND received_at <= ?",
         )
         .bind(&user)
         .bind(&from_value)
@@ -386,14 +665,14 @@ impl TelemetryRepo {
                        SUM(CASE WHEN event_type <> 'request' THEN duration_ms ELSE 0 END),
                        0
                    ) AS duration_ms,
-                   COALESCE(SUM(estimated_cost_usd_micros), 0) AS cost_micros,
-                   COALESCE(SUM(CASE WHEN event_type = ? AND estimated_cost_usd_micros IS NULL THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
+                   COALESCE(SUM(server_cost_usd_micros), 0) AS cost_micros,
+                   COALESCE(SUM(CASE WHEN event_type = ? AND server_cost_usd_micros IS NULL THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS errors,
                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS blocked,
                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS cancelled
             FROM telemetry_events
             WHERE user_id = ? AND request_id IS NOT NULL
-              AND reported_at >= ? AND reported_at <= ?
+              AND received_at >= ? AND received_at <= ?
             GROUP BY request_id
             ORDER BY started_at DESC
             LIMIT ? OFFSET ?
@@ -430,9 +709,9 @@ impl TelemetryRepo {
             r#"
             SELECT id, request_id, session_id, event_type, sequence, agent_name,
                    provider, model, response_model, tokens_in, tokens_out, cache_read_tokens,
-                   reasoning_tokens, tool_use_tokens, duration_ms, tool_name,
-                   tool_category, status, error_category, estimated_cost_usd_micros,
-                   cost_source, reported_at
+                   reasoning_tokens, tool_use_tokens, duration_ms, status, error_category,
+                   server_cost_usd_micros AS estimated_cost_usd_micros,
+                   reported_at
             FROM telemetry_events
             WHERE user_id = ? AND request_id = ?
             ORDER BY reported_at, sequence, id
@@ -555,20 +834,11 @@ impl TelemetryRepo {
                 reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
                 tool_use_tokens: non_negative(row.get::<i64, _>("tool_use_tokens")),
                 duration_ms: event_duration,
-                tool_name: row.get("tool_name"),
-                tool_category: row
-                    .get::<Option<String>, _>("tool_category")
-                    .as_deref()
-                    .and_then(TelemetryToolCategory::parse),
                 status,
                 error_category: row.get("error_category"),
                 estimated_cost_usd_micros: row
                     .get::<Option<i64>, _>("estimated_cost_usd_micros")
                     .map(non_negative),
-                cost_source: row
-                    .get::<Option<String>, _>("cost_source")
-                    .as_deref()
-                    .and_then(TelemetryCostSource::parse),
                 resources: attributions.remove(&event_id_value).unwrap_or_default(),
                 reported_at: parse_dt(row.get("reported_at")),
             });
@@ -596,70 +866,90 @@ impl TelemetryRepo {
         }))
     }
 
-    pub async fn tools_summary(
+    pub async fn unpriced_model_calls(
         &self,
-        user_id: Uuid,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
-    ) -> Result<MemberToolsSummary, sqlx::Error> {
+        project_id: Uuid,
+        after_id: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<RepriceCandidate>, sqlx::Error> {
         let rows = sqlx::query(
             r#"
-            SELECT COALESCE(tool_name, ?) AS tool_name,
-                   COALESCE(tool_category, ?) AS category,
-                   COUNT(*) AS calls,
-                   SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS successes,
-                   SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS errors,
-                   COALESCE(SUM(duration_ms), 0) AS total_duration_ms,
-                   MAX(reported_at) AS last_used_at
+            SELECT id, provider, model, service_tier, reported_at, tokens_in,
+                   tokens_out, cache_read_tokens, cache_write_tokens,
+                   reasoning_tokens
             FROM telemetry_events
-            WHERE user_id = ? AND event_type = ?
-              AND reported_at >= ? AND reported_at <= ?
-            GROUP BY tool_name, tool_category
-            ORDER BY calls DESC, tool_name
+            WHERE project_id = ?
+              AND event_type = 'model_call'
+              AND server_cost_usd_micros IS NULL
+              AND (? IS NULL OR id > ?)
+            ORDER BY id ASC
+            LIMIT ?
             "#,
         )
-        .bind(UNKNOWN_TELEMETRY_LABEL)
-        .bind(TelemetryToolCategory::Other.as_str())
-        .bind(TelemetryEventStatus::Success.as_str())
-        .bind(TelemetryEventStatus::Error.as_str())
-        .bind(user_id.to_string())
-        .bind(TelemetryEventType::ToolCall.as_str())
-        .bind(from.to_rfc3339())
-        .bind(to.to_rfc3339())
+        .bind(project_id.to_string())
+        .bind(after_id.map(|id| id.to_string()))
+        .bind(after_id.map(|id| id.to_string()))
+        .bind(i64::from(limit))
         .fetch_all(&self.pool)
         .await?;
 
-        let tools: Vec<MemberToolUsage> = rows
+        Ok(rows
             .into_iter()
-            .map(|row| {
-                let calls = non_negative(row.get::<i64, _>("calls"));
-                let total_duration_ms = non_negative(row.get::<i64, _>("total_duration_ms"));
-                MemberToolUsage {
-                    tool_name: row.get("tool_name"),
-                    category: TelemetryToolCategory::parse(
-                        row.get::<String, _>("category").as_str(),
-                    )
-                    .unwrap_or(TelemetryToolCategory::Other),
-                    calls,
-                    successes: non_negative(row.get::<i64, _>("successes")),
-                    errors: non_negative(row.get::<i64, _>("errors")),
-                    average_duration_ms: total_duration_ms.checked_div(calls).unwrap_or_default(),
-                    last_used_at: parse_dt(row.get("last_used_at")),
-                }
+            .filter_map(|row| {
+                let raw: String = row.get("id");
+                let id = Uuid::parse_str(&raw).ok()?;
+                let reported_at: String = row.get("reported_at");
+                Some(RepriceCandidate {
+                    id,
+                    provider: row.get("provider"),
+                    model: row.get("model"),
+                    service_tier: row.get("service_tier"),
+                    reported_at: parse_dt(reported_at),
+                    usage: conductor_domain::TokenUsage {
+                        tokens_in: row.get("tokens_in"),
+                        tokens_out: row.get("tokens_out"),
+                        cache_read: row.get("cache_read_tokens"),
+                        cache_write: row.get("cache_write_tokens"),
+                        reasoning: row.get("reasoning_tokens"),
+                    },
+                })
             })
-            .collect();
-        let total_calls = tools.iter().map(|item| item.calls).sum();
-        let successful_calls = tools.iter().map(|item| item.successes).sum();
-        let failed_calls = tools.iter().map(|item| item.errors).sum();
+            .collect())
+    }
 
-        Ok(MemberToolsSummary {
-            from,
-            to,
-            total_calls,
-            successful_calls,
-            failed_calls,
-            tools,
-        })
+    /// Write back a batch of repriced rows in one transaction.
+    ///
+    /// Guarded by `server_cost_usd_micros IS NULL` so a concurrent ingest that
+    /// priced the row first wins, and a re-run cannot double-apply.
+    pub async fn apply_repriced_costs(&self, priced: &[RepricedCost]) -> Result<u32, sqlx::Error> {
+        if priced.is_empty() {
+            return Ok(0);
+        }
+        let mut updated = 0u32;
+        let mut tx = self.pool.begin().await?;
+        for row in priced {
+            let affected = sqlx::query(
+                r#"
+                UPDATE telemetry_events
+                SET server_cost_usd_micros = ?,
+                    priced_catalog_version = ?,
+                    pricing_basis = ?,
+                    unpriced_reason = ?
+                WHERE id = ? AND server_cost_usd_micros IS NULL
+                "#,
+            )
+            .bind(row.cost.cost_micros())
+            .bind(row.catalog_version.as_deref())
+            .bind(row.basis.map(PricingBasis::as_str))
+            .bind(row.cost.unpriced_reason().map(|reason| reason.as_str()))
+            .bind(row.id.to_string())
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            updated += u32::from(affected > 0);
+        }
+        tx.commit().await?;
+        Ok(updated)
     }
 }
 
@@ -720,4 +1010,50 @@ fn to_i64(value: u64) -> i64 {
 
 fn non_negative(value: i64) -> u64 {
     value.max(0) as u64
+}
+
+/// Provider, model and tag narrowing, shared by both cost reports.
+///
+/// Role and tag both resolve against the member as they are **today**, not
+/// against the role and tags snapshotted onto the event. A cost report is
+/// read to answer "what is this team spending", and a member who changed
+/// role last week should appear under the role they hold now rather than
+/// splitting across both.
+fn push_cost_report_common_filters(
+    builder: &mut QueryBuilder<'_, Any>,
+    filters: &CostReportFilters,
+    alias: &str,
+) {
+    if let Some(provider) = filters.provider.as_deref() {
+        builder.push(format!(" AND {alias}.provider="));
+        builder.push_bind(provider.to_string());
+    }
+    if let Some(model) = filters.model.as_deref() {
+        builder.push(format!(" AND {alias}.model="));
+        builder.push_bind(model.to_string());
+    }
+    if let Some(tag_id) = filters.tag_id {
+        builder.push(format!(
+            " AND EXISTS (SELECT 1 FROM user_tags ut              WHERE ut.user_id={alias}.user_id AND ut.tag_id="
+        ));
+        builder.push_bind(tag_id.to_string());
+        builder.push(")");
+    }
+}
+
+/// The same narrowing plus role, for a query that does not join `users`
+/// itself. The member report joins it and pushes the role clause inline.
+fn push_cost_report_filters(
+    builder: &mut QueryBuilder<'_, Any>,
+    filters: &CostReportFilters,
+    alias: &str,
+) {
+    if let Some(role) = filters.primary_role {
+        builder.push(format!(
+            " AND EXISTS (SELECT 1 FROM users u WHERE u.id={alias}.user_id              AND u.primary_role="
+        ));
+        builder.push_bind(role.as_str());
+        builder.push(")");
+    }
+    push_cost_report_common_filters(builder, filters, alias);
 }

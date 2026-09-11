@@ -98,7 +98,6 @@ pub struct AnalyticsQuery {
     pub model: Option<String>,
     pub installation_id: Option<Uuid>,
     pub relation: Option<TelemetryResourceRelation>,
-    pub tool_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,7 +130,6 @@ pub enum AnalyticsDimension {
     Role,
     Provider,
     Model,
-    Tool,
     Installation,
 }
 
@@ -326,7 +324,6 @@ fn validate_query(query: &AnalyticsQuery) -> Result<(), String> {
     for (name, value) in [
         ("provider", query.provider.as_deref()),
         ("model", query.model.as_deref()),
-        ("tool_name", query.tool_name.as_deref()),
     ] {
         if let Some(value) = value {
             validate_trimmed_text(name, value, MAX_ANALYTICS_LABEL_LENGTH)?;

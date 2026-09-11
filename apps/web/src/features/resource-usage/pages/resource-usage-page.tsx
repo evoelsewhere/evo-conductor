@@ -29,7 +29,6 @@ import {
   ResourceMemberBreakdownTable,
   ResourceModelBreakdownTable,
   ResourceRoleBreakdownTable,
-  ResourceToolBreakdownTable,
 } from "@/features/resource-usage/components/resource-usage-breakdown-tables"
 import {
   RequestOutcomeChart,
@@ -114,7 +113,6 @@ export function ResourceUsagePage({
   const [offset, setOffset] = useState(readOffsetFromUrl)
   const deferredProvider = useDeferredValue(filters.provider.trim())
   const deferredModel = useDeferredValue(filters.model.trim())
-  const deferredToolName = useDeferredValue(filters.toolName.trim())
   const members = useQuery({
     queryKey: [RESOURCE_USAGE_MEMBERS_QUERY_KEY],
     queryFn: () => api.members({ limit: 100 }),
@@ -144,12 +142,11 @@ export function ResourceUsagePage({
     relation: optional(filters.relation) as ResourceUsageParams["relation"],
     provider: deferredProvider || undefined,
     model: deferredModel || undefined,
-    tool_name: deferredToolName || undefined,
     limit: view === RESOURCE_USAGE_VIEW.OVERVIEW
       ? RESOURCE_USAGE_OVERVIEW_ACTIVITY_LIMIT
       : RESOURCE_USAGE_PAGE_SIZE,
     offset: view === RESOURCE_USAGE_VIEW.ACTIVITY ? offset : 0,
-  }), [allowMemberDetail, dates.range, deferredModel, deferredProvider, deferredToolName, filters, offset, scopeKind, view])
+  }), [allowMemberDetail, dates.range, deferredModel, deferredProvider, filters, offset, scopeKind, view])
 
   const analyticsQuery = useMemo<AnalyticsQuery>(() => ({
     date_range: analyticsDateRange(dates.preset),
@@ -165,7 +162,6 @@ export function ResourceUsagePage({
     model: params.model ?? null,
     installation_id: params.installation_id ?? null,
     relation: params.relation ?? null,
-    tool_name: params.tool_name ?? null,
   }), [dates.preset, dates.range.from, dates.range.to, params])
 
   function applyAnalyticsQuery(query: AnalyticsQuery) {
@@ -181,7 +177,6 @@ export function ResourceUsagePage({
       relation: query.relation ?? RESOURCE_USAGE_ALL_FILTER,
       provider: query.provider ?? "",
       model: query.model ?? "",
-      toolName: query.tool_name ?? "",
     }, allowMemberDetail))
     setOffset(0)
   }
@@ -329,7 +324,7 @@ function OverviewPanel({ data, loading, activityPath, showMemberDetail }: { data
       )}
       {showMemberDetail && <Card className="mt-4">
         <CardHeader>
-          <div><CardTitle>Recent attributed activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Server-received request metadata. Open any row for its privacy-safe event timeline.</p></div>
+          <div><CardTitle>Recent attributed activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Server-received request metadata, one row per attribution: a request appears once per resource it used, each row carrying the whole request's figures. Open any row for its privacy-safe event timeline.</p></div>
           <Link to={activityPath} search className={buttonVariants({ variant: "outline", size: "sm" })}>View all activity</Link>
         </CardHeader>
         <CardContent className="p-0">
@@ -483,7 +478,7 @@ function ActivityPanel({
       )}
       <Card className="mt-4">
         <CardHeader>
-          <div><CardTitle>Attributed request activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">One row per request, resource version and attribution relation. Role is captured at ingest time.</p></div>
+          <div><CardTitle>Attributed request activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">One row per request, resource version and attribution relation. Calls, tokens and cost are the whole request's, repeated on each of its rows. Role is captured at ingest time.</p></div>
           {loading ? <Skeleton className="h-5 w-14" /> : <Badge tone="neutral">{data?.activity_total ?? 0} rows</Badge>}
         </CardHeader>
         <CardContent className="p-0">
@@ -532,7 +527,7 @@ function UsagePanel({
         allowMemberDetail={showMemberDetail}
         announceLoading={false}
       />
-      <BreakdownCard title="Resource and version usage" description="Adoption, request outcomes, calls, token volume and cost by immutable resource version.">
+      <BreakdownCard title="Resource and version usage" description="Adoption, outcomes, calls, tokens and cost of the requests that used each immutable resource version. A request that used several resources counts in full against each of them, so these rows rank versions against one another rather than adding up to the project total.">
         {loading ? <ResourceUsageTableSkeleton rows={5} columns={9} label="Loading resource and version usage" announce={false} /> : data?.resources.length ? <ResourceBreakdownTable items={data.resources} /> : <ResourceUsageEmpty title="No resource usage" description="Resource-version breakdown appears after attributed telemetry arrives." />}
       </BreakdownCard>
       {showMemberDetail && (
@@ -545,9 +540,6 @@ function UsagePanel({
       </BreakdownCard>
       <BreakdownCard title="Calls by recorded role" description="Request, model-call and tool-call volume by the role captured with each request.">
         {loading ? <ResourceUsageTableSkeleton rows={3} columns={6} label="Loading calls by recorded role" announce={false} /> : data?.roles.length ? <ResourceRoleBreakdownTable items={data.roles} /> : <ResourceUsageEmpty title="No role usage" description="Role breakdown appears after attributed telemetry arrives." />}
-      </BreakdownCard>
-      <BreakdownCard title="Tool call breakdown" description="Privacy-safe tool identifiers, category, outcome, latency and last-use time.">
-        {loading ? <ResourceUsageTableSkeleton rows={5} columns={7} label="Loading tool call breakdown" announce={false} /> : data?.tools.length ? <ResourceToolBreakdownTable items={data.tools} /> : <ResourceUsageEmpty title="No tool calls" description="Tool breakdown appears after tool-call telemetry arrives." />}
       </BreakdownCard>
     </>
   )
@@ -595,7 +587,6 @@ function readFiltersFromUrl(scopeKind?: Extract<ResourceKind, "plugin" | "skill"
     relation: search.get("relation") ?? RESOURCE_USAGE_ALL_FILTER,
     provider: search.get("provider") ?? "",
     model: search.get("model") ?? "",
-    toolName: search.get("tool_name") ?? "",
   }
 }
 
@@ -693,6 +684,5 @@ function serializeSearch(
   if (filters.relation !== RESOURCE_USAGE_ALL_FILTER) search.set("relation", filters.relation)
   if (filters.provider) search.set("provider", filters.provider)
   if (filters.model) search.set("model", filters.model)
-  if (filters.toolName) search.set("tool_name", filters.toolName)
   return search
 }

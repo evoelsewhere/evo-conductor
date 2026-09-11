@@ -9,9 +9,9 @@ use crate::core::dialect::DatabaseKind;
 use crate::core::url::{normalize_database_url, sqlite_path};
 use crate::migrate;
 use crate::repos::{
-    AnalyticsViewRepo, ClientInstallationRepo, DashboardRepo, InstanceRepo, MemberAccessRepo,
-    ModelPriceRepo, ProjectIdCache, ResourceRepo, ResourceUsageRepo, RoleRepo, SecretRepo,
-    SpendLimitRepo, TelemetryRepo, UserRepo,
+    AnalyticsViewRepo, ClientInstallationRepo, DashboardRepo, InstallationContactRepo,
+    InstanceRepo, MemberAccessRepo, ModelPriceRepo, ProjectIdCache, ResourceRepo,
+    ResourceUsageRepo, RoleRepo, SecretRepo, SpendLimitRepo, TelemetryRepo, UserRepo,
 };
 
 /// Database handle. Cheap to clone (shares the connection pool).
@@ -136,6 +136,10 @@ impl Db {
 
     pub fn model_prices(&self) -> ModelPriceRepo {
         ModelPriceRepo::new(self.pool.clone(), self.kind)
+    }
+
+    pub fn installation_contacts(&self) -> InstallationContactRepo {
+        InstallationContactRepo::new(self.pool.clone(), self.kind)
     }
 
     pub fn resource_usage(&self) -> ResourceUsageRepo {

@@ -21,7 +21,6 @@ import type {
   ResourceUsageModel,
   ResourceUsageRole,
   ResourceUsageScope,
-  ResourceUsageTool,
 } from "@/shared/api/client"
 import { ChartCard } from "@/shared/components/chart-card"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
@@ -55,7 +54,6 @@ const ROLE_CONFIG = {
   model_calls: { label: "Model calls", color: "var(--chart-series-3)" },
   tool_calls: { label: "Tool calls", color: "var(--chart-series-6)" },
 } satisfies ChartConfig
-const TOOL_CONFIG = { calls: { label: "Calls", color: "var(--chart-series-6)" } } satisfies ChartConfig
 
 export function RequestOutcomeChart({
   daily,
@@ -227,26 +225,6 @@ export function RoleCallsChart({ roles }: { roles: ResourceUsageRole[] }) {
         <AccessibleChartTable caption="Calls by recorded role" rows={data} columns={[{ key: "label", label: "Role" }, { key: "requests", label: "Requests" }, { key: "model_calls", label: "Model calls" }, { key: "tool_calls", label: "Tool calls" }, { key: "total_tokens", label: "Tokens" }]} />
       </EmptyAware>
     </ChartCard>
-  )
-}
-
-export function ToolCallsChart({ tools }: { tools: ResourceUsageTool[] }) {
-  const data = tools.slice(0, 8).map((item) => ({ ...item, label: item.tool_name }))
-  return (
-    <RankedBarChart
-      title="Top tool calls"
-      description="The tools called most often while these resources were active."
-      data={data}
-      dataKey="calls"
-      config={TOOL_CONFIG}
-      tableCaption="Top attributed tools"
-      tableColumns={[
-        { key: "label", label: "Tool" },
-        { key: "category", label: "Category" },
-        { key: "calls", label: "Calls" },
-        { key: "errors", label: "Errors" },
-      ]}
-    />
   )
 }
 

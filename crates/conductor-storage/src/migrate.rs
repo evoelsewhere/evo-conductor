@@ -492,6 +492,29 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
             FOREIGN KEY(catalog_version) REFERENCES model_price_catalogs(version)
         )
         "#,
+        // One row per installation per UTC day it was in contact, so a day
+        // with no usage is distinguishable from a day with no client.
+        //
+        // Without this, silence reads as zero: an installation that stopped
+        // syncing makes project spend look lower rather than incomplete, and
+        // nothing in the data says which it was. `last_seen_at` alone cannot
+        // answer it — a heartbeat overwrites it, so history is lost.
+        //
+        // `contact_day` comes from the server clock, like every other
+        // accounting column: a client with a wrong date must not be able to
+        // move which day it appears to have been alive on.
+        r#"
+        CREATE TABLE IF NOT EXISTS installation_contact_days (
+            installation_id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            contact_day TEXT NOT NULL,
+            first_contact_at TEXT NOT NULL,
+            last_contact_at TEXT NOT NULL,
+            telemetry_events INTEGER NOT NULL DEFAULT 0,
+            heartbeats INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (installation_id, contact_day)
+        )
+        "#,
         r#"
         CREATE TABLE IF NOT EXISTS analytics_views (
             id TEXT PRIMARY KEY NOT NULL,
@@ -677,11 +700,26 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         let _ = sqlx::query(sql).execute(pool).await;
     }
 
+    // Saved analytics views are loaded strictly: one definition that no longer
+    // parses fails the whole list, not just its own row. Tool identity has
+    // been retired from telemetry, so a stored view that groups by it or
+    // filters on it would take the views list down for everyone in that
+    // project. Drop the group-by views, which can no longer render anything,
+    // and strip the retired filter from the rest so they keep working.
+    for sql in [
+        "DELETE FROM analytics_views WHERE definition LIKE '%\"group_by\":\"tool\"%'",
+        "UPDATE analytics_views SET definition = REPLACE(definition, ',\"tool_name\":null', '') WHERE definition LIKE '%\"tool_name\"%'",
+        "UPDATE analytics_views SET definition = REPLACE(definition, '\"tool_name\":null,', '') WHERE definition LIKE '%\"tool_name\"%'",
+    ] {
+        let _ = sqlx::query(sql).execute(pool).await;
+    }
+
     for sql in [
         "CREATE INDEX IF NOT EXISTS idx_telemetry_user_time ON telemetry_events(user_id, reported_at)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_request ON telemetry_events(user_id, request_id)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_installation_time ON telemetry_events(installation_id, reported_at)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_project_received ON telemetry_events(project_id, received_at)",
+        "CREATE INDEX IF NOT EXISTS idx_contact_days_project ON installation_contact_days(project_id, contact_day)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_resource_time ON telemetry_resource_attributions(project_id, resource_id, version_id)",
     ] {
         sqlx::query(sql).execute(pool).await?;

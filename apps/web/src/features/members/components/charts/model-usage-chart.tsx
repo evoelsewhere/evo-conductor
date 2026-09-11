@@ -126,6 +126,8 @@ function groupModelUsage(models: ModelUsageBreakdown[]): ModelChartItem[] {
       tokens_in: overflow.reduce((sum, item) => sum + item.tokens_in, 0),
       tokens_out: overflow.reduce((sum, item) => sum + item.tokens_out, 0),
       total_tokens: overflow.reduce((sum, item) => sum + item.total_tokens, 0),
+      estimated_cost_usd_micros: overflow.reduce((sum, item) => sum + item.estimated_cost_usd_micros, 0),
+      unpriced_calls: overflow.reduce((sum, item) => sum + item.unpriced_calls, 0),
     })
   }
 

@@ -16,7 +16,6 @@ import {
   TELEMETRY_QUERY_KEYS,
   TELEMETRY_FALLBACK_LABELS,
   TelemetryEventType,
-  TelemetryToolCategory,
 } from "@/shared/constants/telemetry"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
 import { Badge } from "@/shared/ui/badge"
@@ -71,10 +70,10 @@ export function MemberRequestDetailPage() {
                     <li key={event.event_id} className="relative pb-6 pl-6 last:pb-0">
                       <span className="absolute -left-3 grid size-6 place-items-center rounded-full border border-(--color-border) bg-(--bg-card)">{isModel ? <ProviderBrandIcon providerId={event.provider ?? event.model} className="size-[1.125rem] rounded-full" /> : isRequest ? <Activity className="size-3" /> : <Wrench className="size-3" />}</span>
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div><div className="text-sm font-medium">{isModel ? `${event.provider ?? TELEMETRY_FALLBACK_LABELS.providerName}:${event.model ?? TELEMETRY_FALLBACK_LABELS.modelIdentifier}` : isRequest ? "Request completed" : event.tool_name ?? TELEMETRY_FALLBACK_LABELS.tool}</div><div className="mt-0.5 text-xs text-(--color-text-subtle)">{event.agent_name ?? TELEMETRY_FALLBACK_LABELS.agent} · {new Date(event.reported_at).toLocaleTimeString()} · {formatDuration(event.duration_ms)}</div></div>
+                        <div><div className="text-sm font-medium">{isModel ? `${event.provider ?? TELEMETRY_FALLBACK_LABELS.providerName}:${event.model ?? TELEMETRY_FALLBACK_LABELS.modelIdentifier}` : isRequest ? "Request completed" : "Tool call"}</div><div className="mt-0.5 text-xs text-(--color-text-subtle)">{event.agent_name ?? TELEMETRY_FALLBACK_LABELS.agent} · {new Date(event.reported_at).toLocaleTimeString()} · {formatDuration(event.duration_ms)}</div></div>
                         <TelemetryStatusBadge status={event.status} />
                       </div>
-                      {isModel ? <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-(--color-text-muted)"><span>{formatTokens(event.tokens_in)} input</span><span>{formatTokens(event.tokens_out)} output</span><span>{formatTokens(event.cache_read_tokens)} cache</span><span>{formatTokens(event.reasoning_tokens)} reasoning</span><span>{event.estimated_cost_usd_micros == null ? "Unpriced" : formatEstimatedCost(event.estimated_cost_usd_micros)}</span></div> : !isRequest && <div className="mt-2 text-xs text-(--color-text-muted)">Category: {event.tool_category ?? TelemetryToolCategory.Other}</div>}
+                      {isModel ? <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-(--color-text-muted)"><span>{formatTokens(event.tokens_in)} input</span><span>{formatTokens(event.tokens_out)} output</span><span>{formatTokens(event.cache_read_tokens)} cache</span><span>{formatTokens(event.reasoning_tokens)} reasoning</span><span>{event.estimated_cost_usd_micros == null ? "Unpriced" : formatEstimatedCost(event.estimated_cost_usd_micros)}</span></div> : null}
                       {event.resources.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{event.resources.map((resource) => <Badge key={`${resource.resource_id}:${resource.version_id}:${resource.relation}`} tone="accent">{RESOURCE_KIND_LABEL[resource.kind]} · {resource.name} v{resource.version} · {formatRelation(resource.relation)}</Badge>)}</div>}
                       {event.error_category && <div className="mt-1 text-xs text-(--color-error)">Error category: {event.error_category}</div>}
                     </li>

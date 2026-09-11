@@ -1,6 +1,7 @@
 pub mod analytics_view;
 pub mod client_installation;
 pub mod dashboard;
+pub mod installation_contact;
 pub mod instance;
 pub mod member_access;
 pub mod model_price;
@@ -15,6 +16,7 @@ pub mod user;
 pub use analytics_view::{AnalyticsViewRepo, AnalyticsViewWriteError};
 pub use client_installation::{ClientInstallationRepo, RegisterInstallationError};
 pub use dashboard::DashboardRepo;
+pub use installation_contact::{contact_day_of, record_contact, InstallationContactRepo};
 pub use instance::{
     InstanceRepo, LogoArtifact, NetworkOverrides, ProjectIdCache, SsoConfigUpdate, SsoRuntime,
 };

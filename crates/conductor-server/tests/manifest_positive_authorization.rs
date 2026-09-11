@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use axum::body::Body;
 use axum::http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode};
 use conductor_auth::{hash_password_async, hash_token};
+use conductor_domain::UnpricedReason;
 use conductor_domain::{
     role_has_permission, AuthenticationKind, AuthorizationAction as Action, ClientPlatform,
     CreateResourceRequest, CreateSubRoleRequest, CreateTagRequest, DraftFile, PermissionKey,
@@ -31,6 +32,7 @@ use conductor_server::core::resource_authoring::{
 use conductor_server::http::authorization::{
     route_manifest, RouteAuthentication, RouteSpec, RouteTargetSelector,
 };
+use conductor_storage::repos::PricedTelemetryEvent;
 use conductor_storage::repos::{DraftContent, ReleaseContent};
 use http_body_util::BodyExt;
 use serde::Deserialize;
@@ -222,7 +224,6 @@ impl World {
             display_name: "Manifest proof EvoFlux".into(),
             platform: ClientPlatform::Linux,
             evoflux_version: "1.0.0".into(),
-            workspace_association: Some("manifest-proof".into()),
         };
         self.app
             .state
@@ -411,33 +412,33 @@ impl World {
                 self.project_id,
                 &self.actor,
                 installation_id,
-                "1.0.0",
-                &[TelemetryEventRequest {
-                    event_id: Uuid::new_v4(),
-                    request_id: request_id.clone(),
-                    session_id: Some("opaque-manifest-session".into()),
-                    event_type: TelemetryEventType::Request,
-                    sequence: 0,
-                    agent_name: None,
-                    provider: Some("manifest-provider".into()),
-                    model: Some("manifest-model".into()),
-                    response_model: None,
-                    tokens_in: 1,
-                    tokens_out: 1,
-                    cache_read_tokens: 0,
-                    reasoning_tokens: 0,
-                    tool_use_tokens: 0,
-                    duration_ms: 1,
-                    tool_name: None,
-                    tool_category: None,
-                    status: TelemetryEventStatus::Success,
-                    error_category: None,
-                    estimated_cost_usd_micros: None,
-                    cost_source: None,
-                    evoflux_version: Some("1.0.0".into()),
-                    resources: vec![],
-                    reported_at: chrono::Utc::now(),
-                }],
+                &[PricedTelemetryEvent::unpriced(
+                    &TelemetryEventRequest {
+                        event_id: Uuid::new_v4(),
+                        request_id: request_id.clone(),
+                        session_id: Some("opaque-manifest-session".into()),
+                        event_type: TelemetryEventType::Request,
+                        sequence: 0,
+                        agent_name: None,
+                        provider: Some("manifest-provider".into()),
+                        model: Some("manifest-model".into()),
+                        response_model: None,
+                        tokens_in: 1,
+                        tokens_out: 1,
+                        cache_read_tokens: 0,
+                        cache_write_tokens: 0,
+                        reasoning_tokens: 0,
+                        tool_use_tokens: 0,
+                        duration_ms: 1,
+                        status: TelemetryEventStatus::Success,
+                        error_category: None,
+                        service_tier: None,
+                        resources: vec![],
+                        reported_at: chrono::Utc::now(),
+                        unknown: Default::default(),
+                    },
+                    UnpricedReason::NoCatalog,
+                )],
             )
             .await
             .expect("seed manifest activity request");
@@ -525,6 +526,12 @@ impl PreparedRequest {
             expected_status,
             streaming: false,
         }
+    }
+
+    fn empty_with_query(route: &RouteSpec, query: &str, expected_status: StatusCode) -> Self {
+        let mut prepared = Self::empty_at(route, &[], expected_status);
+        prepared.path = format!("{}?{query}", prepared.path);
+        prepared
     }
 
     fn json(
@@ -687,7 +694,34 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | MemberPendingCountRead
         | TaxonomySubRolesList
         | TaxonomyTagsList
+        | SpendLimitList
+        | ModelPricingCatalogRead
         | ConnectionTokensSelfList => PreparedRequest::empty(route, StatusCode::OK),
+
+        SpendLimitUpsert => PreparedRequest::json(
+            route,
+            &[],
+            json!({
+                "scope": "project",
+                "period": "month",
+                "limit_usd_micros": 2_500_000_000u64,
+                "warn_percent": 80
+            }),
+            StatusCode::OK,
+        ),
+        // Nothing to remove yet; the endpoint reports that rather than failing,
+        // which is what makes a repeated delete safe.
+        SpendLimitDelete => {
+            PreparedRequest::empty_with_query(route, "scope=project&period=week", StatusCode::OK)
+        }
+        // No catalog has been synced in this fixture, so repricing examines
+        // nothing and says so.
+        ModelPricingReprice => PreparedRequest::empty(route, StatusCode::OK),
+        // The fixture keeps catalog sync switched off so the suite never
+        // reaches models.dev. Authorization still has to allow the call — the
+        // observer assertion below is what this case actually proves — and the
+        // handler then refuses it on configuration grounds.
+        ModelPricingSync => PreparedRequest::empty(route, StatusCode::BAD_REQUEST),
 
         SessionPasswordChange => {
             world
@@ -929,13 +963,11 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
             )
         }
 
-        MemberUsageSummaryRead | MemberActivityList | MemberToolsSummaryRead => {
-            PreparedRequest::empty_at(
-                route,
-                &[("{id}", world.actor.id.to_string())],
-                StatusCode::OK,
-            )
-        }
+        MemberUsageSummaryRead | MemberActivityList => PreparedRequest::empty_at(
+            route,
+            &[("{id}", world.actor.id.to_string())],
+            StatusCode::OK,
+        ),
         MemberActivityDetailRead => {
             let request_id = world.seed_activity_request().await;
             PreparedRequest::empty_at(
@@ -947,7 +979,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 StatusCode::OK,
             )
         }
-        AnalyticsResourceUsageRead => PreparedRequest::empty(route, StatusCode::OK),
+        AnalyticsResourceUsageRead | ModelCostReportRead | MemberCostReportRead => {
+            PreparedRequest::empty(route, StatusCode::OK)
+        }
 
         TaxonomyAssignmentRead | TaxonomyAssignmentSet => {
             let (entity_type, entity_id) = if world.actor.primary_role == PrimaryRole::Contribute {
@@ -1188,7 +1222,6 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | MemberUsageSummaryRead
                 | MemberActivityList
                 | MemberActivityDetailRead
-                | MemberToolsSummaryRead
                 | TaxonomySubRolesList
                 | TaxonomySubRoleCreate
                 | TaxonomySubRoleUpdate
@@ -1212,6 +1245,8 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ResourceAuthoringTemplateRead
                 | ResourceFeedbackSubmit
                 | AnalyticsResourceUsageRead
+                | ModelCostReportRead
+                | MemberCostReportRead
                 | AnalyticsViewsList
                 | AnalyticsViewRead
                 | AnalyticsViewCreate
@@ -1227,6 +1262,12 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ClientInventorySync
                 | ClientTelemetryIngest
                 | ClientResourceUsageIngest
+                | SpendLimitList
+                | SpendLimitUpsert
+                | SpendLimitDelete
+                | ModelPricingCatalogRead
+                | ModelPricingSync
+                | ModelPricingReprice
                 | ClientRealtimeEvents => unreachable!("outer resource action match"),
             }
         }
@@ -1302,7 +1343,6 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | MemberUsageSummaryRead
                 | MemberActivityList
                 | MemberActivityDetailRead
-                | MemberToolsSummaryRead
                 | TaxonomySubRolesList
                 | TaxonomySubRoleCreate
                 | TaxonomySubRoleUpdate
@@ -1344,6 +1384,8 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ResourceAuthoringGuideRead
                 | ResourceAuthoringTemplateRead
                 | AnalyticsResourceUsageRead
+                | ModelCostReportRead
+                | MemberCostReportRead
                 | AnalyticsViewsList
                 | AnalyticsViewCreate
                 | ClientRegister
@@ -1356,6 +1398,12 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ClientInventorySync
                 | ClientTelemetryIngest
                 | ClientResourceUsageIngest
+                | SpendLimitList
+                | SpendLimitUpsert
+                | SpendLimitDelete
+                | ModelPricingCatalogRead
+                | ModelPricingSync
+                | ModelPricingReprice
                 | ClientRealtimeEvents => unreachable!("outer analytics action match"),
             }
         }
@@ -1428,8 +1476,7 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
                     "installation_key": Uuid::new_v4(),
                     "display_name": "Manifest proof EvoFlux",
                     "platform": "linux",
-                    "evoflux_version": "1.0.0",
-                    "workspace_association": "manifest-proof"
+                    "evoflux_version": "1.0.0"
                 }),
                 StatusCode::OK,
             );
@@ -1471,13 +1518,8 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
                         "reasoning_tokens": 0,
                         "tool_use_tokens": 0,
                         "duration_ms": 1,
-                        "tool_name": null,
-                        "tool_category": null,
                         "status": "success",
                         "error_category": null,
-                        "estimated_cost_usd_micros": null,
-                        "cost_source": null,
-                        "evoflux_version": "1.0.0",
                         "resources": [],
                         "reported_at": chrono::Utc::now()
                     }]
@@ -1549,7 +1591,6 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | MemberUsageSummaryRead
         | MemberActivityList
         | MemberActivityDetailRead
-        | MemberToolsSummaryRead
         | TaxonomySubRolesList
         | TaxonomySubRoleCreate
         | TaxonomySubRoleUpdate
@@ -1591,10 +1632,18 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | ResourceAuthoringGuideRead
         | ResourceAuthoringTemplateRead
         | AnalyticsResourceUsageRead
+        | ModelCostReportRead
+        | MemberCostReportRead
         | AnalyticsViewsList
         | AnalyticsViewRead
         | AnalyticsViewCreate
         | AnalyticsViewUpdate
+        | SpendLimitList
+        | SpendLimitUpsert
+        | SpendLimitDelete
+        | ModelPricingCatalogRead
+        | ModelPricingSync
+        | ModelPricingReprice
         | AnalyticsViewDelete => unreachable!("non-connection action in connection fixture"),
     }
 }
@@ -1689,6 +1738,32 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         }
         ProjectDataPolicyUpdate => {
             assert_eq!(body["data_policy"]["collection_level"], "L2", "{case}");
+        }
+        SpendLimitList => {
+            assert!(body["limits"].is_array(), "{case}: {body}");
+            assert!(body["evaluated_at"].is_string(), "{case}: {body}");
+        }
+        SpendLimitUpsert => {
+            assert_eq!(body["scope"], "project", "{case}");
+            assert_eq!(body["subject_id"], "", "{case}");
+            assert_eq!(body["limit_usd_micros"], 2_500_000_000u64, "{case}");
+            assert_eq!(body["warn_percent"], 80, "{case}");
+            assert_eq!(body["enabled"], true, "{case}");
+        }
+        SpendLimitDelete => {
+            assert_eq!(
+                body["removed"], false,
+                "{case}: nothing was configured for that period"
+            );
+        }
+        ModelPricingCatalogRead => {
+            assert!(body["catalog"].is_null(), "{case}: the fixture never syncs");
+            assert_eq!(body["sync_enabled"], false, "{case}");
+            assert_eq!(body["priced_models"], 0, "{case}");
+        }
+        ModelPricingReprice => {
+            assert_eq!(body["examined"], 0, "{case}: no telemetry to reprice");
+            assert_eq!(body["left_unpriced"], 0, "{case}");
         }
         ProjectStorageUpdate => {
             assert_eq!(body["storage"]["backend"], "local", "{case}");
@@ -1905,7 +1980,6 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | MemberConnectionTokenRevoke
         | MemberUsageSummaryRead
         | MemberActivityList
-        | MemberToolsSummaryRead
         | TaxonomySubRolesList
         | TaxonomyTagsList
         | TaxonomyAssignmentRead
@@ -1928,6 +2002,8 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | ResourceAuthoringGuideRead
         | ResourceAuthoringTemplateRead
         | AnalyticsResourceUsageRead
+        | ModelCostReportRead
+        | MemberCostReportRead
         | AnalyticsViewsList
         | AnalyticsViewRead
         | AnalyticsViewCreate
@@ -1942,6 +2018,9 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | ClientResourceArtifactRead
         | ClientInventorySync
         | ClientTelemetryIngest
+        // Never reaches here: the fixture keeps sync disabled, so its case
+        // expects a refusal and skips the success-payload check.
+        | ModelPricingSync
         | ClientRealtimeEvents => {}
     }
 }
@@ -2298,7 +2377,9 @@ async fn every_eligible_browser_role_executes_the_production_manifest_route() {
             let (status, body) = send_request(&world, route, &browser_token, prepared).await;
             let case = format!("{} as {}", route.route_id, role.as_str());
             assert_eq!(status, expected_status, "status for {case}; body={body}");
-            assert_success_response(&world, route, &body, &case).await;
+            if expected_status.is_success() {
+                assert_success_response(&world, route, &body, &case).await;
+            }
             assert_allowed_event(
                 &world,
                 route,
@@ -2349,7 +2430,9 @@ async fn every_connection_route_executes_with_the_correct_scope_for_each_current
                 policy.required_scope.as_str()
             );
             assert_eq!(status, expected_status, "status for {case}; body={body}");
-            assert_success_response(&world, route, &body, &case).await;
+            if expected_status.is_success() {
+                assert_success_response(&world, route, &body, &case).await;
+            }
             assert_allowed_event(
                 &world,
                 route,
@@ -2376,7 +2459,7 @@ fn target_requirement_classification_is_manifest_driven() {
         .iter()
         .filter(|route| route_requires_target(route))
         .count();
-    assert_eq!(target_routes, 56);
+    assert_eq!(target_routes, 55);
     assert!(manifest
         .routes
         .iter()

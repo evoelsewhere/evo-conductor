@@ -235,7 +235,6 @@ export function MembersPage() {
           ? "Manage invitations, SSO approvals, account status, and project access."
           : "Browse the active member directory. Private account and usage details stay restricted."
       }
-      className="max-w-7xl"
       action={
         canManageMembers ? (
           <Button variant="gradient" onClick={() => setShowAdd(true)}>

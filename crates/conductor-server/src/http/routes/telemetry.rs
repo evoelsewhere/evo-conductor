@@ -4,22 +4,24 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use conductor_domain::{
-    AuthorizationTarget, ConductorError, MemberActivityResponse, MemberRequestDetail,
-    MemberToolsSummary, MemberUsageSummary, PrimaryRole, ResourceKind, ResourceUsageAnalytics,
-    ResourceUsageScope, ResponseProjection, TargetType, TelemetryBatchRequest,
-    TelemetryBatchResponse, TelemetryEventRequest, TelemetryEventStatus, TelemetryEventType,
-    TelemetryResourceRelation,
+    AuthorizationTarget, ConductorError, MemberActivityResponse, MemberCostReport,
+    MemberRequestDetail, MemberUsageSummary, ModelCostReport, PrimaryRole, ResourceKind,
+    ResourceUsageAnalytics, ResourceUsageScope, ResponseProjection, TargetType,
+    TelemetryBatchRequest, TelemetryBatchResponse, TelemetryEventRequest, TelemetryEventStatus,
+    TelemetryEventType, TelemetryResourceRelation, TokenUsage, RETIRED_TELEMETRY_EVENT_FIELDS,
 };
-use conductor_storage::repos::ResourceUsageQuery;
+use conductor_storage::repos::{CostReportFilters, PricedTelemetryEvent, ResourceUsageQuery};
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::core::constants::telemetry::{
     DEFAULT_ACTIVITY_LIMIT, DEFAULT_RANGE_DAYS, MAX_ACTIVITY_LIMIT, MAX_BATCH_SIZE,
-    MAX_FUTURE_CLOCK_SKEW_MINUTES, MAX_LABEL_LENGTH, MAX_RESOURCE_ATTRIBUTIONS_PER_EVENT,
-    MIN_ACTIVITY_LIMIT, MIN_LABEL_LENGTH,
+    MAX_DURATION_MS_PER_EVENT, MAX_FUTURE_CLOCK_SKEW_MINUTES, MAX_LABEL_LENGTH,
+    MAX_RESOURCE_ATTRIBUTIONS_PER_EVENT, MAX_TOKENS_PER_EVENT, MIN_ACTIVITY_LIMIT,
+    MIN_LABEL_LENGTH,
 };
 use crate::core::error::ApiResult;
+use crate::core::model_pricing;
 use crate::core::state::AppState;
 use crate::http::authorization::{
     authorize_current_browser_target, authorize_current_browser_target_with_aggregate_fact,
@@ -31,6 +33,29 @@ use crate::http::extractors::{AuthUser, ConnectionPrincipal};
 pub struct RangeQuery {
     pub from: Option<String>,
     pub to: Option<String>,
+}
+
+/// Shared by the model and member cost reports: a window plus the optional
+/// narrowing "monitoring" filters -- role, tag, provider or model.
+#[derive(Debug, Deserialize)]
+pub struct CostReportQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub primary_role: Option<PrimaryRole>,
+    pub tag_id: Option<Uuid>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+impl CostReportQuery {
+    fn into_filters(self) -> CostReportFilters {
+        CostReportFilters {
+            primary_role: self.primary_role,
+            tag_id: self.tag_id,
+            provider: self.provider,
+            model: self.model,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,7 +80,6 @@ pub struct ResourceAnalyticsQuery {
     pub model: Option<String>,
     pub installation_id: Option<Uuid>,
     pub relation: Option<TelemetryResourceRelation>,
-    pub tool_name: Option<String>,
     pub scope: Option<ResourceUsageScope>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
@@ -203,6 +227,51 @@ pub async fn ingest(
         }
     }
 
+    // Conductor prices every call from its own rate table. Clients report
+    // usage and never cost, so there is one costing method behind every
+    // figure; a call Conductor cannot price stays unpriced rather than
+    // falling back to a number computed somewhere else.
+    let mut priced = Vec::with_capacity(request.events.len());
+    for event in &request.events {
+        let (cost, catalog_version) = if event.event_type == TelemetryEventType::ModelCall {
+            model_pricing::price_event(
+                &state.db,
+                &state.model_rates,
+                event.provider.as_deref(),
+                event.model.as_deref(),
+                TokenUsage {
+                    tokens_in: to_signed(event.tokens_in),
+                    tokens_out: to_signed(event.tokens_out),
+                    cache_read: to_signed(event.cache_read_tokens),
+                    cache_write: to_signed(event.cache_write_tokens),
+                    reasoning: to_signed(event.reasoning_tokens),
+                },
+                event.service_tier.as_deref(),
+                event.reported_at,
+            )
+            .await?
+        } else {
+            // Only model calls consume tokens; anything else has no price.
+            (
+                conductor_domain::PricedCost::Unpriced {
+                    reason: conductor_domain::UnpricedReason::NoMatchingComponent,
+                },
+                None,
+            )
+        };
+        // Ingest always prices from the rate in force; the estimate basis
+        // exists only for the reprice pass over pre-catalog history.
+        let basis = cost
+            .cost_micros()
+            .map(|_| conductor_domain::PricingBasis::InForce);
+        priced.push(PricedTelemetryEvent {
+            event,
+            cost,
+            catalog_version,
+            basis,
+        });
+    }
+
     Ok(Json(
         state
             .db
@@ -211,11 +280,16 @@ pub async fn ingest(
                 instance.id,
                 &principal.user,
                 request.installation_id,
-                &installation.evoflux_version,
-                &request.events,
+                &priced,
             )
             .await?,
     ))
+}
+
+/// Token counters are validated against `MAX_TOKENS_PER_EVENT` before this,
+/// so the cast cannot lose a meaningful value.
+fn to_signed(value: u64) -> i64 {
+    value.min(i64::MAX as u64) as i64
 }
 
 pub async fn usage_summary(
@@ -283,24 +357,6 @@ pub async fn request_detail(
     ))
 }
 
-pub async fn tools_summary(
-    State(state): State<AppState>,
-    Extension(route): Extension<RouteAuthorization>,
-    AuthUser(actor): AuthUser,
-    Path(user_id): Path<Uuid>,
-    Query(query): Query<RangeQuery>,
-) -> ApiResult<Json<MemberToolsSummary>> {
-    ensure_member_access(&state, &route, &actor, user_id).await?;
-    let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
-    Ok(Json(
-        state
-            .db
-            .telemetry()
-            .tools_summary(user_id, from, to)
-            .await?,
-    ))
-}
-
 pub async fn resource_usage(
     State(state): State<AppState>,
     Extension(route): Extension<RouteAuthorization>,
@@ -345,7 +401,6 @@ pub async fn resource_usage(
     for (name, value) in [
         ("provider", query.provider.as_deref()),
         ("model", query.model.as_deref()),
-        ("tool_name", query.tool_name.as_deref()),
     ] {
         if value.is_some_and(|value| value.is_empty() || value.len() > MAX_LABEL_LENGTH) {
             return Err(ConductorError::msg(format!(
@@ -372,7 +427,6 @@ pub async fn resource_usage(
             model: query.model,
             installation_id: query.installation_id,
             relation: query.relation,
-            tool_name: query.tool_name,
             scope,
             limit: query
                 .limit
@@ -427,6 +481,63 @@ async fn ensure_member_access(
     Ok(())
 }
 
+/// Project-wide spend by model, split into the token components a
+/// models.dev rate prices separately. See `core::model_cost_report`.
+pub async fn model_cost_report(
+    State(state): State<AppState>,
+    Query(query): Query<CostReportQuery>,
+) -> ApiResult<Json<ModelCostReport>> {
+    let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
+    let filters = CostReportQuery {
+        from: None,
+        to: None,
+        ..query
+    }
+    .into_filters();
+    let project_id = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?
+        .id;
+    Ok(Json(
+        crate::core::model_cost_report::build(
+            &state.db,
+            &state.model_rates,
+            project_id,
+            from,
+            to,
+            &filters,
+        )
+        .await?,
+    ))
+}
+
+/// Project-wide spend by member. See `core::member_cost_report`.
+pub async fn member_cost_report(
+    State(state): State<AppState>,
+    Query(query): Query<CostReportQuery>,
+) -> ApiResult<Json<MemberCostReport>> {
+    let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
+    let filters = CostReportQuery {
+        from: None,
+        to: None,
+        ..query
+    }
+    .into_filters();
+    let project_id = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?
+        .id;
+    Ok(Json(
+        crate::core::member_cost_report::build(&state.db, project_id, from, to, &filters).await?,
+    ))
+}
+
 fn resolve_range(
     from: Option<&str>,
     to: Option<&str>,
@@ -452,6 +563,17 @@ fn parse_timestamp(value: &str, field: &str) -> ApiResult<DateTime<Utc>> {
 }
 
 fn validate_event(event: &TelemetryEventRequest) -> ApiResult<()> {
+    // Retired fields are tolerated so older installations keep reporting.
+    // Everything else unknown is refused: the schema's strictness is what
+    // stops a client sending conversation content under an invented key, and
+    // that guarantee is not the one being relaxed.
+    if let Some(name) = event
+        .unknown
+        .keys()
+        .find(|key| !RETIRED_TELEMETRY_EVENT_FIELDS.contains(&key.as_str()))
+    {
+        return Err(ConductorError::msg(format!("unknown telemetry field: {name}")).into());
+    }
     if event.request_id.trim().is_empty() || event.request_id.len() > MAX_LABEL_LENGTH {
         return Err(ConductorError::msg(format!(
             "request_id must be {MIN_LABEL_LENGTH}–{MAX_LABEL_LENGTH} characters"
@@ -464,9 +586,8 @@ fn validate_event(event: &TelemetryEventRequest) -> ApiResult<()> {
         ("provider", event.provider.as_deref()),
         ("model", event.model.as_deref()),
         ("response_model", event.response_model.as_deref()),
-        ("tool_name", event.tool_name.as_deref()),
         ("error_category", event.error_category.as_deref()),
-        ("evoflux_version", event.evoflux_version.as_deref()),
+        ("service_tier", event.service_tier.as_deref()),
     ] {
         if value.is_some_and(|value| value.is_empty() || value.len() > MAX_LABEL_LENGTH) {
             return Err(ConductorError::msg(format!(
@@ -487,36 +608,26 @@ fn validate_event(event: &TelemetryEventRequest) -> ApiResult<()> {
     }) {
         return Err(ConductorError::msg("resources contains duplicate attributions").into());
     }
-    if event.estimated_cost_usd_micros.is_some() != event.cost_source.is_some() {
-        return Err(ConductorError::msg(
-            "estimated_cost_usd_micros and cost_source must be provided together",
-        )
+    for (name, value) in [
+        ("tokens_in", event.tokens_in),
+        ("tokens_out", event.tokens_out),
+        ("cache_read_tokens", event.cache_read_tokens),
+        ("cache_write_tokens", event.cache_write_tokens),
+        ("reasoning_tokens", event.reasoning_tokens),
+        ("tool_use_tokens", event.tool_use_tokens),
+    ] {
+        if value > MAX_TOKENS_PER_EVENT {
+            return Err(ConductorError::msg(format!(
+                "{name} cannot exceed {MAX_TOKENS_PER_EVENT} per event"
+            ))
+            .into());
+        }
+    }
+    if event.duration_ms > MAX_DURATION_MS_PER_EVENT {
+        return Err(ConductorError::msg(format!(
+            "duration_ms cannot exceed {MAX_DURATION_MS_PER_EVENT} per event"
+        ))
         .into());
-    }
-    if event.event_type != TelemetryEventType::ModelCall
-        && event.estimated_cost_usd_micros.is_some()
-    {
-        return Err(ConductorError::msg("only model_call events can include cost").into());
-    }
-    match event.event_type {
-        TelemetryEventType::ModelCall if event.tool_name.is_some() => {
-            return Err(ConductorError::msg(format!(
-                "{} cannot include tool_name",
-                TelemetryEventType::ModelCall.as_str()
-            ))
-            .into());
-        }
-        TelemetryEventType::ToolCall if event.tool_name.is_none() => {
-            return Err(ConductorError::msg(format!(
-                "{} requires tool_name",
-                TelemetryEventType::ToolCall.as_str()
-            ))
-            .into());
-        }
-        TelemetryEventType::Request if event.tool_name.is_some() => {
-            return Err(ConductorError::msg("request cannot include tool_name").into());
-        }
-        _ => {}
     }
     if event.reported_at > Utc::now() + Duration::minutes(MAX_FUTURE_CLOCK_SKEW_MINUTES) {
         return Err(ConductorError::msg("reported_at is too far in the future").into());

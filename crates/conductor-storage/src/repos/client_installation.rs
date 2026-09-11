@@ -87,13 +87,12 @@ impl ClientInstallationRepo {
             let id: String = row.get("id");
             sqlx::query(
                 "UPDATE client_installations SET display_name = ?, platform = ?, \
-                 evoflux_version = ?, workspace_association = ?, last_seen_at = ?, updated_at = ? \
+                 evoflux_version = ?, last_seen_at = ?, updated_at = ? \
                  WHERE id = ? AND instance_id = ? AND user_id = ?",
             )
             .bind(request.display_name.trim())
             .bind(platform_name(request.platform))
             .bind(request.evoflux_version.trim())
-            .bind(request.workspace_association.as_deref())
             .bind(now.to_rfc3339())
             .bind(now.to_rfc3339())
             .bind(&id)
@@ -108,9 +107,9 @@ impl ClientInstallationRepo {
                 r#"
                 INSERT INTO client_installations (
                     id, instance_id, user_id, installation_key, display_name, platform,
-                    evoflux_version, workspace_association, connected_at, last_seen_at,
+                    evoflux_version, connected_at, last_seen_at,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(&id)
@@ -120,7 +119,6 @@ impl ClientInstallationRepo {
             .bind(request.display_name.trim())
             .bind(platform_name(request.platform))
             .bind(request.evoflux_version.trim())
-            .bind(request.workspace_association.as_deref())
             .bind(now.to_rfc3339())
             .bind(now.to_rfc3339())
             .bind(now.to_rfc3339())
@@ -189,7 +187,7 @@ impl ClientInstallationRepo {
     ) -> Result<Vec<ClientInstallation>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT id, instance_id, user_id, installation_key, display_name, platform, \
-             evoflux_version, workspace_association, connected_at, last_seen_at, created_at, updated_at \
+             evoflux_version, connected_at, last_seen_at, created_at, updated_at \
              FROM client_installations WHERE user_id = ? ORDER BY last_seen_at DESC",
         )
         .bind(user_id.to_string())
@@ -225,7 +223,7 @@ where
 {
     let row = sqlx::query(
         "SELECT id, instance_id, user_id, installation_key, display_name, platform, \
-         evoflux_version, workspace_association, connected_at, last_seen_at, created_at, updated_at \
+         evoflux_version, connected_at, last_seen_at, created_at, updated_at \
          FROM client_installations WHERE id = ?",
     )
     .bind(installation_id)
@@ -243,7 +241,6 @@ fn map_installation(row: sqlx::any::AnyRow) -> Result<ClientInstallation, sqlx::
         display_name: row.get("display_name"),
         platform: parse_platform(row.get::<String, _>("platform").as_str()),
         evoflux_version: row.get("evoflux_version"),
-        workspace_association: row.get("workspace_association"),
         connected_at: parse_dt(row.get("connected_at")),
         last_seen_at: parse_dt(row.get("last_seen_at")),
         created_at: parse_dt(row.get("created_at")),

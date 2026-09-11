@@ -98,7 +98,6 @@ type WidgetId =
   | "resources"
   | "members"
   | "models"
-  | "tools"
   | "roles"
 
 interface WidgetState {
@@ -166,12 +165,6 @@ const WIDGET_META: Record<
     views: ["bar", "donut", "table"],
     defaultView: "bar",
   },
-  tools: {
-    title: "Tool calls",
-    description: "Tools invoked most often, including reported failures.",
-    views: ["bar", "donut", "table"],
-    defaultView: "bar",
-  },
   roles: {
     title: "Usage by role",
     description: "Model and tool calls grouped by the role captured at ingest.",
@@ -187,7 +180,6 @@ const PRESET_WIDGETS: Record<Exclude<DashboardPreset, "custom">, WidgetState[]> 
     { id: "resources", width: "half", view: "donut" },
     { id: "consumption", width: "full", view: "area" },
     { id: "members", width: "half", view: "bar" },
-    { id: "tools", width: "half", view: "bar" },
   ],
   adoption: [
     { id: "requests", width: "full", view: "area" },
@@ -198,7 +190,6 @@ const PRESET_WIDGETS: Record<Exclude<DashboardPreset, "custom">, WidgetState[]> 
   ],
   reliability: [
     { id: "outcomes", width: "full", view: "area" },
-    { id: "tools", width: "half", view: "bar" },
     { id: "requests", width: "half", view: "line" },
     { id: "resources", width: "full", view: "table" },
   ],
@@ -1220,9 +1211,6 @@ function rankingRows(
   if (id === "models") {
     return data.models.map((item) => ({ key: `${item.provider}:${item.model}`, label: item.model, detail: item.provider, value: item.calls }))
   }
-  if (id === "tools") {
-    return data.tools.map((item) => ({ key: item.tool_name, label: item.tool_name, detail: `${item.category} · ${item.errors} errors`, value: item.calls }))
-  }
   return data.roles.map((item) => ({ key: item.primary_role, label: PRIMARY_ROLE_LABELS[item.primary_role], detail: `${item.model_calls} model · ${item.tool_calls} tool`, value: item.model_calls + item.tool_calls }))
 }
 
@@ -1315,7 +1303,6 @@ const WIDGET_CONTRACT: Record<
   resources: { metric: "resource_uses", groupBy: "resource" },
   members: { metric: "requests", groupBy: "member" },
   models: { metric: "model_calls", groupBy: "model" },
-  tools: { metric: "tool_calls", groupBy: "tool" },
   roles: { metric: "model_calls", groupBy: "role" },
 }
 

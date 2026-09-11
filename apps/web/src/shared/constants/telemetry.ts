@@ -17,17 +17,6 @@ export const TelemetryEventStatus = {
 export type TelemetryEventStatus =
   (typeof TelemetryEventStatus)[keyof typeof TelemetryEventStatus]
 
-export const TelemetryToolCategory = {
-  Mcp: "mcp",
-  Filesystem: "filesystem",
-  Web: "web",
-  VersionControl: "version_control",
-  Collaboration: "collaboration",
-  Other: "other",
-} as const
-export type TelemetryToolCategory =
-  (typeof TelemetryToolCategory)[keyof typeof TelemetryToolCategory]
-
 export const UsageRangePreset = {
   Day: "day",
   Week: "week",
@@ -101,7 +90,6 @@ export const TELEMETRY_FALLBACK_LABELS = {
   modelIdentifier: "model",
   provider: "Unknown provider",
   providerName: "Unknown",
-  tool: "Unknown tool",
 } as const
 
 export const TELEMETRY_QUERY_KEYS = {
@@ -111,6 +99,4 @@ export const TELEMETRY_QUERY_KEYS = {
     ["member-activity", userId, from, to, limit] as const,
   request: (userId: string, requestId: string) =>
     ["member-request", userId, requestId] as const,
-  tools: (userId: string, from?: string, to?: string) =>
-    ["member-tools", userId, from, to] as const,
 } as const

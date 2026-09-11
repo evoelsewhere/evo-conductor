@@ -2,7 +2,7 @@
   "schema_version": 1,
   "policy_revision": "req-004-v1",
   "generated_from": "conductor_server::http::authorization::route_manifest",
-  "route_count": 95,
+  "route_count": 102,
   "baseline_assumptions": [
     "role baselines use the current persisted active primary role",
     "browser and connection credentials are otherwise structurally valid",
@@ -492,6 +492,148 @@
     }
   ],
   "routes": [
+    {
+      "route_id": "analytics.member_cost_report.read",
+      "action": "analytics.member_cost_report.read",
+      "method": "GET",
+      "path": "/api/analytics/member-cost-report",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "analytics.member_cost_report.read",
+          "alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "aggregate_only"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "aggregate_only"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "analytics.model_cost_report.read",
+      "action": "analytics.model_cost_report.read",
+      "method": "GET",
+      "path": "/api/analytics/model-cost-report",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "analytics.model_cost_report.read",
+          "alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "aggregate_only"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "aggregate_only"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
     {
       "route_id": "analytics.resource_usage.read",
       "action": "analytics.resource_usage.read",
@@ -3292,109 +3434,6 @@
       }
     },
     {
-      "route_id": "member.tools_summary.read",
-      "action": "member.tools_summary.read",
-      "method": "GET",
-      "path": "/api/members/{id}/tools",
-      "target_type": "member",
-      "authentication": {
-        "class": "browser",
-        "policy": {
-          "requirement_id": "member.tools_summary.read",
-          "alternatives": [
-            {
-              "permission": "telemetry.member.read_self",
-              "selector": {
-                "kind": "self_member_path"
-              }
-            },
-            {
-              "permission": "telemetry.member.read_any",
-              "selector": {
-                "kind": "other_member_path"
-              }
-            }
-          ]
-        }
-      },
-      "body_policy": {
-        "kind": "default"
-      },
-      "role_baselines": {
-        "admin": {
-          "outcome": "conditional",
-          "target_dependent": true,
-          "possible_response_projections": [
-            "full"
-          ],
-          "feasible_alternatives": [
-            {
-              "permission": "telemetry.member.read_self",
-              "role_grant_constraints": {
-                "kind": "self"
-              },
-              "route_selector": {
-                "kind": "self_member_path"
-              },
-              "target_dependent": true,
-              "response_projection": "full"
-            },
-            {
-              "permission": "telemetry.member.read_any",
-              "role_grant_constraints": {
-                "kind": "same_project"
-              },
-              "route_selector": {
-                "kind": "other_member_path"
-              },
-              "target_dependent": true,
-              "response_projection": "full"
-            }
-          ]
-        },
-        "contribute": {
-          "outcome": "conditional",
-          "target_dependent": true,
-          "possible_response_projections": [
-            "full"
-          ],
-          "feasible_alternatives": [
-            {
-              "permission": "telemetry.member.read_self",
-              "role_grant_constraints": {
-                "kind": "self"
-              },
-              "route_selector": {
-                "kind": "self_member_path"
-              },
-              "target_dependent": true,
-              "response_projection": "full"
-            }
-          ]
-        },
-        "user": {
-          "outcome": "conditional",
-          "target_dependent": true,
-          "possible_response_projections": [
-            "full"
-          ],
-          "feasible_alternatives": [
-            {
-              "permission": "telemetry.member.read_self",
-              "role_grant_constraints": {
-                "kind": "self"
-              },
-              "route_selector": {
-                "kind": "self_member_path"
-              },
-              "target_dependent": true,
-              "response_projection": "full"
-            }
-          ]
-        }
-      }
-    },
-    {
       "route_id": "member.usage_summary.read",
       "action": "member.usage_summary.read",
       "method": "GET",
@@ -3494,6 +3533,174 @@
               "response_projection": "full"
             }
           ]
+        }
+      }
+    },
+    {
+      "route_id": "model_pricing.catalog.read",
+      "action": "model_pricing.catalog.read",
+      "method": "GET",
+      "path": "/api/model-pricing",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "model_pricing.catalog.read",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "model_pricing.reprice",
+      "action": "model_pricing.reprice",
+      "method": "POST",
+      "path": "/api/model-pricing/reprice",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "model_pricing.reprice",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "model_pricing.sync",
+      "action": "model_pricing.sync",
+      "method": "POST",
+      "path": "/api/model-pricing/sync",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "model_pricing.sync",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
         }
       }
     },
@@ -7029,6 +7236,174 @@
           "possible_response_projections": [
             "full"
           ]
+        }
+      }
+    },
+    {
+      "route_id": "spend_limit.delete",
+      "action": "spend_limit.delete",
+      "method": "DELETE",
+      "path": "/api/spend-limits",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "spend_limit.delete",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "spend_limit.list",
+      "action": "spend_limit.list",
+      "method": "GET",
+      "path": "/api/spend-limits",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "spend_limit.list",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "spend_limit.upsert",
+      "action": "spend_limit.upsert",
+      "method": "PUT",
+      "path": "/api/spend-limits",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "spend_limit.upsert",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
         }
       }
     },

@@ -30,7 +30,6 @@ import {
   TELEMETRY_FALLBACK_LABELS,
   TELEMETRY_QUERY_KEYS,
   TelemetryEventType,
-  TelemetryToolCategory,
 } from "@/shared/constants/telemetry"
 import { Badge } from "@/shared/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card"
@@ -105,7 +104,7 @@ export function ResourceRequestDetailPage() {
                     const isRequest = event.event_type === TelemetryEventType.Request
                     const title = isModel
                       ? `${event.provider ?? TELEMETRY_FALLBACK_LABELS.providerName}:${event.model ?? TELEMETRY_FALLBACK_LABELS.modelIdentifier}`
-                      : isRequest ? "Request completed" : event.tool_name ?? TELEMETRY_FALLBACK_LABELS.tool
+                      : isRequest ? "Request completed" : "Tool call"
                     return (
                       <li key={event.event_id} className="relative pb-7 pl-6 last:pb-0">
                         <span className="absolute -left-3 grid size-6 place-items-center rounded-full border border-(--color-border) bg-(--bg-card)">{isModel ? <ProviderBrandIcon providerId={event.provider ?? event.model} className="size-[1.125rem] rounded-full" /> : isRequest ? <Activity className="size-3" /> : <Wrench className="size-3" />}</span>
@@ -115,11 +114,10 @@ export function ResourceRequestDetailPage() {
                         </div>
                         {isModel && (
                           <div className="mt-2 grid gap-1.5 rounded-lg border border-(--border-soft) bg-(--bg-key)/25 p-2.5 text-xs text-(--color-text-muted) sm:grid-cols-2 lg:grid-cols-3">
-                            <span>{formatTokens(event.tokens_in)} input</span><span>{formatTokens(event.tokens_out)} output</span><span>{formatTokens(event.cache_read_tokens)} cache read</span><span>{formatTokens(event.reasoning_tokens)} reasoning</span><span>{formatTokens(event.tool_use_tokens)} tool use</span><span>{event.estimated_cost_usd_micros == null ? RESOURCE_USAGE_COST_SOURCE_LABELS.unpriced : `${formatEstimatedCost(event.estimated_cost_usd_micros)} · ${RESOURCE_USAGE_COST_SOURCE_LABELS[event.cost_source ?? "evoflux_catalog"]}`}</span>
+                            <span>{formatTokens(event.tokens_in)} input</span><span>{formatTokens(event.tokens_out)} output</span><span>{formatTokens(event.cache_read_tokens)} cache read</span><span>{formatTokens(event.reasoning_tokens)} reasoning</span><span>{formatTokens(event.tool_use_tokens)} tool use</span><span>{event.estimated_cost_usd_micros == null ? RESOURCE_USAGE_COST_SOURCE_LABELS.unpriced : formatEstimatedCost(event.estimated_cost_usd_micros)}</span>
                             {event.response_model && event.response_model !== event.model && <span className="sm:col-span-2 lg:col-span-3">Response model: <code>{event.response_model}</code></span>}
                           </div>
                         )}
-                        {!isModel && !isRequest && <div className="mt-2 text-xs text-(--color-text-muted)">Tool category: {event.tool_category ?? TelemetryToolCategory.Other}</div>}
                         {event.resources.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{event.resources.map((resource) => <Badge key={`${resource.resource_id}:${resource.version_id}:${resource.relation}`} tone="accent">{RESOURCE_KIND_LABEL[resource.kind]} · {resource.name} v{resource.version} · {formatRelation(resource.relation)}</Badge>)}</div>}
                         {event.error_category && <div className="mt-2 rounded-md border border-(--color-error)/20 bg-(--color-error-subtle) px-2.5 py-1.5 text-xs text-(--color-error)">Sanitized error category: {event.error_category}</div>}
                       </li>

@@ -150,7 +150,6 @@ export function ResourceGovernancePage({
     <PageFrame
       title={resource.name}
       subtitle={`${RESOURCE_KIND_LABEL[resource.kind]} · ${resource.slug} · v${resource.version}`}
-      className="max-w-7xl"
       action={
         <>
           <Button variant="outline" onClick={() => void navigate({ to: catalogPath })}>

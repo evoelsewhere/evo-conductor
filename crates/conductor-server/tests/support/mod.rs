@@ -27,7 +27,7 @@ use conductor_domain::{
 use conductor_server::core::artifacts::ArtifactStore;
 use conductor_server::core::authorization::AuthorizationService;
 use conductor_server::core::host_metrics::HostMetricsProvider;
-use conductor_server::{build_router, AppState, Config, RealtimeConfig};
+use conductor_server::{build_router, AppState, Config, ModelPricingConfig, RealtimeConfig};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -227,6 +227,13 @@ async fn test_app_with_dependencies(
         port: TEST_BIND_PORT,
         web_dist: PathBuf::from(UNUSED_WEB_DIST),
         realtime,
+        // Tests never reach models.dev; a suite that priced against whatever
+        // the live catalog says today would not be deterministic. Pricing
+        // tests apply a fixture catalog explicitly instead.
+        model_pricing: ModelPricingConfig {
+            enabled: false,
+            ..ModelPricingConfig::default()
+        },
     };
 
     TestApp {

@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import { ArrowUpRight, Eye } from "lucide-react"
 
-import { formatDuration, formatTokens } from "@/features/members/components/usage-formatters"
+import { formatTokens } from "@/features/members/components/usage-formatters"
 import {
   formatEstimatedCost,
   formatRelation,
@@ -11,7 +11,6 @@ import type {
   ResourceUsageMember,
   ResourceUsageModel,
   ResourceUsageRole,
-  ResourceUsageTool,
 } from "@/shared/api/client"
 import { ProviderBrandIcon } from "@/shared/components/provider-brand-icon"
 import { PRIMARY_ROLE_LABELS } from "@/shared/constants/member"
@@ -42,7 +41,10 @@ export function ResourceBreakdownTable({ items }: { items: ResourceUsageBreakdow
             <TableTh>Model / tool calls</TableTh>
             <TableTh>Outcome</TableTh>
             <TableTh>Tokens</TableTh>
-            <TableTh>Est. cost</TableTh>
+            <TableTh>
+              Request cost
+              <span className="block text-[0.65rem] font-normal text-(--color-text-subtle)">of requests using this</span>
+            </TableTh>
             <TableTh>Last used</TableTh>
             <TableTh><span className="sr-only">Actions</span></TableTh>
           </tr>
@@ -156,29 +158,6 @@ export function ResourceRoleBreakdownTable({ items }: { items: ResourceUsageRole
               <TableTd className="tabular-nums">{item.tool_calls.toLocaleString()}</TableTd>
               <TableTd className="font-medium tabular-nums">{formatTokens(item.total_tokens)}</TableTd>
               <TableTd className="tabular-nums">{formatEstimatedCost(item.estimated_cost_usd_micros)}</TableTd>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableWrap>
-  )
-}
-
-export function ResourceToolBreakdownTable({ items }: { items: ResourceUsageTool[] }) {
-  return (
-    <TableWrap className="rounded-none border-0">
-      <Table>
-        <TableHead><tr><TableTh>Tool</TableTh><TableTh>Category</TableTh><TableTh>Calls</TableTh><TableTh>Outcome</TableTh><TableTh>Avg duration</TableTh><TableTh>Last used</TableTh><TableTh><span className="sr-only">Actions</span></TableTh></tr></TableHead>
-        <TableBody>
-          {items.map((item) => (
-            <TableRow key={`${item.category}:${item.tool_name}`}>
-              <TableTd className="font-medium">{item.tool_name}</TableTd>
-              <TableTd><Badge tone="neutral" className="capitalize">{item.category.replaceAll("_", " ")}</Badge></TableTd>
-              <TableTd className="font-medium tabular-nums">{item.calls.toLocaleString()}</TableTd>
-              <TableTd className="tabular-nums"><div>{item.successes} success · {item.errors} error</div><div className="text-xs text-(--color-text-subtle)">{item.blocked} blocked · {item.cancelled} cancelled</div></TableTd>
-              <TableTd className="tabular-nums">{formatDuration(item.average_duration_ms)}</TableTd>
-              <TableTd className="text-xs whitespace-nowrap text-(--color-text-muted)">{new Date(item.last_used_at).toLocaleString()}</TableTd>
-              <TableTd><a href={usageHref({ tool_name: item.tool_name })} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8")}><Eye className="size-3.5" />Activity</a></TableTd>
             </TableRow>
           ))}
         </TableBody>

@@ -146,7 +146,6 @@ export function DashboardPage() {
               className="xl:col-span-8"
               resources={analytics.data?.resources ?? []}
               models={analytics.data?.models ?? []}
-              tools={analytics.data?.tools ?? []}
               scope={scope}
               loading={analyticsLoading}
               analyticsHref={analyticsHref}

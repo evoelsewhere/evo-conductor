@@ -14,7 +14,6 @@ import {
   ResourceMemberBreakdownTable,
   ResourceModelBreakdownTable,
   ResourceRoleBreakdownTable,
-  ResourceToolBreakdownTable,
 } from "@/features/resource-usage/components/resource-usage-breakdown-tables"
 import {
   RequestOutcomeChart,
@@ -150,7 +149,7 @@ function MonitoringOverview({ usage, inventory, loading }: { usage?: ResourceUsa
           <MonitoringMetric label="Success" value={`${successRate}%`} hint={`${totals?.errors ?? 0} errors`} icon={Gauge} />
           <MonitoringMetric label="Installed members" value={totals?.installed_members ?? 0} hint="aggregate only" icon={Users} />
           <MonitoringMetric label="Model calls" value={totals?.model_calls ?? 0} hint={`${usage?.models.length ?? 0} models`} icon={Bot} />
-          <MonitoringMetric label="Tool calls" value={totals?.tool_calls ?? 0} hint={`${usage?.tools.length ?? 0} tools`} icon={Wrench} />
+          <MonitoringMetric label="Tool calls" value={totals?.tool_calls ?? 0} hint="volume only" icon={Wrench} />
           <MonitoringMetric label="Est. cost" value={formatEstimatedCost(totals?.estimated_cost_usd_micros ?? 0)} hint={`${totals?.unpriced_model_calls ?? 0} unpriced`} icon={CircleDollarSign} />
         </div>
       </div>
@@ -215,7 +214,7 @@ function ActivityPanel({ data, loading }: { data?: ResourceUsageAnalytics; loadi
   if (loading) return <ActivitySkeleton />
   return (
     <Card>
-      <CardHeader><div><CardTitle>Attributed request activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Click Details for the event timeline, model/tool calls, tokens, duration and cost.</p></div><Badge tone="neutral">{data?.activity_total ?? 0} rows</Badge></CardHeader>
+      <CardHeader><div><CardTitle>Attributed request activity</CardTitle><p className="mt-0.5 text-xs text-(--color-text-muted)">Figures are each request's own, not this resource's share of it. Click Details for the event timeline, model/tool calls, tokens, duration and cost.</p></div><Badge tone="neutral">{data?.activity_total ?? 0} rows</Badge></CardHeader>
       <CardContent className="p-0">{data?.activity.length ? <ResourceUsageActivityTable items={data.activity} /> : <EmptyState title="No attributed requests" description="Usage appears after EvoFlux reports a request that used this resource." className="border-0 py-12" />}</CardContent>
     </Card>
   )
@@ -369,7 +368,6 @@ function UsagePanel({
         <Breakdown title="Member adoption" description="Who used the resource, recorded role, requests, uses, tokens and estimated cost.">{data?.members.length ? <ResourceMemberBreakdownTable items={data.members} /> : <UsageEmpty />}</Breakdown>
       )}
       <Breakdown title="Calls by role" description="Requests, model calls and tool calls by the role captured at ingest time.">{data?.roles.length ? <ResourceRoleBreakdownTable items={data.roles} /> : <UsageEmpty />}</Breakdown>
-      <Breakdown title="Tool calls" description="Which tools this resource drives most, including outcome, average duration and last use.">{data?.tools.length ? <ResourceToolBreakdownTable items={data.tools} /> : <UsageEmpty />}</Breakdown>
       <Breakdown title="Provider and model calls" description="Model volume, total tokens, estimated cost and pricing coverage.">{data?.models.length ? <ResourceModelBreakdownTable items={data.models} /> : <UsageEmpty />}</Breakdown>
       <div className="mt-4 grid overflow-hidden rounded-xl border border-(--border-card) bg-(--bg-card) sm:grid-cols-3 sm:divide-x sm:divide-(--border-soft)">
         <MonitoringMetric label="Total tokens" value={formatTokens(data?.totals.total_tokens ?? 0)} hint={`${formatTokens(data?.totals.average_tokens_per_request ?? 0)} average/request`} icon={Activity} />
