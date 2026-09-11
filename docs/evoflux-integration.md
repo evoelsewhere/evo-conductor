@@ -1,9 +1,9 @@
 # EvoFlux ↔ Conductor realtime integration
 
-Status: **Conductor implemented; EvoFlux integration pending**
+Status: **Conductor implemented; EvoFlux SSE control-plane client implemented — smart-fetch data-plane negotiation (resource-fetch-protocol.md) still pending**
 Protocol: `evoflux.realtime.v1`
 
-This document is the implementation contract for adding Conductor connectivity to EvoFlux later. This change does not modify EvoFlux.
+This document is the implementation contract for Conductor connectivity in EvoFlux. EvoFlux's `app/conductor/realtime.py`, `ConductorClient.stream_realtime_events`, and `ConductorService._realtime_loop` implement the SSE control plane and reconnect state machine below — see "Future EvoFlux checklist" for exactly what is and isn't done. EvoFlux's existing V1/V2 polling sync (`_connection_loop`, `sync_now`) is unchanged and keeps running alongside it, per "Run a periodic smart fetch in addition to SSE" below.
 
 ## Architecture decision
 
@@ -294,9 +294,30 @@ Suggested acceptance test per replica:
 - one intentionally slow client triggers only its own smart-fetch recovery.
 - revoke and disable events close matching connections within one second.
 
+### Scaling beyond the 10,000 baseline
+
+`.env.example` ships a commented 100,000-connection profile
+(`CONDUCTOR_REALTIME_MAX_CONNECTIONS=100000`, with handshake and broadcast
+capacity scaled by the same 10x factor). It is an extrapolation from the
+10,000-connection numbers above, not an independently soak-tested target.
+Before relying on it in production:
+
+- Run the same acceptance test at 100,000 connections, not just 10,000.
+- Switch `CONDUCTOR_DATABASE_URL` to Postgres; SQLite's single writer does not
+  scale whatever the connection cap. `make postgres-up` starts one locally and
+  `make test-postgres` exercises the Postgres-only storage tests.
+- Raise `CONDUCTOR_DB_POOL_MAX_CONNECTIONS` to cover in-flight query time, not
+  to match the connection count — see the profile in `.env.example`.
+- Raise file-descriptor and container limits; see below for what the configs
+  in this repo already set, and note a deployment using none of them must set
+  an equivalent limit itself.
+
 ## Reverse proxy requirements
 
-Example Nginx location:
+A full, deployable Nginx config (server block plus the global
+`worker_rlimit_nofile`/`events{}` directives, which cannot live in a per-site
+file) is at [deploy/nginx/conductor.conf](../deploy/nginx/conductor.conf). Key
+points:
 
 ```nginx
 location /api/v1/realtime/events {
@@ -310,7 +331,21 @@ location /api/v1/realtime/events {
 }
 ```
 
-The load balancer idle timeout must exceed `3 × heartbeat_seconds`. Raise process and proxy file-descriptor limits above the configured connection cap. Prefer HTTP/2 between EvoFlux and the edge; the upstream connection to Conductor may remain HTTP/1.1.
+The load balancer idle timeout must exceed `3 × heartbeat_seconds`. Prefer
+HTTP/2 between EvoFlux and the edge; the upstream connection to Conductor may
+remain HTTP/1.1.
+
+### Process and proxy file-descriptor limits
+
+Conductor cannot raise its own limit; the OS or container must grant it before
+the process starts. Each open stream holds a socket for its whole lifetime, so
+the limit must sit above `CONDUCTOR_REALTIME_MAX_CONNECTIONS`, not equal to it.
+The deployment configs here set 131072, sized for the 100,000-connection
+profile — scale down for a smaller cap:
+
+- [docker-compose.yml](../docker-compose.yml) — `ulimits.nofile` on the `conductor` service.
+- [deploy/systemd/evo-conductor.service](../deploy/systemd/evo-conductor.service) — `LimitNOFILE`.
+- [deploy/nginx/conductor.conf](../deploy/nginx/conductor.conf) — `worker_rlimit_nofile` and `worker_connections`, which the proxy limits independently.
 
 ## Multi-replica production design
 
@@ -345,19 +380,23 @@ Use `RealtimeAudience::Owner(user_id)` for private resources. If visibility chan
 
 The canonical Agent, Skill and Plugin file-manifest, integrity and Work/Coding/AIM scope contract is defined in [resource-bundle.md](resource-bundle.md). The required delivery/checkout algorithm is defined in [resource-fetch-protocol.md](resource-fetch-protocol.md).
 
-- Add secure secret configuration and redaction.
-- Add an incremental SSE client with custom `Authorization` header.
-- Implement the lifecycle and retry state machine above.
-- Validate protocol version and event schemas.
-- Implement smart-fetch `have` negotiation and a durable managed registry.
-- Verify artifacts and both tree hashes, then atomically switch a complete staged generation.
-- Enforce dependency, Agent-team and Plugin trust rules before activation.
-- Surface connected, reconnecting, stale, and suspended status to users.
-- Add unit tests for fragmented SSE frames and duplicate events.
-- Add integration tests for token expiry, revoke, lag recovery, interrupted checkout, rollback, proxy timeout and restart.
-- Add a bounded durable usage queue and idempotent `POST /api/v1/usage/resources` batches.
-- Never include member identity or execution content in usage payloads.
-- Run the shared load/soak acceptance suite before enabling realtime by default.
+Status after the SSE control-plane client landed in EvoFlux
+(`app/conductor/realtime.py`, `ConductorClient.stream_realtime_events`,
+`ConductorService._realtime_loop`):
+
+- [x] Add an incremental SSE client with custom `Authorization` header.
+- [x] Implement the lifecycle and retry state machine above. The diagram's Fetching/Staging/Ready states stay in the existing `sync_now()`; the loop only decides when to call it.
+- [x] Validate protocol version and event schemas — `realtime.py::_parse_envelope`, which skips rather than raises.
+- [x] Surface connected, reconnecting, stale, and suspended status to users — `ConductorStatus.realtime`, in `status_payload()`. Rendering it in EvoFlux's settings UI is still to do.
+- [x] Add unit tests for fragmented SSE frames and duplicate events — `tests/conductor/test_realtime.py`.
+- [~] Add integration tests for token expiry, revoke, lag recovery, interrupted checkout, rollback, proxy timeout and restart. `tests/conductor/test_realtime_service.py` covers 401/403 suspension, `control.access_revoked`, and backoff reset. The rest exercise the checkout path this change does not touch.
+- Add secure secret configuration and redaction. — pre-existing.
+- Implement smart-fetch `have` negotiation and a durable managed registry. — not started; EvoFlux still runs the V1/V2 manifest and change-page sync.
+- Verify artifacts and both tree hashes, then atomically switch a complete staged generation. — not started.
+- Enforce dependency, Agent-team and Plugin trust rules before activation. — not started.
+- Add a bounded durable usage queue and idempotent `POST /api/v1/usage/resources` batches. — pre-existing.
+- Never include member identity or execution content in usage payloads. — pre-existing.
+- Run the shared load/soak acceptance suite before enabling realtime by default. — not done. Realtime failures fall back to polling, so this is a latency gap rather than a correctness one.
 
 ## Project data policy
 

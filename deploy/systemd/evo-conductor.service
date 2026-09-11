@@ -1,0 +1,31 @@
+[Unit]
+Description=Evo Conductor — EvoFlux control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=conductor
+Group=conductor
+WorkingDirectory=/opt/evo-conductor
+ExecStart=/opt/evo-conductor/evo-conductor
+EnvironmentFile=/etc/evo-conductor/conductor.env
+Restart=on-failure
+RestartSec=2
+
+# One socket per open SSE stream, plus the database pool. The process cannot
+# raise its own hard limit, so this must stay comfortably above
+# CONDUCTOR_REALTIME_MAX_CONNECTIONS — not equal to it.
+LimitNOFILE=131072
+
+# A backstop, not a substitute for the application's own admission limits.
+# Confirm with a soak test rather than a formula.
+MemoryMax=4G
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/evo-conductor
+
+[Install]
+WantedBy=multi-user.target

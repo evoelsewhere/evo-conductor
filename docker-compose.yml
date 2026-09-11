@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: conductor
+      POSTGRES_PASSWORD: conductor
+      POSTGRES_DB: conductor
+    ports:
+      - "5432:5432"
+    # Must exceed conductor's CONDUCTOR_DB_POOL_MAX_CONNECTIONS plus room for
+    # migrations, `make test-postgres` and admin sessions. Front with PgBouncer
+    # rather than raising this per replica if the multi-replica design lands.
+    # shared_buffers is left at the image default: size it from host memory.
+    command: ["postgres", "-c", "max_connections=200"]
+    volumes:
+      - conductor_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conductor -d conductor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  conductor:
+    build: .
+    ports:
+      - "4700:4700"
+    environment:
+      CONDUCTOR_DATABASE_URL: postgres://conductor:conductor@postgres:5432/conductor
+      CONDUCTOR_HOST: "0.0.0.0"
+      CONDUCTOR_PORT: "4700"
+      # 100,000-connection profile — uncomment as a set (see .env.example).
+      # Raising max connections without the pool just moves the bottleneck.
+      # CONDUCTOR_DB_POOL_MAX_CONNECTIONS: "100"
+      # CONDUCTOR_REALTIME_MAX_CONNECTIONS: "100000"
+      # CONDUCTOR_REALTIME_MAX_CONNECTIONS_PER_SECRET: "4"
+      # CONDUCTOR_REALTIME_MAX_CONCURRENT_HANDSHAKES: "2560"
+      # CONDUCTOR_REALTIME_BROADCAST_CAPACITY: "8192"
+    # One socket per open SSE stream, plus the pool. The distro default (1024)
+    # is far below that and the process cannot raise its own hard limit.
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - conductor_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:4700/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  conductor_postgres_data:
+  conductor_data:

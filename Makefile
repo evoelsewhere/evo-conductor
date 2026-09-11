@@ -1,4 +1,4 @@
-.PHONY: all setup-data reset-db kill-dev-ports dev-api dev-web dev dev-tools build-web build check help
+.PHONY: all setup-data reset-db kill-dev-ports dev-api dev-web dev dev-tools build-web build check help postgres-up postgres-down test-postgres
 
 API_PORT ?= 4700
 WEB_PORT ?= 5174
@@ -82,6 +82,20 @@ dev: kill-dev-ports setup-data ## API + web together, both reloading (open http:
 
 dev-tools: ## Install cargo-watch, which gives the API hot reload
 	cargo install cargo-watch --locked
+
+postgres-up: ## Start the local Postgres from docker-compose.yml (:5432)
+	@command -v docker >/dev/null 2>&1 || { echo "error: 'docker' not found"; exit 1; }
+	docker compose up -d postgres
+
+postgres-down: ## Stop the local Postgres container (keeps its data volume)
+	docker compose stop postgres
+
+test-postgres: ## Run the Postgres-only storage tests (starts Postgres if needed)
+	docker compose up -d postgres
+	@echo "waiting for postgres to accept connections..."
+	@for i in $$(seq 1 20); do docker compose exec -T postgres pg_isready -U conductor -d conductor >/dev/null 2>&1 && break; sleep 1; done
+	CONDUCTOR_TEST_POSTGRES_URL='postgres://conductor:conductor@127.0.0.1:5432/conductor' \
+	  cargo test -p conductor-storage --test member_access_postgres -- --ignored
 
 build-web:
 	cd apps/web && bun install && bun run build

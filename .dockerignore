@@ -1,0 +1,10 @@
+target/
+data/
+apps/web/node_modules/
+apps/web/dist/
+apps/web/e2e/
+apps/web/playwright-report/
+apps/web/test-results/
+.git/
+.env
+*.log
