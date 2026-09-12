@@ -1070,7 +1070,7 @@ function replaceCachedResource(
 }
 
 function resourceCatalogPath(kind: string) {
-  if (kind === "agent") return "/app/resources/agents" as const
+  if (kind === "agent_team") return "/app/resources/teams" as const
   if (kind === "skill") return "/app/resources/skills" as const
   if (kind === "plugin") return "/app/resources/plugins" as const
   return "/app/resources" as const

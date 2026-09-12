@@ -226,7 +226,6 @@ stable_string_enum! {
         AnalyticsViewDelete => "analytics_view.delete",
         ClientRegister => "client.register",
         ClientHeartbeat => "client.heartbeat",
-        ClientResourcesSnapshot => "client.resources.snapshot",
         ClientResourcesChanges => "client.resources.changes",
         ClientResourcesFetch => "client.resources.fetch",
         ClientResourceVersionRead => "client.resource_version.read",
@@ -1097,14 +1096,16 @@ fn grant_for_role(role: PrimaryRole, permission: PermissionKey) -> Option<Permis
         P::ResourceLifecycleManage if role == R::Contribute => ConstraintExpr::AllOf(vec![
             ConstraintExpr::atom(TargetConstraint::OwnerActor),
             ConstraintExpr::atom(TargetConstraint::ResourceKindIn {
-                values: NonEmptySet::try_new(vec![ResourceKind::Agent, ResourceKind::Skill])
+                values: NonEmptySet::try_new(vec![ResourceKind::AgentTeam, ResourceKind::Skill])
                     .expect("fixed resource-kind grant is non-empty and unique"),
             }),
         ]),
 
+        // A Team ships Agent Markdown and nothing executable, so it carries the
+        // same release rights as the Agents it is made of.
         P::ResourceReleaseNonExecutable => {
             let kind = ConstraintExpr::atom(TargetConstraint::ResourceKindIn {
-                values: NonEmptySet::try_new(vec![ResourceKind::Agent, ResourceKind::Skill])
+                values: NonEmptySet::try_new(vec![ResourceKind::AgentTeam, ResourceKind::Skill])
                     .expect("fixed resource-kind grant is non-empty and unique"),
             });
             if role == R::Contribute {

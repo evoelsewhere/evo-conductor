@@ -10,7 +10,7 @@ function resourceRow(name: string): ResourceUsageBreakdown {
   return {
     resource_id: `resource-${name}`,
     version_id: `version-${name}`,
-    kind: "agent",
+    kind: "agent_team",
     name,
     version: "1.0.0",
     relation: "executing_agent",

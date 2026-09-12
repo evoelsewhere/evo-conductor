@@ -45,6 +45,7 @@ import {
 import { useMinimumLoading } from "@/shared/hooks/use-minimum-loading"
 import { useAuthStore } from "@/shared/stores/auth"
 import { ResourceStudioWorkbench } from "@/features/resources/components/resource-studio-workbench"
+import { TeamRosterPanel } from "@/features/resources/components/team-roster-panel"
 import { ResourceDetailMonitoring } from "@/features/resources/components/resource-detail-monitoring"
 import { ResourceModeSelector } from "@/features/resources/components/resource-mode-selector"
 import { ResourceVersionHistory } from "@/features/resources/components/resource-version-history"
@@ -69,6 +70,9 @@ export function ResourceStudioPage() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [editorValue, setEditorValue] = useState("")
   const [dirty, setDirty] = useState(false)
+  // Tracked apart from the source editor's flag: the two tabs edit different
+  // things, and sharing one flag left the other tab's Save wrongly enabled.
+  const [rosterDirty, setRosterDirty] = useState(false)
   const [validation, setValidation] = useState<ResourceValidation | null>(null)
   const [showRelease, setShowRelease] = useState(false)
   const [releaseResult, setReleaseResult] = useState<string | null>(null)
@@ -139,8 +143,9 @@ export function ResourceStudioPage() {
       versions.isLoading &&
       !versions.data,
   )
+  const isTeam = resource?.kind === RESOURCE_KIND.AGENT_TEAM
   const supportsTargetModes = Boolean(
-    resource && ["agent", "skill"].includes(resource.kind),
+    resource && ["agent_team", "skill"].includes(resource.kind),
   )
   const targetModes = supportsTargetModes && draft.data
     ? modesFromDraft(draft.data?.files)
@@ -386,18 +391,26 @@ export function ResourceStudioPage() {
     >
       <div className="mb-4 flex gap-1 border-b border-(--border-soft)">
         {([
+          [RESOURCE_STUDIO_TAB.ROSTER, "Roster"],
           [RESOURCE_STUDIO_TAB.SOURCE, "Source & validation"],
           [RESOURCE_STUDIO_TAB.VERSIONS, `Versions (${versions.isLoading ? "…" : versions.data?.length ?? 0})`],
           [RESOURCE_STUDIO_TAB.MONITORING, "Monitoring"],
         ] as const)
           .filter(([value]) => value !== RESOURCE_STUDIO_TAB.MONITORING || canMonitor)
+          .filter(([value]) => value !== RESOURCE_STUDIO_TAB.ROSTER || isTeam)
           .map(([value, label]) => (
           <button
             key={value}
             type="button"
             onClick={() => {
               if (tab === value) return
-              if (!dirty || window.confirm("Discard the unsaved editor change?")) setTab(value)
+              const pending =
+                tab === RESOURCE_STUDIO_TAB.ROSTER ? rosterDirty : dirty
+              const prompt =
+                tab === RESOURCE_STUDIO_TAB.ROSTER
+                  ? "Discard the unsaved roster change?"
+                  : "Discard the unsaved editor change?"
+              if (!pending || window.confirm(prompt)) setTab(value)
             }}
             className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
               tab === value
@@ -417,7 +430,29 @@ export function ResourceStudioPage() {
         </div>
       )}
 
-      {tab === RESOURCE_STUDIO_TAB.SOURCE ? (
+      {tab === RESOURCE_STUDIO_TAB.ROSTER ? (
+        draftInitialLoading || !draft.data ? (
+          <LoadingState label="Loading the team roster…">
+            <Skeleton className="h-40 w-full" />
+          </LoadingState>
+        ) : (
+          <TeamRosterPanel
+            resourceId={resourceId}
+            tree={draft.data}
+            canAuthor={canAuthor}
+            teamLabel={resource.name}
+            onDirtyChange={setRosterDirty}
+            onTreeChange={(next) => {
+              queryClient.setQueryData(
+                [RESOURCE_QUERY_KEY, resourceId, "draft"],
+                next,
+              )
+              setValidation(null)
+              void queryClient.invalidateQueries({ queryKey: [RESOURCE_QUERY_KEY] })
+            }}
+          />
+        )
+      ) : tab === RESOURCE_STUDIO_TAB.SOURCE ? (
         <>
           {targetModesLoading ? (
             <ResourceModePanelSkeleton />
@@ -847,6 +882,6 @@ function nextPatch(highest: string | null) {
 function resourceCatalogPath(kind: ManagedResource["kind"]) {
   if (kind === RESOURCE_KIND.PLUGIN) return RESOURCE_KIND_USAGE_PATHS.plugin.overview
   if (kind === RESOURCE_KIND.SKILL) return RESOURCE_KIND_USAGE_PATHS.skill.overview
-  if (kind === RESOURCE_KIND.AGENT) return RESOURCE_KIND_USAGE_PATHS.agent.overview
+  if (kind === RESOURCE_KIND.AGENT_TEAM) return "/app/resources/teams" as const
   return "/app/resources" as const
 }

@@ -73,10 +73,20 @@ const kindPageMeta: Partial<Record<ResourceKind, { title: string; subtitle: stri
     title: "Skills",
     subtitle: "Govern reusable skills from draft to measurable outcomes.",
   },
-  [RESOURCE_KIND.AGENT]: {
-    title: "Agents",
-    subtitle: "Govern agent definitions from draft to measurable outcomes.",
+  [RESOURCE_KIND.AGENT_TEAM]: {
+    title: "Agent teams",
+    subtitle: "Govern a lead and its members as one unit, delivered to EvoFlux together.",
   },
+}
+
+type UsageNavKind = Extract<ResourceKind, "plugin" | "skill" | "agent_team">
+
+function hasUsageNav(kind: ResourceKind): kind is UsageNavKind {
+  return (
+    kind === RESOURCE_KIND.PLUGIN ||
+    kind === RESOURCE_KIND.SKILL ||
+    kind === RESOURCE_KIND.AGENT_TEAM
+  )
 }
 
 const statusOptions = [
@@ -231,10 +241,8 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
         ) : undefined
       }
     >
-      {fixedKind && canMonitor && (
-        <ResourceUsageNav
-          kind={fixedKind as Extract<ResourceKind, "plugin" | "skill" | "agent">}
-        />
+      {fixedKind && canMonitor && hasUsageNav(fixedKind) && (
+        <ResourceUsageNav kind={fixedKind} />
       )}
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {resourcesInitialLoading
@@ -317,7 +325,7 @@ export function ResourcesPage({ fixedKind }: { fixedKind?: ResourceKind }) {
                   ? "/app/resources/plugins/usage"
                   : fixedKind === RESOURCE_KIND.SKILL
                     ? "/app/resources/skills/usage"
-                    : "/app/resources/agents/usage",
+                    : "/app/resources/teams/usage",
               })
             }
           >

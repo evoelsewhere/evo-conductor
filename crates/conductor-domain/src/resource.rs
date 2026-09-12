@@ -7,7 +7,7 @@ use crate::role::PrimaryRole;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKind {
-    Agent,
+    AgentTeam,
     Skill,
     Plugin,
     Workflow,
@@ -53,7 +53,7 @@ impl ResourceTargetMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceBundleKind {
-    Agent,
+    AgentTeam,
     Skill,
     Plugin,
 }
@@ -61,7 +61,7 @@ pub enum ResourceBundleKind {
 impl ResourceBundleKind {
     pub fn from_resource_kind(kind: ResourceKind) -> Option<Self> {
         match kind {
-            ResourceKind::Agent => Some(Self::Agent),
+            ResourceKind::AgentTeam => Some(Self::AgentTeam),
             ResourceKind::Skill => Some(Self::Skill),
             ResourceKind::Plugin => Some(Self::Plugin),
             ResourceKind::Workflow | ResourceKind::Command => None,
@@ -70,11 +70,36 @@ impl ResourceBundleKind {
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Agent => "agent",
+            Self::AgentTeam => "agent_team",
             Self::Skill => "skill",
             Self::Plugin => "plugin",
         }
     }
+}
+
+/// Directory every Agent definition of a Team release lives in.
+///
+/// A Team ships several Agent Markdown files in one bundle, so a fixed prefix
+/// keeps the definitions unambiguous against `team.json` and the deployment
+/// metadata beside them.
+pub const TEAM_AGENT_DIR: &str = "agents/";
+
+/// Declares which Agent of a Team release leads it and which ones join it.
+///
+/// EvoFlux derives the team purely from Agent frontmatter (`role`, and `lead`
+/// on each member), so this manifest is not what EvoFlux obeys — it is the
+/// authored intent Conductor validates the Markdown against, so a release that
+/// disagrees with itself is rejected before publish instead of silently
+/// attaching members to whichever lead EvoFlux defaults to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamManifest {
+    pub lead: String,
+    #[serde(default)]
+    pub members: Vec<String>,
+}
+
+impl TeamManifest {
+    pub const FILENAME: &'static str = "team.json";
 }
 
 /// One immutable file in a [`ResourceBundle`].
@@ -114,7 +139,7 @@ impl ResourceBundle {
 impl ResourceKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Agent => "agent",
+            Self::AgentTeam => "agent_team",
             Self::Skill => "skill",
             Self::Plugin => "plugin",
             Self::Workflow => "workflow",
@@ -124,7 +149,7 @@ impl ResourceKind {
 
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "agent" => Some(Self::Agent),
+            "agent_team" => Some(Self::AgentTeam),
             "skill" => Some(Self::Skill),
             "plugin" | "mcp" => Some(Self::Plugin),
             "workflow" => Some(Self::Workflow),
@@ -245,7 +270,7 @@ pub struct ResourceVersion {
     pub artifact_key: Option<String>,
     /// Additive bundle metadata. It is absent for legacy versions and for
     /// governed resource kinds outside the Agent/Skill/Plugin bundle contract.
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "bundle_v2")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle: Option<ResourceBundle>,
     pub minimum_evoflux_version: Option<String>,
     pub created_by: Uuid,
@@ -554,7 +579,7 @@ pub struct EffectiveResourceVersion {
     pub sha256: String,
     pub size: u64,
     pub artifact_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "bundle_v2")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bundle: Option<ResourceBundle>,
     pub minimum_evoflux_version: Option<String>,
 }
@@ -584,6 +609,9 @@ pub enum ResourceInventoryObservedState {
     Declined,
     Incompatible,
     OwnershipConflict,
+    /// Applied on disk, but an Agent names a Skill or MCP server the
+    /// installation cannot resolve, so the release is not running as published.
+    DependencyMissing,
     ProjectScopeMismatch,
     Error,
     Removed,
@@ -609,6 +637,7 @@ impl ResourceInventoryObservedState {
             Self::Declined => "declined",
             Self::Incompatible => "incompatible",
             Self::OwnershipConflict => "ownership_conflict",
+            Self::DependencyMissing => "dependency_missing",
             Self::ProjectScopeMismatch => "project_scope_mismatch",
             Self::Error => "error",
             Self::Removed => "removed",
@@ -626,6 +655,7 @@ impl ResourceInventoryObservedState {
             "declined" => Some(Self::Declined),
             "incompatible" => Some(Self::Incompatible),
             "ownership_conflict" => Some(Self::OwnershipConflict),
+            "dependency_missing" => Some(Self::DependencyMissing),
             "project_scope_mismatch" => Some(Self::ProjectScopeMismatch),
             "error" => Some(Self::Error),
             "removed" => Some(Self::Removed),
@@ -814,7 +844,7 @@ pub struct ResourceMonitoring {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResourceCounts {
-    pub agents: u32,
+    pub agent_teams: u32,
     pub skills: u32,
     pub plugins: u32,
     pub workflows: u32,
@@ -850,7 +880,7 @@ mod tests {
     fn bundle_has_a_stable_wire_shape() {
         let bundle = ResourceBundle {
             schema_version: ResourceBundle::SCHEMA_VERSION,
-            kind: ResourceBundleKind::Agent,
+            kind: ResourceBundleKind::AgentTeam,
             slug: "reviewer".into(),
             version: "1.2.3".into(),
             artifact_sha256: "a".repeat(64),
@@ -858,7 +888,7 @@ mod tests {
             artifact_media_type: "application/vnd.evoflux.resource+json".into(),
             tree_sha256: "b".repeat(64),
             files: vec![FileManifestEntry {
-                path: "reviewer.md".into(),
+                path: "agents/reviewer.md".into(),
                 sha256: "c".repeat(64),
                 size: 12,
                 media_type: "text/markdown".into(),
@@ -868,7 +898,7 @@ mod tests {
 
         let value = serde_json::to_value(&bundle).unwrap();
         assert_eq!(value["schema_version"], 2);
-        assert_eq!(value["kind"], "agent");
+        assert_eq!(value["kind"], "agent_team");
         assert_eq!(value["artifact_sha256"], "a".repeat(64));
         assert_eq!(value["tree_sha256"], "b".repeat(64));
         assert_eq!(value["files"][0]["media_type"], "text/markdown");
@@ -877,44 +907,6 @@ mod tests {
             serde_json::from_value::<ResourceBundle>(value).unwrap(),
             bundle
         );
-    }
-
-    #[test]
-    fn legacy_bundle_field_is_read_but_canonical_output_uses_bundle() {
-        let version: EffectiveResourceVersion = serde_json::from_value(serde_json::json!({
-            "project_id": Uuid::nil(),
-            "resource_id": Uuid::nil(),
-            "version_id": Uuid::nil(),
-            "kind": "skill",
-            "slug": "audit",
-            "version": "1.0.0",
-            "description": null,
-            "changelog": null,
-            "version_history": [],
-            "release_channel": "published",
-            "payload": {},
-            "sha256": "a".repeat(64),
-            "size": 42,
-            "artifact_key": null,
-            "bundle_v2": {
-                "schema_version": 2,
-                "kind": "skill",
-                "slug": "audit",
-                "version": "1.0.0",
-                "artifact_sha256": "a".repeat(64),
-                "artifact_size": 42,
-                "artifact_media_type": "application/vnd.evoflux.resource+zip",
-                "tree_sha256": "b".repeat(64),
-                "files": []
-            },
-            "minimum_evoflux_version": null
-        }))
-        .unwrap();
-
-        assert!(version.bundle.is_some());
-        let canonical = serde_json::to_value(version).unwrap();
-        assert!(canonical.get("bundle").is_some());
-        assert!(canonical.get("bundle_v2").is_none());
     }
 
     #[test]

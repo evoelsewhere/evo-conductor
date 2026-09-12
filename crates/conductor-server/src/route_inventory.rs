@@ -21,7 +21,7 @@ use crate::http::authorization::{
 pub const GENERATED_ROUTE_INVENTORY_PATH: &str = "docs/generated/req-004-route-inventory.json";
 
 const RESOURCE_KINDS: [ResourceKind; 5] = [
-    ResourceKind::Agent,
+    ResourceKind::AgentTeam,
     ResourceKind::Skill,
     ResourceKind::Plugin,
     ResourceKind::Workflow,
@@ -344,7 +344,7 @@ fn selector_is_target_dependent(selector: &RouteTargetSelector) -> bool {
         | RouteTargetSelector::KindPlugin
         | RouteTargetSelector::KindPath
         | RouteTargetSelector::KindOfResourcePath
-        | RouteTargetSelector::AgentOrSkill
+        | RouteTargetSelector::NonExecutableKind
         | RouteTargetSelector::RestrictedKind
         | RouteTargetSelector::InProjectResourcePath
         | RouteTargetSelector::EffectiveAudienceList

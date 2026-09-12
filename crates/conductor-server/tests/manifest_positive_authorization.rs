@@ -41,7 +41,7 @@ use support::{test_app_with_authorization, TestApp};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-const EXPECTED_CONNECTION_ROLE_CASES: usize = 33;
+const EXPECTED_CONNECTION_ROLE_CASES: usize = 30;
 const REVIEWED_ROUTE_INVENTORY: &str =
     include_str!("../../../docs/generated/req-004-route-inventory.json");
 
@@ -1254,7 +1254,6 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | AnalyticsViewDelete
                 | ClientRegister
                 | ClientHeartbeat
-                | ClientResourcesSnapshot
                 | ClientResourcesChanges
                 | ClientResourcesFetch
                 | ClientResourceVersionRead
@@ -1390,7 +1389,6 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | AnalyticsViewCreate
                 | ClientRegister
                 | ClientHeartbeat
-                | ClientResourcesSnapshot
                 | ClientResourcesChanges
                 | ClientResourcesFetch
                 | ClientResourceVersionRead
@@ -1417,7 +1415,6 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | ProjectLogoRead
         | ClientRegister
         | ClientHeartbeat
-        | ClientResourcesSnapshot
         | ClientResourcesChanges
         | ClientResourcesFetch
         | ClientResourceVersionRead
@@ -1433,7 +1430,7 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
     use Action::*;
 
     match route.action {
-        ClientResourcesSnapshot | ClientResourcesChanges => {
+        ClientResourcesChanges => {
             PreparedRequest::empty(route, StatusCode::OK)
         }
         ClientResourcesFetch => {
@@ -2011,7 +2008,6 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | AnalyticsViewDelete
         | ClientRegister
         | ClientHeartbeat
-        | ClientResourcesSnapshot
         | ClientResourcesChanges
         | ClientResourcesFetch
         | ClientResourceVersionRead
@@ -2459,7 +2455,7 @@ fn target_requirement_classification_is_manifest_driven() {
         .iter()
         .filter(|route| route_requires_target(route))
         .count();
-    assert_eq!(target_routes, 55);
+    assert_eq!(target_routes, 54);
     assert!(manifest
         .routes
         .iter()

@@ -434,7 +434,7 @@ async fn inventory_rejects_unknown_state_and_cross_resource_versions() {
     let member = app.seed_user(PrimaryRole::User).await;
     let owner = app.seed_user(PrimaryRole::Contribute).await;
     let (first_resource_id, first_version_id) =
-        seed_resource(&app, project_id, owner.id, "agent", "first", "First").await;
+        seed_resource(&app, project_id, owner.id, "agent_team", "first", "First").await;
     let (_second_resource_id, second_version_id) =
         seed_resource(&app, project_id, owner.id, "skill", "second", "Second").await;
     let raw = "evc_invalid_inventory";
@@ -524,7 +524,7 @@ async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost
         &app,
         project_id,
         resource_owner.id,
-        "agent",
+        "agent_team",
         "reviewer",
         "Reviewer",
     )

@@ -44,7 +44,7 @@ async fn duplicate_active_token_hash_fails_closed_before_owner_or_scope_selectio
     .await;
 
     let (status, body) = app
-        .get("/api/v1/subscribe/resources", Some(RAW_TOKEN_CANARY))
+        .get("/api/v1/resources/changes", Some(RAW_TOKEN_CANARY))
         .await;
 
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");

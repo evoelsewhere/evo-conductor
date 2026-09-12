@@ -49,7 +49,7 @@ async fn member_tag_assignments_drive_resource_visibility() {
         .create(
             project.id,
             &CreateResourceRequest {
-                kind: ResourceKind::Agent,
+                kind: ResourceKind::AgentTeam,
                 slug: "tagged-agent".into(),
                 name: "Tagged agent".into(),
                 description: None,
@@ -142,7 +142,7 @@ async fn invalid_effect_and_foreign_project_rows_never_grant_resource_visibility
         .create(
             project.id,
             &CreateResourceRequest {
-                kind: ResourceKind::Agent,
+                kind: ResourceKind::AgentTeam,
                 slug: "audience-integrity-agent".into(),
                 name: "Audience integrity agent".into(),
                 description: None,

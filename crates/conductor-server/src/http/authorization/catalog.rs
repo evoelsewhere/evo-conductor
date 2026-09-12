@@ -7,7 +7,7 @@ use conductor_domain::{
 };
 use serde::Serialize;
 
-pub const EXPECTED_ROUTE_ACTIONS: usize = 102;
+pub const EXPECTED_ROUTE_ACTIONS: usize = 101;
 pub const MAX_LOGO_BYTES: usize = 512 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -58,7 +58,7 @@ pub enum RouteTargetSelector {
     KindPlugin,
     KindPath,
     KindOfResourcePath,
-    AgentOrSkill,
+    NonExecutableKind,
     RestrictedKind,
     InProjectResourcePath,
     EffectiveAudienceList,
@@ -114,7 +114,9 @@ impl RouteTargetSelector {
             | S::MemberDetail => ConstraintExpr::atom(C::SameProject),
             S::AggregateOnly => ConstraintExpr::atom(C::AggregateOnly),
             S::KindPlugin => kind_constraint(vec![ResourceKind::Plugin]),
-            S::AgentOrSkill => kind_constraint(vec![ResourceKind::Agent, ResourceKind::Skill]),
+            S::NonExecutableKind => {
+                kind_constraint(vec![ResourceKind::AgentTeam, ResourceKind::Skill])
+            }
             S::RestrictedKind => kind_constraint(vec![
                 ResourceKind::Plugin,
                 ResourceKind::Workflow,

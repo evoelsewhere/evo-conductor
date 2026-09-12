@@ -7,7 +7,7 @@ import { PERMISSION, mayRequest } from "@/shared/lib/authorization"
 import { cn } from "@/shared/lib/utils"
 import { useAuthStore } from "@/shared/stores/auth"
 
-export function ResourceUsageNav({ kind }: { kind?: Extract<ResourceKind, "plugin" | "skill" | "agent"> }) {
+export function ResourceUsageNav({ kind }: { kind?: Extract<ResourceKind, "plugin" | "skill" | "agent_team"> }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const can = useAuthStore((state) => state.can)
   const showIdentifyingActivity = mayRequest(can(PERMISSION.TELEMETRY_MEMBER_READ_ANY))

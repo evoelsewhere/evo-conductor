@@ -128,7 +128,7 @@ async fn seed_published_private_resource(app: &TestApp, project_id: Uuid, owner_
         .create(
             project_id,
             &CreateResourceRequest {
-                kind: ResourceKind::Agent,
+                kind: ResourceKind::AgentTeam,
                 slug: "private-realtime-agent".into(),
                 name: "Private realtime agent".into(),
                 description: None,

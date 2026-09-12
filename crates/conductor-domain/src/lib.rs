@@ -79,8 +79,8 @@ pub use resource::{
     ResourceStatus, ResourceTargetMode, ResourceUsageBatchRequest, ResourceUsageBatchResponse,
     ResourceUsageEventRequest, ResourceUsageRejection, ResourceValidation, ResourceVersion,
     ResourceVersionLifecycleAction, ResourceVersionNotice, ResourceVersionStatus,
-    ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest, UpdateResourceRequest,
-    UpsertResourceFeedbackRequest, VersionMode,
+    ResourceVisibility, RestoreResourceVersionRequest, SaveDraftFileRequest, TeamManifest,
+    UpdateResourceRequest, UpsertResourceFeedbackRequest, VersionMode, TEAM_AGENT_DIR,
 };
 pub use resource_semver::{SemanticVersion, SemanticVersionError};
 pub use role::{

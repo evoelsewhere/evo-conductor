@@ -46,9 +46,9 @@ async fn owner_sensitive_resource_handlers_allow_owner_hide_peer_and_reject_cros
     let peer_token = app.token_for(&peer).await;
 
     let slug = "focused-owned-agent";
-    let files = starter_files(ResourceKind::Agent, slug, "Focused owned agent");
+    let files = starter_files(ResourceKind::AgentTeam, slug, "Focused owned agent");
     let resource_id =
-        create_resource(&app, &owner_token, ResourceKind::Agent, slug, files.clone()).await;
+        create_resource(&app, &owner_token, ResourceKind::AgentTeam, slug, files.clone()).await;
     let resource_path = format!("/api/resources/{resource_id}");
     let access_path = format!("{resource_path}/access");
     let validate_path = format!("{resource_path}/draft/validate");
@@ -86,8 +86,8 @@ async fn owner_sensitive_resource_handlers_allow_owner_hide_peer_and_reject_cros
 
     let source = files
         .iter()
-        .find(|file| file.path == format!("{slug}.md"))
-        .expect("agent source");
+        .find(|file| file.path == format!("agents/{slug}.md"))
+        .expect("team lead source");
     let save_path = format!("{resource_path}/draft/files/{}", source.path);
     let save_body = json!({
         "content": format!("{}\n", source.content),
@@ -242,14 +242,14 @@ async fn owner_sensitive_resource_handlers_allow_owner_hide_peer_and_reject_cros
 
     let cross_slug = "focused-cross-project-agent";
     let cross_files = starter_files(
-        ResourceKind::Agent,
+        ResourceKind::AgentTeam,
         cross_slug,
         "Focused cross project agent",
     );
     let cross_id = create_resource(
         &app,
         &owner_token,
-        ResourceKind::Agent,
+        ResourceKind::AgentTeam,
         cross_slug,
         cross_files.clone(),
     )
@@ -374,7 +374,7 @@ async fn resource_kind_matrix_proves_allowed_lifecycle_and_denied_zero_side_effe
     let admin_token = app.token_for(&admin).await;
     let contributor_token = app.token_for(&contributor).await;
 
-    for kind in [ResourceKind::Agent, ResourceKind::Skill] {
+    for kind in [ResourceKind::AgentTeam, ResourceKind::Skill] {
         let slug = format!("contributor-{}", kind.as_str());
         let resource_id = create_resource(
             &app,

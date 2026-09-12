@@ -1,7 +1,6 @@
 import { useMutation } from "@tanstack/react-query"
 import {
   AlertTriangle,
-  Bot,
   Boxes,
   CheckCircle2,
   FileArchive,
@@ -9,6 +8,7 @@ import {
   PackagePlus,
   Sparkles,
   UploadCloud,
+  Users,
   Workflow,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -47,7 +47,7 @@ import { Select } from "@/shared/ui/select"
 import { Textarea } from "@/shared/ui/textarea"
 
 const RESOURCE_CREATE_ICON = {
-  [RESOURCE_KIND.AGENT]: Bot,
+  [RESOURCE_KIND.AGENT_TEAM]: Users,
   [RESOURCE_KIND.SKILL]: Sparkles,
   [RESOURCE_KIND.PLUGIN]: PackagePlus,
   [RESOURCE_KIND.WORKFLOW]: Workflow,
@@ -67,7 +67,7 @@ export function ResourceCreateDrawer({
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const selectedFileRef = useRef<File | null>(null)
-  const [kind, setKind] = useState<ResourceKind>(defaultKind ?? RESOURCE_KIND.AGENT)
+  const [kind, setKind] = useState<ResourceKind>(defaultKind ?? RESOURCE_KIND.AGENT_TEAM)
   const [mode, setMode] = useState<ResourceCreateMode>(RESOURCE_CREATE_MODE.UPLOAD)
   const [file, setFile] = useState<File | null>(null)
   const [inspection, setInspection] = useState<ResourceArchiveInspection | null>(null)
@@ -82,7 +82,7 @@ export function ResourceCreateDrawer({
   const [targetModes, setTargetModes] = useState<ResourceTargetMode[]>([
     ...RESOURCE_TARGET_MODES,
   ])
-  const supportsArchive = kind === RESOURCE_KIND.AGENT || kind === RESOURCE_KIND.SKILL
+  const supportsArchive = kind === RESOURCE_KIND.AGENT_TEAM || kind === RESOURCE_KIND.SKILL
 
   const inspect = useMutation({
     mutationFn: ({ archive, resourceKind }: { archive: File; resourceKind: ResourceKind }) =>
@@ -135,7 +135,7 @@ export function ResourceCreateDrawer({
   useEffect(() => {
     if (open) return
     selectedFileRef.current = null
-    setKind(defaultKind ?? RESOURCE_KIND.AGENT)
+    setKind(defaultKind ?? RESOURCE_KIND.AGENT_TEAM)
     setMode(RESOURCE_CREATE_MODE.UPLOAD)
     setFile(null)
     setInspection(null)
@@ -189,7 +189,7 @@ export function ResourceCreateDrawer({
     resetArchive()
     setKind(nextKind)
     setMode(
-      nextKind === RESOURCE_KIND.AGENT || nextKind === RESOURCE_KIND.SKILL
+      nextKind === RESOURCE_KIND.AGENT_TEAM || nextKind === RESOURCE_KIND.SKILL
         ? RESOURCE_CREATE_MODE.UPLOAD
         : RESOURCE_CREATE_MODE.TEMPLATE,
     )
@@ -322,7 +322,7 @@ export function ResourceCreateDrawer({
                 label={`${RESOURCE_KIND_LABEL[kind]} slug`}
                 htmlFor="resource-slug"
                 hint={
-                  kind === RESOURCE_KIND.AGENT
+                  kind === RESOURCE_KIND.AGENT_TEAM
                     ? "Must match frontmatter name"
                     : "Lowercase letters, numbers and hyphens"
                 }
@@ -459,10 +459,10 @@ function ArchiveDropzone({
   onFile: (file: File | undefined) => void
 }) {
   const contract =
-    kind === RESOURCE_KIND.AGENT
-      ? "Exactly one root .md Agent definition"
+    kind === RESOURCE_KIND.AGENT_TEAM
+      ? "team.json plus one agents/<name>.md per Agent"
       : "Root SKILL.md plus optional bundle files"
-  const article = kind === RESOURCE_KIND.AGENT ? "an" : "a"
+  const article = kind === RESOURCE_KIND.AGENT_TEAM ? "an" : "a"
   return (
     <div
       className={cn(
@@ -657,7 +657,7 @@ function hasAllowedExtension(name: string) {
 }
 
 function normalizeResourceSlug(kind: ResourceKind, value: string) {
-  const allowed = kind === RESOURCE_KIND.AGENT ? /[^a-z0-9._-]+/g : /[^a-z0-9-]+/g
+  const allowed = kind === RESOURCE_KIND.AGENT_TEAM ? /[^a-z0-9._-]+/g : /[^a-z0-9-]+/g
   return value
     .toLowerCase()
     .trim()

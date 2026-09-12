@@ -19,7 +19,7 @@ use crate::core::error::{
     InvalidPersistedPrincipal, InvalidPersistedResource, PersistedPrincipalField,
     PersistedResourceField, PersistedSecurityReason, StorageError, StorageResult,
 };
-use crate::core::mapping::{canonicalize_resource_payload, map_resource, parse_dt};
+use crate::core::mapping::{map_resource, parse_dt};
 
 #[derive(Clone)]
 pub struct ResourceRepo {
@@ -2444,7 +2444,6 @@ fn map_effective_version(row: sqlx::any::AnyRow) -> StorageResult<EffectiveResou
         )
     })?;
     let payload = serde_json::from_str(&payload_raw)
-        .map(canonicalize_resource_payload)
         .map_err(|_| {
             invalid(
                 PersistedResourceField::Payload,
@@ -2648,10 +2647,9 @@ fn parse_effective_resource_dt(
 }
 
 fn map_version(row: sqlx::any::AnyRow) -> ResourceVersion {
-    let payload = canonicalize_resource_payload(
+    let payload: serde_json::Value =
         serde_json::from_str(row.get::<String, _>("payload").as_str())
-            .unwrap_or_else(|_| serde_json::json!({})),
-    );
+            .unwrap_or_else(|_| serde_json::json!({}));
     let bundle = bundle_from_payload(&payload);
     ResourceVersion {
         id: parse_uuid(row.get("id")),
@@ -2689,42 +2687,9 @@ fn bundle_from_payload(payload: &serde_json::Value) -> Option<ResourceBundle> {
     payload
         .get("bundle")
         // Releases created before the canonical field rename remain readable.
-        .or_else(|| payload.get("bundle_v2"))
         .cloned()
         .and_then(|value| serde_json::from_value(value).ok())
         .filter(|bundle: &ResourceBundle| bundle.schema_version == ResourceBundle::SCHEMA_VERSION)
-}
-
-#[cfg(test)]
-mod bundle_payload_tests {
-    use super::*;
-
-    #[test]
-    fn reads_legacy_bundle_key_without_reemitting_it() {
-        let legacy = serde_json::json!({
-            "bundle_v2": {
-                "schema_version": 2,
-                "kind": "agent",
-                "slug": "reviewer",
-                "version": "1.0.0",
-                "artifact_sha256": "a".repeat(64),
-                "artifact_size": 10,
-                "artifact_media_type": "application/vnd.evoflux.resource+zip",
-                "tree_sha256": "b".repeat(64),
-                "files": []
-            }
-        });
-
-        let bundle = bundle_from_payload(&legacy).expect("legacy bundle remains readable");
-        assert_eq!(bundle.slug, "reviewer");
-        let canonical = canonicalize_resource_payload(legacy);
-        assert!(canonical.get("bundle").is_some());
-        assert!(canonical.get("bundle_v2").is_none());
-        assert!(serde_json::to_value(bundle)
-            .unwrap()
-            .get("bundle_v2")
-            .is_none());
-    }
 }
 
 fn map_feedback(row: sqlx::any::AnyRow) -> ResourceFeedback {

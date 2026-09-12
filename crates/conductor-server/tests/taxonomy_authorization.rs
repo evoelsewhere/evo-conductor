@@ -173,7 +173,7 @@ async fn resource_tag_assignment_requires_admin_or_the_owning_contributor() {
         .create(
             project.id,
             &CreateResourceRequest {
-                kind: ResourceKind::Agent,
+                kind: ResourceKind::AgentTeam,
                 slug: "owned-agent".into(),
                 name: "Owned agent".into(),
                 description: None,

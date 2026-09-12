@@ -475,36 +475,6 @@ pub async fn upsert_feedback(
 }
 
 /// EvoFlux resource snapshot fallback — `Authorization: Bearer evc_...`.
-pub async fn subscribe(
-    State(state): State<AppState>,
-    Extension(route): Extension<RouteAuthorization>,
-    Extension(principal): Extension<ConnectionPrincipal>,
-) -> ApiResult<Json<Vec<ManagedResource>>> {
-    authorize_current_connection_target(
-        &state,
-        &route,
-        &principal,
-        AuthorizationTarget {
-            project_id: Some(project_id(&state).await?),
-            target_type: TargetType::Resource,
-            target_id: None,
-            owner_id: None,
-            resource_kind: None,
-            lifecycle: None,
-            effective_audience: Some(true),
-        },
-    )
-    .await?;
-    Ok(Json(
-        state
-            .db
-            .resources()
-            .list_visible_to(principal.secret.owner_user_id)
-            .await?,
-    ))
-}
-
-/// Idempotent EvoFlux usage batch. Member identity always comes from the secret owner.
 pub async fn ingest_usage(
     State(state): State<AppState>,
     Extension(route): Extension<RouteAuthorization>,
@@ -821,7 +791,7 @@ fn initialize_authoring_payload(request: &mut CreateResourceRequest) -> ApiResul
         });
     if matches!(
         request.kind,
-        conductor_domain::ResourceKind::Agent | conductor_domain::ResourceKind::Skill
+        conductor_domain::ResourceKind::AgentTeam | conductor_domain::ResourceKind::Skill
     ) {
         crate::core::resource_authoring::set_target_modes(
             &mut files,

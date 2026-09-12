@@ -16,7 +16,7 @@ use conductor_domain::{
     ResourceFetchEntry, ResourceFetchObject, ResourceFetchRequest, ResourceFetchResponse,
     ResourceFetchTombstone, ResourceInventoryRequest, ResourceInventoryResponse, ResourceKind,
     ResourceStatus, ResourceTargetMode, ResourceValidation, ResourceVisibility,
-    SaveDraftFileRequest, SemanticVersion, TargetType, VersionMode,
+    SaveDraftFileRequest, SemanticVersion, TargetType, TeamManifest, VersionMode, TEAM_AGENT_DIR,
 };
 use conductor_storage::repos::{
     DraftArtifact, DraftContent, DraftWriteError, InventoryWriteError, ReleaseContent,
@@ -46,8 +46,8 @@ const MAX_CHANGE_LIMIT: u32 = 500;
 const MAX_FETCH_HAVE: usize = 5_000;
 const MAX_FETCH_STABILIZE_ATTEMPTS: usize = 4;
 const PLUGIN_IMPORT_CHANGELOG: &str = "Imported plugin package";
-const AGENT_IMPORT_CHANGELOG: &str = "Imported EvoFlux Agent package";
 const SKILL_IMPORT_CHANGELOG: &str = "Imported EvoFlux Skill bundle";
+const TEAM_IMPORT_CHANGELOG: &str = "Imported EvoFlux Agent Team";
 
 #[derive(Debug, Serialize)]
 pub struct ResourceGuide {
@@ -69,10 +69,10 @@ pub async fn guide(
     let kind = parse_kind(&kind)?;
     authorize_authoring_target(&state, &route, &actor, kind).await?;
     let (title, summary, required_entries) = match kind {
-        ResourceKind::Agent => (
-            "EvoFlux Agent",
-            "A Markdown Agent definition with YAML frontmatter and a system prompt.",
-            vec!["<slug>.md"],
+        ResourceKind::AgentTeam => (
+            "EvoFlux Agent Team",
+            "A lead Agent and its members published as one unit. Every member must name its lead, or EvoFlux attaches it to that installation's default lead instead.",
+            vec!["team.json", "agents/<slug>.md"],
         ),
         ResourceKind::Skill => (
             "EvoFlux Skill",
@@ -395,16 +395,23 @@ fn validate_editable_path(path: &str) -> ApiResult<()> {
 
 fn protect_required_entry(resource: &ManagedResource, path: &str) -> ApiResult<()> {
     let required = match resource.kind {
-        ResourceKind::Plugin => "plugin.json".to_string(),
-        ResourceKind::Skill => "SKILL.md".to_string(),
-        ResourceKind::Agent => format!("{}.md", resource.slug),
-        ResourceKind::Workflow | ResourceKind::Command => format!("{}.json", resource.slug),
+        ResourceKind::Plugin => vec!["plugin.json".to_string()],
+        ResourceKind::Skill => vec!["SKILL.md".to_string()],
+        // A Team without its manifest or its lead is not a team, so both are
+        // structural rather than ordinary member files.
+        ResourceKind::AgentTeam => vec![
+            TeamManifest::FILENAME.to_string(),
+            format!("{TEAM_AGENT_DIR}{}.md", resource.slug),
+        ],
+        ResourceKind::Workflow | ResourceKind::Command => vec![format!("{}.json", resource.slug)],
     };
-    if required == path || required.starts_with(&format!("{path}/")) {
-        return Err(ConductorError::msg(format!(
-            "{required} is required and cannot be moved or deleted"
-        ))
-        .into());
+    for entry in required {
+        if entry == path || entry.starts_with(&format!("{path}/")) {
+            return Err(ConductorError::msg(format!(
+                "{entry} is required and cannot be moved or deleted"
+            ))
+            .into());
+        }
     }
     Ok(())
 }
@@ -560,7 +567,7 @@ pub async fn create_resource_archive(
     set_target_modes(&mut files, &parse_archive_modes(query.modes.as_deref())?);
     let inspection = inspect_resource_files(kind, &files, Some(query.slug.trim()));
     let changelog = match kind {
-        ResourceKind::Agent => AGENT_IMPORT_CHANGELOG,
+        ResourceKind::AgentTeam => TEAM_IMPORT_CHANGELOG,
         ResourceKind::Skill => SKILL_IMPORT_CHANGELOG,
         ResourceKind::Plugin | ResourceKind::Workflow | ResourceKind::Command => {
             return Err(
@@ -1498,10 +1505,10 @@ fn parse_kind(value: &str) -> ApiResult<ResourceKind> {
 
 fn parse_import_kind(value: &str) -> ApiResult<ResourceKind> {
     match parse_kind(value)? {
-        kind @ (ResourceKind::Agent | ResourceKind::Skill) => Ok(kind),
-        ResourceKind::Plugin | ResourceKind::Workflow | ResourceKind::Command => {
-            Err(ConductorError::msg("only Agent and Skill ZIP imports use this route").into())
-        }
+        kind @ (ResourceKind::AgentTeam | ResourceKind::Skill) => Ok(kind),
+        ResourceKind::Plugin | ResourceKind::Workflow | ResourceKind::Command => Err(
+            ConductorError::msg("only Agent Team and Skill ZIP imports use this route").into(),
+        ),
     }
 }
 
@@ -1726,7 +1733,7 @@ mod tests {
     fn change_descriptor_exposes_bundle_without_removing_legacy_hash() {
         let bundle = ResourceBundle {
             schema_version: ResourceBundle::SCHEMA_VERSION,
-            kind: ResourceBundleKind::Agent,
+            kind: ResourceBundleKind::AgentTeam,
             slug: "reviewer".into(),
             version: "1.0.0".into(),
             artifact_sha256: "a".repeat(64),
@@ -1745,7 +1752,7 @@ mod tests {
             project_id: Uuid::nil(),
             resource_id: Uuid::nil(),
             version_id: Uuid::nil(),
-            kind: ResourceKind::Agent,
+            kind: ResourceKind::AgentTeam,
             slug: "reviewer".into(),
             version: "1.0.0".into(),
             description: None,

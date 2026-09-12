@@ -48,16 +48,26 @@ async fn configured_app() -> (support::TestApp, String) {
 }
 
 #[tokio::test]
-async fn imports_a_wrapped_evoflux_agent_markdown_package() {
+async fn imports_a_wrapped_evoflux_agent_team_package() {
     let (app, token) = configured_app().await;
-    let package = archive(&[(
-        "release-review/release_review.md",
-        "---\nname: release_review\nrole: member\ndescription: Reviews release readiness.\n---\n\nYou review release readiness.\n",
-    )]);
+    let package = archive(&[
+        (
+            "release-review/team.json",
+            "{\"lead\": \"release_review\", \"members\": [\"release_review_checker\"]}",
+        ),
+        (
+            "release-review/agents/release_review.md",
+            "---\nname: release_review\nrole: lead\ndescription: Reviews release readiness.\n---\n\nYou review release readiness.\n",
+        ),
+        (
+            "release-review/agents/release_review_checker.md",
+            "---\nname: release_review_checker\nrole: member\nlead: release_review\ndescription: Checks release evidence.\n---\n\nYou check release evidence.\n",
+        ),
+    ]);
 
     let (status, inspection) = app
         .post_bytes(
-            "/api/resources/imports/agent/inspect",
+            "/api/resources/imports/agent_team/inspect",
             Some(&token),
             "application/zip",
             package.clone(),
@@ -67,20 +77,20 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
     assert_eq!(inspection["metadata"]["slug"], "release_review");
     assert_eq!(
         inspection["metadata"]["primary_source"],
-        "release_review.md"
+        "agents/release_review.md"
     );
     assert_eq!(inspection["validation"]["valid"], true);
 
     let (status, created) = app
         .post_bytes(
-            "/api/resources/imports/agent?slug=release_review&name=Release%20Review&visibility=shared&modes=coding",
+            "/api/resources/imports/agent_team?slug=release_review&name=Release%20Review&visibility=shared&modes=coding",
             Some(&token),
             "application/zip",
             package,
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{created}");
-    assert_eq!(created["resource"]["kind"], "agent");
+    assert_eq!(created["resource"]["kind"], "agent_team");
     assert_eq!(created["resource"]["slug"], "release_review");
     assert_eq!(created["validation"]["valid"], true);
 
@@ -93,7 +103,13 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
         .await;
     assert_eq!(status, StatusCode::OK, "{tree}");
     let files = tree["files"].as_array().unwrap();
-    assert!(files.iter().any(|file| file["path"] == "release_review.md"));
+    assert!(files
+        .iter()
+        .any(|file| file["path"] == "agents/release_review.md"));
+    assert!(files
+        .iter()
+        .any(|file| file["path"] == "agents/release_review_checker.md"));
+    assert!(files.iter().any(|file| file["path"] == "team.json"));
     let mode_file = files
         .iter()
         .find(|file| file["path"] == ".evoflux.json")
@@ -129,7 +145,7 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
     assert_eq!(status, StatusCode::OK, "{versions}");
     let bundle = &versions[0]["bundle"];
     assert_eq!(bundle["schema_version"], 2);
-    assert_eq!(bundle["kind"], "agent");
+    assert_eq!(bundle["kind"], "agent_team");
     assert_eq!(bundle["slug"], "release_review");
     assert_eq!(bundle["artifact_sha256"], released["sha256"]);
     assert_eq!(bundle["artifact_size"], released["size"]);
@@ -137,7 +153,7 @@ async fn imports_a_wrapped_evoflux_agent_markdown_package() {
         bundle["artifact_media_type"],
         "application/vnd.evoflux.resource+zip"
     );
-    assert_eq!(bundle["files"].as_array().map(Vec::len), Some(2));
+    assert_eq!(bundle["files"].as_array().map(Vec::len), Some(4));
     assert_eq!(bundle["files"][0]["path"], ".evoflux.json");
     assert_eq!(bundle["files"][0]["media_type"], "application/json");
     assert_eq!(bundle["files"][0]["executable"], false);
@@ -263,7 +279,7 @@ async fn regular_members_cannot_inspect_agent_or_skill_archives() {
     )]);
     let (status, _) = app
         .post_bytes(
-            "/api/resources/imports/agent/inspect",
+            "/api/resources/imports/agent_team/inspect",
             Some(&token),
             "application/zip",
             package,

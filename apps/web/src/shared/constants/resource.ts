@@ -1,5 +1,5 @@
 export const RESOURCE_KIND = {
-  AGENT: "agent",
+  AGENT_TEAM: "agent_team",
   SKILL: "skill",
   PLUGIN: "plugin",
   WORKFLOW: "workflow",
@@ -57,7 +57,7 @@ export const VERSION_MODE = {
 export type VersionMode = (typeof VERSION_MODE)[keyof typeof VERSION_MODE]
 
 export const RESOURCE_KIND_LABEL: Record<ResourceKind, string> = {
-  [RESOURCE_KIND.AGENT]: "Agent",
+  [RESOURCE_KIND.AGENT_TEAM]: "Agent team",
   [RESOURCE_KIND.SKILL]: "Skill",
   [RESOURCE_KIND.PLUGIN]: "Plugin",
   [RESOURCE_KIND.WORKFLOW]: "Workflow",
@@ -65,7 +65,7 @@ export const RESOURCE_KIND_LABEL: Record<ResourceKind, string> = {
 }
 
 export const RESOURCE_KIND_OPTIONS = [
-  { value: RESOURCE_KIND.AGENT, label: "Agents" },
+  { value: RESOURCE_KIND.AGENT_TEAM, label: "Agent teams" },
   { value: RESOURCE_KIND.SKILL, label: "Skills" },
   { value: RESOURCE_KIND.PLUGIN, label: "Plugins" },
   { value: RESOURCE_KIND.WORKFLOW, label: "Workflows" },
@@ -101,14 +101,15 @@ export const RESOURCE_CREATE_COPY: Record<
     discardMessage: string
   }
 > = {
-  [RESOURCE_KIND.AGENT]: {
-    title: "Add agent",
-    description: "Import an EvoFlux Agent ZIP or start from its Markdown authoring contract.",
-    templateTitle: "EvoFlux Agent Markdown",
-    templateDescription: "Creates one root Markdown file with name, member role, description, and a system prompt body.",
-    sourceHint: "<slug>.md",
-    createLabel: "Create agent draft",
-    discardMessage: "Discard this agent draft setup?",
+  [RESOURCE_KIND.AGENT_TEAM]: {
+    title: "Add agent team",
+    description: "Import an EvoFlux Agent Team ZIP or start from a lead and one member.",
+    templateTitle: "EvoFlux Agent Team",
+    templateDescription:
+      "Creates team.json plus agents/<slug>.md for the lead and one member that already names it, so EvoFlux attaches the member to this team.",
+    sourceHint: "team.json + agents/",
+    createLabel: "Create agent team draft",
+    discardMessage: "Discard this agent team draft setup?",
   },
   [RESOURCE_KIND.SKILL]: {
     title: "Add skill",

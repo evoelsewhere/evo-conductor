@@ -21,6 +21,7 @@ export type ResourceStudioPanel =
   (typeof RESOURCE_STUDIO_PANEL)[keyof typeof RESOURCE_STUDIO_PANEL]
 
 export const RESOURCE_STUDIO_TAB = {
+  ROSTER: "roster",
   SOURCE: "source",
   VERSIONS: "versions",
   MONITORING: "monitoring",
@@ -123,6 +124,6 @@ export function resourceStudioInitialContent(path: string): string {
 export function resourceStudioRequiredEntry(kind: ResourceKind, slug: string): string {
   if (kind === RESOURCE_KIND.PLUGIN) return "plugin.json"
   if (kind === RESOURCE_KIND.SKILL) return "SKILL.md"
-  if (kind === RESOURCE_KIND.AGENT) return `${slug}.md`
+  if (kind === RESOURCE_KIND.AGENT_TEAM) return "team.json"
   return `${slug}.json`
 }

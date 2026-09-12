@@ -512,27 +512,30 @@ async fn authoring_metadata_access_and_resource_usage_have_real_success_contract
     let admin_token = app.token_for(&admin).await;
 
     let (status, guide) = app
-        .get("/api/resources/guides/agent", Some(&admin_token))
+        .get("/api/resources/guides/agent_team", Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{guide}");
-    assert_eq!(guide["kind"], "agent");
+    assert_eq!(guide["kind"], "agent_team");
     assert_eq!(guide["schema_version"], 1);
-    assert_eq!(guide["title"], "EvoFlux Agent");
-    assert_eq!(guide["required_entries"], json!(["<slug>.md"]));
+    assert_eq!(guide["title"], "EvoFlux Agent Team");
+    assert_eq!(
+        guide["required_entries"],
+        json!(["team.json", "agents/<slug>.md"])
+    );
     assert!(guide["max_files"].as_u64().is_some_and(|value| value > 0));
     assert!(guide["max_editable_file_bytes"]
         .as_u64()
         .is_some_and(|value| value > 0));
 
     let (status, template) = app
-        .get("/api/resources/templates/agent", Some(&admin_token))
+        .get("/api/resources/templates/agent_team", Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "{template}");
     assert_eq!(template["resource_id"], Uuid::nil().to_string());
     assert_eq!(template["revision"], 0);
     let template_files = template["files"].as_array().expect("template files");
     assert!(template_files.iter().any(|file| {
-        file["path"] == "new-resource.md"
+        file["path"] == "agents/new-resource.md"
             && file["content"]
                 .as_str()
                 .is_some_and(|content| content.contains("New resource"))
@@ -540,14 +543,14 @@ async fn authoring_metadata_access_and_resource_usage_have_real_success_contract
 
     let slug = format!("usage-proof-{}", Uuid::new_v4().simple());
     let create_request = CreateResourceRequest {
-        kind: ResourceKind::Agent,
+        kind: ResourceKind::AgentTeam,
         slug: slug.clone(),
         name: "Usage proof agent".into(),
         description: Some("Released for a valid usage event".into()),
         version: "0.1.0".into(),
         visibility: ResourceVisibility::Shared,
         payload: json!({
-            "files": starter_files(ResourceKind::Agent, &slug, "Usage proof agent")
+            "files": starter_files(ResourceKind::AgentTeam, &slug, "Usage proof agent")
         }),
         changelog: None,
     };

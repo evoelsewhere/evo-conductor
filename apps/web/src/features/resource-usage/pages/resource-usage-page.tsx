@@ -100,7 +100,7 @@ export function ResourceUsagePage({
   scopeKind,
 }: {
   view?: ResourceUsageView
-  scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
+  scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent_team">
 }) {
   const can = useAuthStore((state) => state.can)
   const authorization = useAuthStore((state) => state.authorization)
@@ -252,7 +252,7 @@ export function ResourceUsagePage({
         installations={installations.data ?? []}
         installationsLoading={installations.isLoading && !installations.data}
         installationsError={installations.error instanceof Error ? installations.error.message : undefined}
-        resources={(resources.data ?? []).filter((item) => [RESOURCE_KIND.AGENT, RESOURCE_KIND.SKILL, RESOURCE_KIND.PLUGIN].includes(item.kind as never))}
+        resources={(resources.data ?? []).filter((item) => [RESOURCE_KIND.AGENT_TEAM, RESOURCE_KIND.SKILL, RESOURCE_KIND.PLUGIN].includes(item.kind as never))}
         resourcesLoading={resources.isLoading && !resources.data}
         resourcesError={resources.error instanceof Error ? resources.error.message : undefined}
         versions={versions.data ?? []}
@@ -505,7 +505,7 @@ function UsagePanel({
 }: {
   data?: ResourceUsageAnalytics
   loading: boolean
-  scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
+  scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent_team">
   query: AnalyticsQuery
   onApplyQuery: (query: AnalyticsQuery) => void
   showMemberDetail: boolean
@@ -573,7 +573,7 @@ function sanitizeMemberFilters(
   }
 }
 
-function readFiltersFromUrl(scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">): ResourceUsageFilterState {
+function readFiltersFromUrl(scopeKind?: Extract<ResourceKind, "plugin" | "skill" | "agent_team">): ResourceUsageFilterState {
   const search = new URLSearchParams(window.location.search)
   return {
     ...EMPTY_RESOURCE_USAGE_FILTERS,
@@ -592,7 +592,7 @@ function readFiltersFromUrl(scopeKind?: Extract<ResourceKind, "plugin" | "skill"
 
 function scopedPageCopy(
   view: ResourceUsageView,
-  kind?: Extract<ResourceKind, "plugin" | "skill" | "agent">,
+  kind?: Extract<ResourceKind, "plugin" | "skill" | "agent_team">,
 ) {
   if (!kind) return PAGE_COPY[view]
   const name = `${RESOURCE_KIND_LABEL[kind]}s`

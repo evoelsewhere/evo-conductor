@@ -41,7 +41,7 @@ async fn version_lifecycle_endpoints_cover_agent_and_skill_source_shapes() {
     let user_token = app.token_for(&user).await;
     let cases = [
         (
-            ResourceKind::Agent,
+            ResourceKind::AgentTeam,
             "version-api-agent",
             "Version API Agent",
             "version-api-agent.md",

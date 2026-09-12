@@ -32,7 +32,7 @@ use support::test_app;
 use uuid::Uuid;
 
 const RESOURCE_KINDS: [ResourceKind; 5] = [
-    ResourceKind::Agent,
+    ResourceKind::AgentTeam,
     ResourceKind::Skill,
     ResourceKind::Plugin,
     ResourceKind::Workflow,
@@ -268,11 +268,11 @@ fn every_connection_action_requires_its_exact_scope_for_all_current_roles() {
         scope_counts,
         BTreeMap::from([
             ("report_telemetry", 2),
-            ("subscribe_resources", 8),
+            ("subscribe_resources", 7),
             ("sync_inventory", 1),
         ])
     );
-    assert_eq!(role_cases, 11 * PrimaryRole::ALL.len());
+    assert_eq!(role_cases, 10 * PrimaryRole::ALL.len());
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn public_bootstrap_and_protected_classes_are_explicit_and_exhaustive() {
         BTreeMap::from([
             ("bootstrap", 1),
             ("browser", 84),
-            ("connection", 11),
+            ("connection", 10),
             ("public", 6),
         ])
     );
@@ -457,7 +457,7 @@ async fn representative_http_error_taxonomy_is_exact() {
         .await
         .expect("seed wrong-scope credential");
     let (status, body) = app
-        .get("/api/v1/subscribe/resources", Some(WRONG_SCOPE_TOKEN))
+        .get("/api/v1/resources/changes", Some(WRONG_SCOPE_TOKEN))
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["error_code"], "scope_denied");
@@ -569,7 +569,7 @@ async fn decision_observer_excludes_secret_header_query_and_identity_canaries() 
 
     let (status, _, _) = app
         .get_bytes_with_headers(
-            &format!("/api/v1/subscribe/resources?probe={QUERY_CANARY}"),
+            &format!("/api/v1/resources/changes?probe={QUERY_CANARY}"),
             Some(RAW_TOKEN_CANARY),
             headers,
         )
@@ -606,7 +606,7 @@ fn saturated_target(
         .and_then(|(selector, grant)| {
             satisfying_kind_and_lifecycle(&selector.to_constraint(), grant)
         })
-        .unwrap_or((ResourceKind::Agent, LifecycleState::Published));
+        .unwrap_or((ResourceKind::AgentTeam, LifecycleState::Published));
 
     AuthorizationTarget {
         project_id: Some(project_id),

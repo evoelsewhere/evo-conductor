@@ -1,12 +1,14 @@
 # EvoFlux resource bundle contract
 
-Status: **Conductor emits schema-version 2 descriptors for new Agent, Skill and Plugin releases; EvoFlux consumption is pending**
+Status: **Conductor emits schema-version 2 descriptors for new Agent Team, Skill and Plugin releases; EvoFlux applies Agent Team bundles**
 
-`ResourceBundle` is the canonical content-addressed wire descriptor for files delivered from Conductor to EvoFlux. It is deliberately limited to `agent`, `skill` and `plugin`; governed `workflow` and `command` records keep their existing delivery behavior.
+`ResourceBundle` is the canonical content-addressed wire descriptor for files delivered from Conductor to EvoFlux. It is deliberately limited to `agent_team`, `skill` and `plugin`; governed `workflow` and `command` records keep their existing delivery behavior.
+
+There is no standalone `agent` kind. In EvoFlux an Agent never stands alone — a member that does not name its lead silently joins whichever lead that installation defaults to — so the publishable unit is the Team that owns it.
 
 ## Target modes
 
-Agent and Skill drafts use `.evoflux.json` to declare where they are available:
+Agent Team and Skill drafts use `.evoflux.json` to declare where they are available:
 
 ```json
 {
@@ -23,6 +25,33 @@ A third mode, `aim`, was published by Conductor but never implemented by
 EvoFlux, so any resource declaring it failed to apply. It is retired: new
 input naming it is rejected, and a release that already carries it is served
 on the modes that remain.
+
+## Agent Team layout
+
+A Team release carries its whole roster in one bundle:
+
+```text
+team.json              # {"lead": "<slug>", "members": ["<name>", ...]}
+.evoflux.json          # deployment metadata (target modes)
+agents/<slug>.md       # the lead, whose frontmatter name equals the Team slug
+agents/<name>.md       # one file per member
+```
+
+Conductor rejects a release before publish unless all of the following hold:
+
+- exactly one Agent declares `role: lead`, and its name equals the Team slug;
+- every other Agent declares `role: member` **and** `lead: <lead name>`;
+- `team.json` names the same lead and exactly the members present under `agents/`;
+- Agent filenames match their frontmatter `name` and are unique in the bundle.
+
+The `lead` requirement is the load-bearing one. EvoFlux reconstructs a team from
+frontmatter alone, and a member without `lead:` attaches to that installation's
+default lead instead of the team shipped beside it — a failure invisible on the
+client, so it is refused at authoring time.
+
+EvoFlux applies a Team all-or-nothing: every Agent file is ownership-checked
+before any is written, so one conflicting member leaves the whole team
+untouched rather than installing a lead whose members are missing.
 
 ## Canonical JSON shape
 
@@ -62,7 +91,7 @@ Wire types:
 ```text
 ResourceBundle {
   schema_version: 2
-  kind: "agent" | "skill" | "plugin"
+  kind: "agent_team" | "skill" | "plugin"
   slug: string
   version: strict SemVer 2.0 string
   artifact_sha256: lowercase hex SHA-256
@@ -104,7 +133,7 @@ No trailing normalization, Unicode normalization, newline conversion or path sep
 | Kind | `artifact_media_type` | Current artifact semantics |
 |---|---|---|
 | Plugin | `application/vnd.evoflux.plugin+zip` | SHA-256 and size of the immutable ZIP returned by the artifact endpoint |
-| Agent / Skill | `application/vnd.evoflux.resource+zip` | SHA-256 and size of the immutable ZIP returned by the artifact endpoint |
+| Agent Team / Skill | `application/vnd.evoflux.resource+zip` | SHA-256 and size of the immutable ZIP returned by the artifact endpoint |
 
 For Plugin, EvoFlux must verify `artifact_sha256` before extraction and then verify every extracted file against `files` and `tree_sha256`. Plugins still require local trust review before enablement.
 

@@ -38,13 +38,13 @@ export const RESOURCE_KIND_USAGE_PATHS = {
     activity: "/app/resources/skills/activity",
     usage: "/app/resources/skills/usage",
   },
-  [RESOURCE_KIND.AGENT]: {
-    overview: "/app/resources/agents",
-    activity: "/app/resources/agents/activity",
-    usage: "/app/resources/agents/usage",
+  [RESOURCE_KIND.AGENT_TEAM]: {
+    overview: "/app/resources/teams",
+    activity: "/app/resources/teams/activity",
+    usage: "/app/resources/teams/usage",
   },
 } as const satisfies Record<
-  Extract<ResourceKind, "plugin" | "skill" | "agent">,
+  Extract<ResourceKind, "plugin" | "skill" | "agent_team">,
   { overview: string; activity: string; usage: string }
 >
 
@@ -57,9 +57,9 @@ export const RESOURCE_KIND_USAGE_ROUTE_PATHS = {
     activity: "/resources/skills/activity",
     usage: "/resources/skills/usage",
   },
-  [RESOURCE_KIND.AGENT]: {
-    activity: "/resources/agents/activity",
-    usage: "/resources/agents/usage",
+  [RESOURCE_KIND.AGENT_TEAM]: {
+    activity: "/resources/teams/activity",
+    usage: "/resources/teams/usage",
   },
 } as const
 

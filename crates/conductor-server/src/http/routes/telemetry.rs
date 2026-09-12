@@ -188,7 +188,11 @@ pub async fn ingest(
                 return Err(ConductorError::NotFound("resource version".into()).into());
             }
             let relation_matches_kind = match reference.relation {
-                TelemetryResourceRelation::ExecutingAgent => resource.kind.as_str() == "agent",
+                // The Agent that ran is attributed to the governed Team it
+                // belongs to, which is the unit Conductor publishes.
+                TelemetryResourceRelation::ExecutingAgent => {
+                    resource.kind.as_str() == "agent_team"
+                }
                 TelemetryResourceRelation::ActivatedSkill => resource.kind.as_str() == "skill",
                 TelemetryResourceRelation::PluginContributedSkill
                 | TelemetryResourceRelation::PluginContributedTool => {

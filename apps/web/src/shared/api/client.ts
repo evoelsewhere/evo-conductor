@@ -8,6 +8,7 @@ import type {
   TelemetryEventStatus,
   TelemetryEventType,
 } from "@/shared/constants/telemetry"
+import { RESOURCE_KIND } from "@/shared/constants/resource"
 import type {
   ReleaseChannel,
   ResourceKind,
@@ -1174,13 +1175,9 @@ export interface ResourceFeedback {
 }
 
 const PRIMARY_ROLES = new Set<string>(["admin", "contribute", "user"])
-const RESOURCE_KINDS = new Set<string>([
-  "agent",
-  "skill",
-  "plugin",
-  "workflow",
-  "command",
-])
+// Derived, never re-listed: a second hand-written copy of the kinds silently
+// rejects the whole authorization policy the moment a kind is added.
+const RESOURCE_KINDS = new Set<string>(Object.values(RESOURCE_KIND))
 const AUTHORIZATION_LIFECYCLES = new Set<string>([
   "draft",
   "beta",

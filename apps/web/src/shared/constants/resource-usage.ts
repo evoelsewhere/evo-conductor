@@ -69,7 +69,7 @@ export const RESOURCE_USAGE_ROLE_OPTIONS = [
 
 export const RESOURCE_USAGE_KIND_OPTIONS = [
   { value: RESOURCE_USAGE_ALL_FILTER, label: "All resources" },
-  { value: RESOURCE_KIND.AGENT, label: "Agents" },
+  { value: RESOURCE_KIND.AGENT_TEAM, label: "Agents" },
   { value: RESOURCE_KIND.SKILL, label: "Skills" },
   { value: RESOURCE_KIND.PLUGIN, label: "Plugins" },
 ] as const

@@ -542,7 +542,7 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             all([
                 Selector::NewResourceOwnerActor,
                 Selector::KindPath,
-                Selector::AgentOrSkill,
+                Selector::NonExecutableKind,
             ]),
         )
         .with_transport(RouteTransport::body_limit(MAX_IMPORT_ARCHIVE_BYTES)),
@@ -557,7 +557,7 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             all([
                 Selector::NewResourceOwnerActor,
                 Selector::KindPath,
-                Selector::AgentOrSkill,
+                Selector::NonExecutableKind,
             ]),
         )
         .with_transport(RouteTransport::body_limit(MAX_IMPORT_ARCHIVE_BYTES)),
@@ -640,7 +640,7 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
                     all([
                         Selector::InProjectResourcePath,
                         Selector::KindOfResourcePath,
-                        Selector::AgentOrSkill,
+                        Selector::NonExecutableKind,
                     ]),
                 ),
                 alt(
@@ -894,16 +894,6 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
     );
 
     routes.get(
-        "/v1/subscribe/resources",
-        connection(
-            A::ClientResourcesSnapshot,
-            Target::Resource,
-            Scope::SubscribeResources,
-            Selector::EffectiveAudienceList,
-        ),
-        resources::subscribe,
-    );
-    routes.get(
         "/v1/resources/changes",
         connection(
             A::ClientResourcesChanges,
@@ -1081,7 +1071,7 @@ fn resource_lifecycle(action: A) -> RouteDefinition {
                 all([
                     Selector::InProjectResourcePath,
                     Selector::KindOfResourcePath,
-                    Selector::AgentOrSkill,
+                    Selector::NonExecutableKind,
                 ]),
             ),
             alt(

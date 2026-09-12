@@ -64,7 +64,7 @@ async fn admin_nonowner_is_allowed_and_contributor_nonowner_is_opaque_at_target_
         .create(
             project.id,
             &CreateResourceRequest {
-                kind: ResourceKind::Agent,
+                kind: ResourceKind::AgentTeam,
                 slug: "target-owned-agent".into(),
                 name: "Target owned agent".into(),
                 description: None,

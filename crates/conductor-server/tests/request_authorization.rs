@@ -51,7 +51,7 @@ async fn assert_invalid_connection_principal_does_not_mark_used(
     secret_id: Uuid,
 ) {
     let (status, body) = app
-        .get("/api/v1/subscribe/resources", Some(raw_token))
+        .get("/api/v1/resources/changes", Some(raw_token))
         .await;
 
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
@@ -136,7 +136,7 @@ async fn browser_and_connection_credentials_cannot_cross_boundaries() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     let (status, _) = app
-        .get("/api/v1/subscribe/resources", Some(&browser_token))
+        .get("/api/v1/resources/changes", Some(&browser_token))
         .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
@@ -150,7 +150,7 @@ async fn wrong_scope_is_forbidden_and_does_not_mark_the_secret_used() {
     let raw = "evc_wrong_scope_boundary_secret";
     let secret_id = seed_secret(&app, &member, raw, &[SecretScope::ReportTelemetry]).await;
 
-    let (status, _) = app.get("/api/v1/subscribe/resources", Some(raw)).await;
+    let (status, _) = app.get("/api/v1/resources/changes", Some(raw)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let last_used: Option<String> =
         sqlx::query_scalar("SELECT last_used_at FROM connection_secrets WHERE id = ?")

@@ -57,7 +57,9 @@ impl DashboardRepo {
 
         let resources = match project_id {
             Some(project_id) => ResourceCounts {
-                agents: self.published_resource_count(project_id, "agent").await?,
+                agent_teams: self
+                    .published_resource_count(project_id, "agent_team")
+                    .await?,
                 skills: self.published_resource_count(project_id, "skill").await?,
                 plugins: self.published_resource_count(project_id, "plugin").await?,
                 workflows: self

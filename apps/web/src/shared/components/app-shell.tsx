@@ -3,7 +3,6 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router"
 import { AnimatePresence, motion } from "framer-motion"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import {
-  Bot,
   Boxes,
   ChartNoAxesCombined,
   ChevronDown,
@@ -169,7 +168,7 @@ export function AppShell() {
     const resourceItems: NavItemDef[] = [
       { to: "/app/resources/plugins", label: "Plugins", icon: Plug, end: false },
       { to: "/app/resources/skills", label: "Skills", icon: Sparkles, end: false },
-      { to: "/app/resources/agents", label: "Agents", icon: Bot, end: false },
+      { to: "/app/resources/teams", label: "Agent teams", icon: Users, end: false },
     ]
     if (canReadTelemetry) {
       resourceItems.push({

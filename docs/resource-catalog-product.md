@@ -41,7 +41,7 @@ The unit of governance is a stable **resource**. The unit of delivery is an immu
 
 ### Catalog management
 
-- Resource kinds: agent, skill, plugin, workflow and command.
+- Resource kinds: agent_team, skill, plugin, workflow and command. An Agent is published only as part of the Team that owns it.
 - Stable metadata: slug, name, description, owner and visibility.
 - Lifecycle: `draft → published → archived`.
 - Draft resource creation with an initial semantic version and file bundle stored in project object storage.

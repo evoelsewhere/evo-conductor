@@ -159,11 +159,11 @@ fn compound_owner_and_kind_policy_fails_closed() {
         credential_scopes: vec![],
     };
 
-    let owned_agent = evaluate_policy(&make_input(Some(actor_id), ResourceKind::Agent));
+    let owned_agent = evaluate_policy(&make_input(Some(actor_id), ResourceKind::AgentTeam));
     assert!(owned_agent.allow);
     assert_eq!(owned_agent.reason_code, DecisionReason::AllowOwner);
 
-    let foreign_agent = evaluate_policy(&make_input(Some(Uuid::new_v4()), ResourceKind::Agent));
+    let foreign_agent = evaluate_policy(&make_input(Some(Uuid::new_v4()), ResourceKind::AgentTeam));
     assert!(!foreign_agent.allow);
     assert_eq!(foreign_agent.reason_code, DecisionReason::DenyNotOwner);
 
@@ -396,13 +396,13 @@ fn connection_scope_and_target_are_both_required() {
         status: UserStatus::Active,
         authentication_kind: AuthenticationKind::ConnectionToken,
         requirement: DeclaredRequirement::Connection(requirement),
-        action: AuthorizationAction::ClientResourcesSnapshot,
+        action: AuthorizationAction::ClientResourcesChanges,
         expected_target_type: TargetType::Resource,
         target: target(
             Some(project_id),
             Some(Uuid::new_v4()),
             None,
-            Some(ResourceKind::Agent),
+            Some(ResourceKind::AgentTeam),
             Some(LifecycleState::Published),
             Some(true),
         ),

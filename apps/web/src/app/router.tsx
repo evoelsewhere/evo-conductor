@@ -368,22 +368,22 @@ const resourcesSkillsUsageRoute = createRoute({
   component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_PROJECT_READ]}><ResourceUsagePage view={RESOURCE_USAGE_VIEW.USAGE} scopeKind={RESOURCE_KIND.SKILL} /></PermissionBoundary>,
 })
 
-const resourcesAgentsRoute = createRoute({
+const resourcesTeamsRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "/resources/agents",
-  component: () => <PermissionBoundary permissions={[PERMISSION.RESOURCE_CONSUME]}><ResourcesPage fixedKind="agent" /></PermissionBoundary>,
+  path: "/resources/teams",
+  component: () => <PermissionBoundary permissions={[PERMISSION.RESOURCE_CONSUME]}><ResourcesPage fixedKind="agent_team" /></PermissionBoundary>,
 })
 
-const resourcesAgentsActivityRoute = createRoute({
+const resourcesTeamsActivityRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.agent.activity,
-  component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_MEMBER_READ_ANY]}><ResourceUsagePage view={RESOURCE_USAGE_VIEW.ACTIVITY} scopeKind={RESOURCE_KIND.AGENT} /></PermissionBoundary>,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.agent_team.activity,
+  component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_MEMBER_READ_ANY]}><ResourceUsagePage view={RESOURCE_USAGE_VIEW.ACTIVITY} scopeKind={RESOURCE_KIND.AGENT_TEAM} /></PermissionBoundary>,
 })
 
-const resourcesAgentsUsageRoute = createRoute({
+const resourcesTeamsUsageRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.agent.usage,
-  component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_PROJECT_READ]}><ResourceUsagePage view={RESOURCE_USAGE_VIEW.USAGE} scopeKind={RESOURCE_KIND.AGENT} /></PermissionBoundary>,
+  path: RESOURCE_KIND_USAGE_ROUTE_PATHS.agent_team.usage,
+  component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_PROJECT_READ]}><ResourceUsagePage view={RESOURCE_USAGE_VIEW.USAGE} scopeKind={RESOURCE_KIND.AGENT_TEAM} /></PermissionBoundary>,
 })
 
 const secretsRoute = createRoute({
@@ -453,9 +453,9 @@ const routeTree = rootRoute.addChildren([
     resourcesSkillsRoute,
     resourcesSkillsActivityRoute,
     resourcesSkillsUsageRoute,
-    resourcesAgentsRoute,
-    resourcesAgentsActivityRoute,
-    resourcesAgentsUsageRoute,
+    resourcesTeamsRoute,
+    resourcesTeamsActivityRoute,
+    resourcesTeamsUsageRoute,
     resourceGovernanceRoute,
     resourceGovernanceAccessRoute,
     resourceGovernanceFeedbackRoute,

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "policy_revision": "req-004-v1",
   "generated_from": "conductor_server::http::authorization::route_manifest",
-  "route_count": 102,
+  "route_count": 101,
   "baseline_assumptions": [
     "role baselines use the current persisted active primary role",
     "browser and connection credentials are otherwise structurally valid",
@@ -188,7 +188,7 @@
           "constraints": {
             "kind": "resource_kind_in",
             "values": [
-              "agent",
+              "agent_team",
               "skill"
             ]
           }
@@ -354,7 +354,7 @@
               {
                 "kind": "resource_kind_in",
                 "values": [
-                  "agent",
+                  "agent_team",
                   "skill"
                 ]
               }
@@ -379,7 +379,7 @@
               {
                 "kind": "resource_kind_in",
                 "values": [
-                  "agent",
+                  "agent_team",
                   "skill"
                 ]
               }
@@ -1770,60 +1770,6 @@
                     "kind": "effective_audience_list"
                   }
                 ]
-              },
-              {
-                "kind": "current_scope_policy"
-              }
-            ]
-          }
-        }
-      },
-      "body_policy": {
-        "kind": "default"
-      },
-      "role_baselines": {
-        "admin": {
-          "outcome": "conditional",
-          "target_dependent": true,
-          "possible_response_projections": [
-            "full"
-          ],
-          "required_scope": "subscribe_resources"
-        },
-        "contribute": {
-          "outcome": "conditional",
-          "target_dependent": true,
-          "possible_response_projections": [
-            "full"
-          ],
-          "required_scope": "subscribe_resources"
-        },
-        "user": {
-          "outcome": "conditional",
-          "target_dependent": true,
-          "possible_response_projections": [
-            "full"
-          ],
-          "required_scope": "subscribe_resources"
-        }
-      }
-    },
-    {
-      "route_id": "client.resources.snapshot",
-      "action": "client.resources.snapshot",
-      "method": "GET",
-      "path": "/api/v1/subscribe/resources",
-      "target_type": "resource",
-      "authentication": {
-        "class": "connection",
-        "policy": {
-          "requirement_id": "client.resources.snapshot",
-          "required_scope": "subscribe_resources",
-          "selector": {
-            "kind": "all_of",
-            "items": [
-              {
-                "kind": "effective_audience_list"
               },
               {
                 "kind": "current_scope_policy"
@@ -4567,7 +4513,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               }
@@ -4618,7 +4564,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -4667,7 +4613,7 @@
                   {
                     "kind": "resource_kind_in",
                     "values": [
-                      "agent",
+                      "agent_team",
                       "skill"
                     ]
                   }
@@ -4683,7 +4629,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -4722,7 +4668,7 @@
                     "kind": "kind_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               }
@@ -4757,7 +4703,7 @@
                     "kind": "kind_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -4788,7 +4734,7 @@
                     "kind": "kind_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -4827,7 +4773,7 @@
                     "kind": "kind_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               }
@@ -4862,7 +4808,7 @@
                     "kind": "kind_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -4893,7 +4839,7 @@
                     "kind": "kind_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -6316,7 +6262,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               }
@@ -6357,7 +6303,7 @@
               "role_grant_constraints": {
                 "kind": "resource_kind_in",
                 "values": [
-                  "agent",
+                  "agent_team",
                   "skill"
                 ]
               },
@@ -6371,7 +6317,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -6425,7 +6371,7 @@
                   {
                     "kind": "resource_kind_in",
                     "values": [
-                      "agent",
+                      "agent_team",
                       "skill"
                     ]
                   }
@@ -6441,7 +6387,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -6551,7 +6497,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               }
@@ -6602,7 +6548,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -6651,7 +6597,7 @@
                   {
                     "kind": "resource_kind_in",
                     "values": [
-                      "agent",
+                      "agent_team",
                       "skill"
                     ]
                   }
@@ -6667,7 +6613,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -6706,7 +6652,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               }
@@ -6757,7 +6703,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },
@@ -6806,7 +6752,7 @@
                   {
                     "kind": "resource_kind_in",
                     "values": [
-                      "agent",
+                      "agent_team",
                       "skill"
                     ]
                   }
@@ -6822,7 +6768,7 @@
                     "kind": "kind_of_resource_path"
                   },
                   {
-                    "kind": "agent_or_skill"
+                    "kind": "non_executable_kind"
                   }
                 ]
               },

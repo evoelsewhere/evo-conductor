@@ -77,7 +77,7 @@ export function ResourceUsageFilters({
   versions: ResourceVersion[]
   versionsLoading?: boolean
   versionsError?: string
-  lockedKind?: Extract<ResourceKind, "plugin" | "skill" | "agent">
+  lockedKind?: Extract<ResourceKind, "plugin" | "skill" | "agent_team">
   allowMemberDetail: boolean
   onChange: (value: ResourceUsageFilterState) => void
 }) {
