@@ -542,6 +542,59 @@ pub async fn member_cost_report(
     ))
 }
 
+/// Narrows a window to a single Jira task, or to `unassigned=true` for the
+/// events with no task selected -- otherwise identical to `CostReportQuery`.
+#[derive(Debug, Deserialize)]
+pub struct TaskCostReportQuery {
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+/// Every synced Jira task paired with its assignee's own spend for the
+/// window (matched by email — see `core::task_cost_report`). No
+/// provider/model/role narrowing here: unlike the other cost reports, this
+/// one isn't grouped by those dimensions at all.
+pub async fn task_cost_report(
+    State(state): State<AppState>,
+    Query(query): Query<TaskCostReportQuery>,
+) -> ApiResult<Json<conductor_domain::TaskCostReport>> {
+    let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
+    let project_id = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?
+        .id;
+    Ok(Json(
+        crate::core::task_cost_report::build(&state.db, project_id, from, to).await?,
+    ))
+}
+
+/// The request-by-request drill-down behind one task's summary row -- see
+/// `core::task_cost_report::task_activity_detail` for what makes a task
+/// eligible (a precise, matched task only; empty otherwise).
+pub async fn task_activity_detail(
+    State(state): State<AppState>,
+    Path(issue_key): Path<String>,
+    Query(query): Query<TaskCostReportQuery>,
+) -> ApiResult<Json<conductor_domain::TaskActivityResponse>> {
+    let (from, to) = resolve_range(query.from.as_deref(), query.to.as_deref())?;
+    let project_id = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?
+        .id;
+    Ok(Json(
+        crate::core::task_cost_report::task_activity_detail(
+            &state.db, project_id, &issue_key, from, to,
+        )
+        .await?,
+    ))
+}
+
 fn resolve_range(
     from: Option<&str>,
     to: Option<&str>,

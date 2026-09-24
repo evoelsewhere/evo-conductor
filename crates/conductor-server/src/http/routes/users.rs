@@ -441,3 +441,40 @@ pub async fn reset_password(
         temporary_password: temp,
     }))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateJiraAccountEmailRequest {
+    /// `None` or blank clears it.
+    pub jira_account_email: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JiraAccountEmailResponse {
+    pub jira_account_email: Option<String>,
+}
+
+/// Self-service only (`Selector::SelfMemberPath` on the route) -- a plain
+/// profile field for the task-level usage report's assignee matching, not a
+/// security property, so it needs no admin path and no audit trail. Still
+/// records the target decision itself via `authorize_member_target`, like
+/// every other member-scoped browser route -- skipping that leaves the
+/// boundary middleware unable to see a decision was made for a
+/// target-aware route, which it treats as a bug and fails closed on.
+pub async fn update_jira_account_email(
+    State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
+    AuthUser(actor): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateJiraAccountEmailRequest>,
+) -> ApiResult<Json<JiraAccountEmailResponse>> {
+    authorize_member_target(&state, &route, &actor, id).await?;
+    let email = req
+        .jira_account_email
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    state.db.users().set_jira_account_email(id, email).await?;
+    Ok(Json(JiraAccountEmailResponse {
+        jira_account_email: email.map(str::to_string),
+    }))
+}
