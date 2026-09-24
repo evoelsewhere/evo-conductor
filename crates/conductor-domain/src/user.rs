@@ -19,6 +19,13 @@ pub struct User {
     pub must_change_password: bool,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    /// The Atlassian account email this member's Jira activity is under —
+    /// often different from their EvoFlux login email, so matched
+    /// separately rather than assumed equal. Used only to attribute a
+    /// synced task's assignee to this member for the task-level usage
+    /// report; `None` means that task shows as unmatched ("Unassigned").
+    #[serde(default)]
+    pub jira_account_email: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

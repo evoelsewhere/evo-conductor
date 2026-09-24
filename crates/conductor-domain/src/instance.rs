@@ -399,6 +399,20 @@ pub struct JiraSettings {
     /// shouldn't require a restart to change.
     #[serde(default = "default_report_interval_hours")]
     pub report_interval_hours: u32,
+    /// Ordered `{pattern -> type_label}` rules an admin defines to resolve a
+    /// synced task's display type (e.g. `create`/`review`/`fix`/`update`)
+    /// from its title, first match wins. Falls back to the task's raw Jira
+    /// `issuetype` when nothing matches — this never replaces that field,
+    /// only overrides how it's labeled in the report.
+    #[serde(default)]
+    pub task_type_rules: Vec<TaskTypeRule>,
+    /// Ordered `{pattern -> project_label}` rules resolving a synced task's
+    /// sub-project/module (e.g. a `[PST]` prefix in the title) — for a Jira
+    /// project whose issues actually track more than one product. Unlike
+    /// `task_type_rules`, there is no Jira field to fall back to when
+    /// nothing matches: the task simply carries no sub-project label.
+    #[serde(default)]
+    pub project_prefix_rules: Vec<ProjectPrefixRule>,
 }
 
 fn default_report_interval_hours() -> u32 {
@@ -418,8 +432,55 @@ impl Default for JiraSettings {
             report_issue_key: String::new(),
             report_interval_hours: default_report_interval_hours(),
             last_reported_period: None,
+            task_type_rules: Vec::new(),
+            project_prefix_rules: Vec::new(),
         }
     }
+}
+
+/// One `task_type_rules` entry: `pattern` is matched case-insensitively as a
+/// substring against a synced task's title (e.g. `[Fix]`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskTypeRule {
+    pub pattern: String,
+    pub type_label: String,
+}
+
+/// Resolves a task's display type: the first `task_type_rules` entry whose
+/// pattern matches `title` (case-insensitive substring), else `issue_type`
+/// unchanged.
+pub fn resolve_task_type<'a>(
+    rules: &'a [TaskTypeRule],
+    title: &str,
+    issue_type: &'a str,
+) -> &'a str {
+    let title_lower = title.to_lowercase();
+    for rule in rules {
+        if !rule.pattern.is_empty() && title_lower.contains(&rule.pattern.to_lowercase()) {
+            return &rule.type_label;
+        }
+    }
+    issue_type
+}
+
+/// One `project_prefix_rules` entry: `pattern` is matched case-insensitively
+/// as a substring against a synced task's title (e.g. `[PST]`), for a Jira
+/// project whose issues actually span more than one product/module.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectPrefixRule {
+    pub pattern: String,
+    pub project_label: String,
+}
+
+/// Resolves a task's sub-project label from the first matching
+/// `project_prefix_rules` entry, or `None` when nothing matches — there is
+/// no Jira field to fall back to here, unlike `resolve_task_type`.
+pub fn resolve_project_label<'a>(rules: &'a [ProjectPrefixRule], title: &str) -> Option<&'a str> {
+    let title_lower = title.to_lowercase();
+    rules
+        .iter()
+        .find(|rule| !rule.pattern.is_empty() && title_lower.contains(&rule.pattern.to_lowercase()))
+        .map(|rule| rule.project_label.as_str())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
