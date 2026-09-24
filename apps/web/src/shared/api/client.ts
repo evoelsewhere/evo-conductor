@@ -63,6 +63,9 @@ export interface User {
   must_change_password: boolean
   last_seen_at: string | null
   created_at: string
+  /** This member's own Jira account email, for the task-level usage
+   * report's assignee matching. Self-configured; null when unset. */
+  jira_account_email: string | null
 }
 
 export interface ClientInstallationSummary {
@@ -391,6 +394,34 @@ export interface ModelPricingSyncResult {
   reloaded_models: number
 }
 
+export interface ModelRate {
+  input: number | null
+  output: number | null
+  cache_read: number | null
+  cache_write: number | null
+  reasoning: number | null
+}
+
+export interface ModelRateTier {
+  above_tokens: number
+  rates: ModelRate
+}
+
+export interface ModelServiceTier {
+  tier: string
+  rates: ModelRate
+}
+
+export interface ModelCatalogEntry {
+  provider: string
+  model: string
+  pricing: {
+    base: ModelRate
+    tiers?: ModelRateTier[]
+    service_tiers?: ModelServiceTier[]
+  }
+}
+
 export interface RepriceReport {
   examined: number
   priced_in_force: number
@@ -660,6 +691,7 @@ export const AUTHORIZATION_PERMISSION_KEYS = [
   "member.manage",
   "member.private.read_self",
   "member.private.read_any",
+  "member.profile.manage_self",
   "telemetry.project.read",
   "telemetry.member.read_self",
   "telemetry.member.read_any",
@@ -940,6 +972,16 @@ export interface EmailSettings {
   from_address: string
 }
 
+export interface TaskTypeRule {
+  pattern: string
+  type_label: string
+}
+
+export interface ProjectPrefixRule {
+  pattern: string
+  project_label: string
+}
+
 export interface JiraSettings {
   enabled: boolean
   site_url: string
@@ -951,6 +993,115 @@ export interface JiraSettings {
   report_issue_key: string
   last_reported_period: string | null
   report_interval_hours: number
+  task_type_rules: TaskTypeRule[]
+  project_prefix_rules: ProjectPrefixRule[]
+}
+
+export interface JiraTask {
+  issue_key: string
+  title: string
+  issue_type: string
+  resolved_type: string
+  resolved_project: string | null
+  assignee_display_name: string | null
+  assignee_email: string | null
+  assignee_account_id: string | null
+  parent_key: string | null
+  status: string
+  jira_updated_at: string | null
+  synced_at: string
+}
+
+export interface JiraTaskListResponse {
+  tasks: JiraTask[]
+}
+
+export interface StatusTokenBreakdown {
+  status: string
+  calls: number
+  total_tokens: number
+  total_cost_usd_micros: number
+}
+
+/** One synced task paired with its usage for the report window.
+ *
+ * `precise` tells you which of two attribution layers produced the
+ * numbers: `true` means the jira-task-assistant plugin recorded this
+ * member starting this exact task, so `calls`/`total_tokens`/
+ * `total_cost_usd_micros` (and `by_status`) are a real per-task slice.
+ * `false` means no such activation exists yet -- the numbers are the
+ * matched member's *whole period total* instead (matched by email against
+ * a member's configured `jira_account_email`), shown as the best available
+ * estimate. See `TaskCostReport`. */
+export interface TaskCostRow {
+  issue_key: string
+  title: string
+  resolved_type: string
+  resolved_project: string | null
+  status: string
+  parent_key: string | null
+  assignee_display_name: string | null
+  /** The matched member's own id -- lets the UI deep-link a request row
+   * straight into that member's own request-detail page. `null` exactly
+   * when `matched` is `false`. */
+  matched_user_id: string | null
+  matched: boolean
+  precise: boolean
+  calls: number
+  total_tokens: number
+  total_cost_usd_micros: number
+  /** Split of `total_tokens`; available for both a precise task and a
+   * fallback (whole-person) row. */
+  tokens_in: number
+  tokens_out: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  reasoning_tokens: number
+  /** Summed response time and distinct `provider:model` strings seen --
+   * only populated when `precise` is true. */
+  total_duration_ms: number
+  models: string[]
+  /** This task's own usage split by Jira status; empty unless `precise`. */
+  by_status: StatusTokenBreakdown[]
+  /** `by_status` plus every subtask's, merged -- equal to `by_status` for
+   * a task with no children. */
+  rollup_by_status: StatusTokenBreakdown[]
+}
+
+export interface TaskActivityItem {
+  request_id: string | null
+  session_id: string | null
+  agent_name: string | null
+  occurred_at: string
+  provider: string | null
+  model: string | null
+  tokens_in: number
+  tokens_out: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  duration_ms: number
+  total_cost_usd_micros: number
+  status: string
+  jira_status: string
+}
+
+export interface TaskActivityResponse {
+  issue_key: string
+  items: TaskActivityItem[]
+}
+
+export interface TaskCostReport {
+  from: string
+  to: string
+  rows: TaskCostRow[]
+  matched_tasks: number
+  unmatched_tasks: number
+  /** Summed once per distinct matched member, not per row. */
+  matched_members_total_calls: number
+  matched_members_total_tokens: number
+  matched_members_total_cost_usd_micros: number
 }
 
 export interface JiraReportResult {
@@ -1625,6 +1776,29 @@ export const api = {
         model: params.model,
       })}`,
     ),
+  taskCostReport: (params: { from?: string; to?: string } = {}) =>
+    request<TaskCostReport>(
+      `/analytics/task-cost-report${qs({ from: params.from, to: params.to })}`,
+    ),
+  taskActivityDetail: (issueKey: string, params: { from?: string; to?: string } = {}) =>
+    request<TaskActivityResponse>(
+      `/analytics/task-cost-report/${encodeURIComponent(issueKey)}/activity${qs({
+        from: params.from,
+        to: params.to,
+      })}`,
+    ),
+  jiraTasks: (q?: string) =>
+    request<JiraTaskListResponse>(`/jira/tasks${qs({ q })}`),
+  updateJiraAccountEmail: (memberId: string, jiraAccountEmail: string | null) =>
+    request<{ jira_account_email: string | null }>(
+      `/members/${memberId}/jira-account-email`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ jira_account_email: jiraAccountEmail }),
+      },
+    ),
+  jiraTaskDetail: (issueKey: string) =>
+    request<JiraTask>(`/jira/tasks/${encodeURIComponent(issueKey)}`),
   resourceUsage: (params: ResourceUsageParams = {}) =>
     request<ResourceUsageAnalytics>(
       `/analytics/resource-usage${qs({
@@ -1781,6 +1955,7 @@ export const api = {
       })}`,
       { method: "POST" },
     ),
+  modelPricingCatalog: () => request<ModelCatalogEntry[]>("/model-pricing/catalog"),
 
   updateDataPolicy: (collectionLevel: CollectionLevel) =>
     request<ProjectSettings>("/settings/data-policy", {

@@ -18,6 +18,7 @@ export const PERMISSION = {
   MEMBER_MANAGE: "member.manage",
   MEMBER_PRIVATE_READ_SELF: "member.private.read_self",
   MEMBER_PRIVATE_READ_ANY: "member.private.read_any",
+  MEMBER_PROFILE_MANAGE_SELF: "member.profile.manage_self",
   TELEMETRY_PROJECT_READ: "telemetry.project.read",
   TELEMETRY_MEMBER_READ_SELF: "telemetry.member.read_self",
   TELEMETRY_MEMBER_READ_ANY: "telemetry.member.read_any",
