@@ -413,6 +413,10 @@ export function SettingsForm() {
         report_issue_key: jiraReportIssueKey.trim(),
         last_reported_period: data?.jira.last_reported_period ?? null,
         report_interval_hours: intervalHours,
+        // Edited from the Jira Report page's own "Configure rules" dialog,
+        // not here -- passed through unchanged so this save doesn't wipe it.
+        task_type_rules: data?.jira.task_type_rules ?? [],
+        project_prefix_rules: data?.jira.project_prefix_rules ?? [],
       })
     },
     onSuccess: () => {
@@ -1282,6 +1286,10 @@ export function SettingsForm() {
                 </div>
               )}
             </SettingsCard>
+            <p className="text-xs text-(--color-text-subtle)">
+              Task type and sub-project rules are configured from the Jira Report page's own
+              "Configure rules" button, not here.
+            </p>
             <ActionRow>
               <div className="flex gap-2">
                 <Button

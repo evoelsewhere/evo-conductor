@@ -72,6 +72,7 @@ import { LoadingState, Skeleton } from "@/shared/ui/skeleton"
 export function MemberDetailPage() {
   const { userId } = useParams({ strict: false }) as { userId: string }
   const can = useAuthStore((state) => state.can)
+  const currentUserId = useAuthStore((state) => state.user?.id)
   const canManage = mayRequest(can(PERMISSION.MEMBER_MANAGE, { targetId: userId }))
   const canViewSecrets = mayRequest(
     bestAuthorizationDecision([
@@ -247,6 +248,10 @@ export function MemberDetailPage() {
           )}
         </div>
       </div>
+
+      {member.data && currentUserId === userId && (
+        <JiraAccountEmailCard user={member.data} onSaved={refreshMember} />
+      )}
 
       {usageLoading ? (
         <StatCardGridSkeleton count={4} announce={false} />
@@ -492,6 +497,58 @@ function CreateTokenDialog({ userId, onClose }: { userId: string; onClose: () =>
         </div>
       )}
     </Dialog>
+  )
+}
+
+function JiraAccountEmailCard({ user, onSaved }: { user: User; onSaved: () => void }) {
+  const [email, setEmail] = useState(user.jira_account_email ?? "")
+  const [message, setMessage] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: () => api.updateJiraAccountEmail(user.id, email.trim() || null),
+    onSuccess: () => {
+      setMessage("Saved")
+      onSaved()
+    },
+    onError: (e) => setMessage(e instanceof Error ? e.message : "Failed to save"),
+  })
+  return (
+    <Card className="mb-4">
+      <CardHeader>
+        <CardTitle>Jira account email</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="mb-3 text-xs text-(--color-text-muted)">
+          Used to match Jira tasks assigned to you against your own usage, on the project's Jira
+          report. Only you can see or change this.
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1.5">
+            <Label>Your Jira account email</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value)
+                setMessage(null)
+              }}
+              placeholder="you@company.com"
+              className="w-64"
+            />
+          </div>
+          <Button
+            variant="gradient"
+            disabled={save.isPending}
+            onClick={() => {
+              setMessage(null)
+              save.mutate()
+            }}
+          >
+            Save
+          </Button>
+        </div>
+        {message && <p className="mt-2 text-xs text-(--color-text-muted)">{message}</p>}
+      </CardContent>
+    </Card>
   )
 }
 
