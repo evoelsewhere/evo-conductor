@@ -2,7 +2,7 @@
   "schema_version": 1,
   "policy_revision": "req-004-v1",
   "generated_from": "conductor_server::http::authorization::route_manifest",
-  "route_count": 110,
+  "route_count": 117,
   "baseline_assumptions": [
     "role baselines use the current persisted active primary role",
     "browser and connection credentials are otherwise structurally valid",
@@ -100,6 +100,12 @@
         },
         {
           "permission": "member.private.read_self",
+          "constraints": {
+            "kind": "self"
+          }
+        },
+        {
+          "permission": "member.profile.manage_self",
           "constraints": {
             "kind": "self"
           }
@@ -301,6 +307,12 @@
           }
         },
         {
+          "permission": "member.profile.manage_self",
+          "constraints": {
+            "kind": "self"
+          }
+        },
+        {
           "permission": "project.branding.read",
           "constraints": {
             "kind": "same_project"
@@ -448,6 +460,12 @@
         },
         {
           "permission": "member.private.read_self",
+          "constraints": {
+            "kind": "self"
+          }
+        },
+        {
+          "permission": "member.profile.manage_self",
           "constraints": {
             "kind": "self"
           }
@@ -878,6 +896,148 @@
               },
               "route_selector": {
                 "kind": "aggregate_only"
+              },
+              "target_dependent": true,
+              "response_projection": "aggregate_only"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "analytics.task_activity_detail.read",
+      "action": "analytics.task_activity_detail.read",
+      "method": "GET",
+      "path": "/api/analytics/task-cost-report/{issue_key}/activity",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "analytics.task_activity_detail.read",
+          "alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "aggregate_only"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "aggregate_only"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "analytics.task_cost_report.read",
+      "action": "analytics.task_cost_report.read",
+      "method": "GET",
+      "path": "/api/analytics/task-cost-report",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "analytics.task_cost_report.read",
+          "alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "aggregate_only"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
               },
               "target_dependent": true,
               "response_projection": "aggregate_only"
@@ -1645,6 +1805,60 @@
       }
     },
     {
+      "route_id": "client.jira_task_activation.record",
+      "action": "client.jira_task_activation.record",
+      "method": "POST",
+      "path": "/api/v1/client/jira-task-activation",
+      "target_type": "project",
+      "authentication": {
+        "class": "connection",
+        "policy": {
+          "requirement_id": "client.jira_task_activation.record",
+          "required_scope": "report_telemetry",
+          "selector": {
+            "kind": "all_of",
+            "items": [
+              {
+                "kind": "none"
+              },
+              {
+                "kind": "current_scope_policy"
+              }
+            ]
+          }
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "required_scope": "report_telemetry"
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "required_scope": "report_telemetry"
+        },
+        "user": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "required_scope": "report_telemetry"
+        }
+      }
+    },
+    {
       "route_id": "client.realtime.events",
       "action": "client.realtime.events",
       "method": "GET",
@@ -2383,6 +2597,148 @@
           "possible_response_projections": [
             "full"
           ]
+        }
+      }
+    },
+    {
+      "route_id": "jira_tasks.detail.read",
+      "action": "jira_tasks.detail.read",
+      "method": "GET",
+      "path": "/api/jira/tasks/{issue_key}",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "jira_tasks.detail.read",
+          "alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "aggregate_only"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "aggregate_only"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "jira_tasks.read",
+      "action": "jira_tasks.read",
+      "method": "GET",
+      "path": "/api/jira/tasks",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "jira_tasks.read",
+          "alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "aggregate_only"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "aggregate_only"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
         }
       }
     },
@@ -3443,6 +3799,92 @@
       }
     },
     {
+      "route_id": "member.jira_account_email.update",
+      "action": "member.jira_account_email.update",
+      "method": "PUT",
+      "path": "/api/members/{id}/jira-account-email",
+      "target_type": "member",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "member.jira_account_email.update",
+          "alternatives": [
+            {
+              "permission": "member.profile.manage_self",
+              "selector": {
+                "kind": "self_member_path"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "member.profile.manage_self",
+              "role_grant_constraints": {
+                "kind": "self"
+              },
+              "route_selector": {
+                "kind": "self_member_path"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "member.profile.manage_self",
+              "role_grant_constraints": {
+                "kind": "self"
+              },
+              "route_selector": {
+                "kind": "self_member_path"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "member.profile.manage_self",
+              "role_grant_constraints": {
+                "kind": "self"
+              },
+              "route_selector": {
+                "kind": "self_member_path"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        }
+      }
+    },
+    {
       "route_id": "member.password.reset",
       "action": "member.password.reset",
       "method": "POST",
@@ -3757,6 +4199,62 @@
               "response_projection": "full"
             }
           ]
+        }
+      }
+    },
+    {
+      "route_id": "model_pricing.catalog.list",
+      "action": "model_pricing.catalog.list",
+      "method": "GET",
+      "path": "/api/model-pricing/catalog",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "model_pricing.catalog.list",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
         }
       }
     },
