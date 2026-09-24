@@ -5,6 +5,7 @@ mod auth;
 mod client;
 mod dashboard;
 mod health;
+mod jira_tasks;
 mod pricing;
 mod realtime;
 mod resource_delivery;
@@ -360,6 +361,16 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             Selector::SelfMemberPath,
         ),
         secrets::create_for_member,
+    );
+    routes.put(
+        "/members/{id}/jira-account-email",
+        browser(
+            A::MemberJiraAccountEmailUpdate,
+            Target::Member,
+            P::MemberProfileManageSelf,
+            Selector::SelfMemberPath,
+        ),
+        users::update_jira_account_email,
     );
     routes.post(
         "/members/{id}/secrets/{secret_id}/revoke",
@@ -884,6 +895,16 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
         ),
         pricing::reprice_model_calls,
     );
+    routes.get(
+        "/model-pricing/catalog",
+        browser(
+            A::ModelPricingCatalogList,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        pricing::model_pricing_catalog,
+    );
 
     routes.get(
         "/members/{id}/usage/summary",
@@ -932,6 +953,46 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             project_member(),
         ),
         telemetry::member_cost_report,
+    );
+    routes.get(
+        "/analytics/task-cost-report",
+        browser(
+            A::TaskCostReportRead,
+            Target::Project,
+            P::TelemetryProjectRead,
+            project_member(),
+        ),
+        telemetry::task_cost_report,
+    );
+    routes.get(
+        "/analytics/task-cost-report/{issue_key}/activity",
+        browser(
+            A::TaskActivityDetailRead,
+            Target::Project,
+            P::TelemetryProjectRead,
+            project_member(),
+        ),
+        telemetry::task_activity_detail,
+    );
+    routes.get(
+        "/jira/tasks",
+        browser(
+            A::JiraTasksRead,
+            Target::Project,
+            P::TelemetryProjectRead,
+            project_member(),
+        ),
+        jira_tasks::list,
+    );
+    routes.get(
+        "/jira/tasks/{issue_key}",
+        browser(
+            A::JiraTaskDetailRead,
+            Target::Project,
+            P::TelemetryProjectRead,
+            project_member(),
+        ),
+        jira_tasks::detail,
     );
     routes.get(
         "/analytics/views",
@@ -1092,6 +1153,16 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             Selector::EffectiveAudienceList,
         ),
         realtime::events,
+    );
+    routes.post(
+        "/v1/client/jira-task-activation",
+        connection(
+            A::ClientJiraTaskActivationRecord,
+            Target::Project,
+            Scope::ReportTelemetry,
+            Selector::None,
+        ),
+        jira_tasks::record_activation,
     );
 }
 

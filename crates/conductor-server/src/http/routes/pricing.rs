@@ -267,6 +267,28 @@ pub async fn reprice_model_calls(
     }))
 }
 
+#[derive(Serialize)]
+pub struct ModelCatalogEntry {
+    pub provider: String,
+    pub model: String,
+    pub pricing: conductor_domain::ModelPricing,
+}
+
+pub async fn model_pricing_catalog(
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<ModelCatalogEntry>>> {
+    let rows = state.db.model_prices().current_rate_table().await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| ModelCatalogEntry {
+                provider: row.provider,
+                model: row.model,
+                pricing: row.pricing,
+            })
+            .collect(),
+    ))
+}
+
 async fn project_id(state: &AppState) -> Result<Uuid, ApiError> {
     state
         .db
