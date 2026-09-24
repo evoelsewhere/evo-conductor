@@ -10,8 +10,9 @@ use crate::core::url::{normalize_database_url, sqlite_path};
 use crate::migrate;
 use crate::repos::{
     AiPolicyRepo, AnalyticsViewRepo, ClientInstallationRepo, DashboardRepo,
-    InstallationContactRepo, InstanceRepo, MemberAccessRepo, ModelPriceRepo, ProjectIdCache,
-    ResourceRepo, ResourceUsageRepo, RoleRepo, SecretRepo, SpendLimitRepo, TelemetryRepo, UserRepo,
+    InstallationContactRepo, InstanceRepo, JiraStatusHistoryRepo, JiraTaskRepo, MemberAccessRepo,
+    ModelPriceRepo, ProjectIdCache, ResourceRepo, ResourceUsageRepo, RoleRepo, SecretRepo,
+    SpendLimitRepo, TaskActivationRepo, TelemetryRepo, UserRepo,
 };
 
 /// Database handle. Cheap to clone (shares the connection pool).
@@ -136,6 +137,18 @@ impl Db {
 
     pub fn ai_policies(&self) -> AiPolicyRepo {
         AiPolicyRepo::new(self.pool.clone(), self.kind)
+    }
+
+    pub fn jira_tasks(&self) -> JiraTaskRepo {
+        JiraTaskRepo::new(self.pool.clone(), self.kind)
+    }
+
+    pub fn task_activations(&self) -> TaskActivationRepo {
+        TaskActivationRepo::new(self.pool.clone())
+    }
+
+    pub fn jira_status_history(&self) -> JiraStatusHistoryRepo {
+        JiraStatusHistoryRepo::new(self.pool.clone())
     }
 
     pub fn model_prices(&self) -> ModelPriceRepo {

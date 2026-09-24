@@ -180,6 +180,7 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
             approved_by TEXT,
             last_seen_at TEXT,
             created_at TEXT NOT NULL,
+            jira_account_email TEXT,
             UNIQUE (sso_issuer, sso_subject)
         )
         "#,
@@ -481,6 +482,63 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
             FOREIGN KEY(project_id) REFERENCES instance(id)
         )
         "#,
+        // A local mirror of one Jira project's issues (Phase 4 follow-on:
+        // task-level usage reporting). `project_id` scopes it to Conductor's
+        // one project, same convention as `spend_limits`/`project_ai_policies`.
+        // `resolved_type` is recomputed from `task_type_rules` every sync, so
+        // it is derived data, not a second source of truth.
+        r#"
+        CREATE TABLE IF NOT EXISTS jira_tasks (
+            issue_key TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            issue_type TEXT NOT NULL DEFAULT '',
+            resolved_type TEXT NOT NULL DEFAULT '',
+            resolved_project TEXT,
+            assignee_display_name TEXT,
+            assignee_email TEXT,
+            assignee_account_id TEXT,
+            parent_key TEXT,
+            status TEXT NOT NULL DEFAULT '',
+            jira_updated_at TEXT,
+            synced_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES instance(id)
+        )
+        "#,
+        // Recorded by the jira-task-assistant plugin's own tool call (via a
+        // connection token, no evoflux core involvement) whenever the agent
+        // starts work on a task -- "user X began task Y at T". The task
+        // report turns a sequence of these per user into time windows and
+        // sums that user's telemetry inside each window, for a real
+        // per-task figure instead of always falling back to their whole
+        // period total.
+        r#"
+        CREATE TABLE IF NOT EXISTS task_activations (
+            id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            issue_key TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES instance(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        "#,
+        // Jira's own changelog for an issue, synced only for issues that
+        // have at least one `task_activations` row -- most issues in a
+        // project are never opened through the plugin, so there's nothing
+        // to split by status for them and no reason to page their history.
+        // Replaced wholesale per issue on each sync tick rather than
+        // diffed, since a changelog page is cheap and always authoritative.
+        r#"
+        CREATE TABLE IF NOT EXISTS jira_status_history (
+            id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            issue_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            changed_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES instance(id)
+        )
+        "#,
         r#"
         CREATE TABLE IF NOT EXISTS model_price_catalogs (
             version TEXT PRIMARY KEY NOT NULL,
@@ -605,6 +663,10 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         "CREATE INDEX IF NOT EXISTS idx_spend_limits_project ON spend_limits(project_id, enabled)",
         "CREATE INDEX IF NOT EXISTS idx_project_ai_policies_project ON project_ai_policies(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_model_price_catalogs_fetched ON model_price_catalogs(fetched_at)",
+        "CREATE INDEX IF NOT EXISTS idx_jira_tasks_project ON jira_tasks(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_jira_tasks_parent ON jira_tasks(parent_key)",
+        "CREATE INDEX IF NOT EXISTS idx_task_activations_user_started ON task_activations(project_id, user_id, started_at)",
+        "CREATE INDEX IF NOT EXISTS idx_jira_status_history_issue ON jira_status_history(project_id, issue_key, changed_at)",
     ];
 
     for sql in statements {
@@ -706,6 +768,9 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         "ALTER TABLE telemetry_events ADD COLUMN pricing_basis TEXT",
         "ALTER TABLE model_prices ADD COLUMN tiers_json TEXT",
         "ALTER TABLE model_prices ADD COLUMN service_tiers_json TEXT",
+        "ALTER TABLE users ADD COLUMN jira_account_email TEXT",
+        "ALTER TABLE jira_tasks ADD COLUMN assignee_email TEXT",
+        "ALTER TABLE jira_tasks ADD COLUMN resolved_project TEXT",
     ];
     for sql in alters {
         let _ = sqlx::query(sql).execute(pool).await;
