@@ -5,8 +5,10 @@ import {
   Database,
   HardDrive,
   KeyRound,
+  Mail,
   Network,
   ShieldCheck,
+  Ticket,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
@@ -57,6 +59,18 @@ const tabs = [
     label: "Object storage",
     description: "Files and migration",
     icon: HardDrive,
+  },
+  {
+    id: "email",
+    label: "Email",
+    description: "SMTP for invites and reports",
+    icon: Mail,
+  },
+  {
+    id: "jira",
+    label: "Jira",
+    description: "Usage reporting connection",
+    icon: Ticket,
   },
   {
     id: "data-policy",
@@ -117,6 +131,23 @@ export function SettingsForm() {
   const [gitUsername, setGitUsername] = useState("")
   const [gitCredential, setGitCredential] = useState("")
   const [clearGitCredential, setClearGitCredential] = useState(false)
+  const [emailEnabled, setEmailEnabled] = useState(false)
+  const [smtpHost, setSmtpHost] = useState("")
+  const [smtpPort, setSmtpPort] = useState("587")
+  const [smtpUsername, setSmtpUsername] = useState("")
+  const [smtpPassword, setSmtpPassword] = useState("")
+  const [clearSmtpPassword, setClearSmtpPassword] = useState(false)
+  const [emailFromAddress, setEmailFromAddress] = useState("")
+  const [jiraEnabled, setJiraEnabled] = useState(false)
+  const [jiraSiteUrl, setJiraSiteUrl] = useState("")
+  const [jiraEmail, setJiraEmail] = useState("")
+  const [jiraApiToken, setJiraApiToken] = useState("")
+  const [clearJiraApiToken, setClearJiraApiToken] = useState(false)
+  const [jiraDefaultProjectKey, setJiraDefaultProjectKey] = useState("")
+  const [jiraReportIssueKey, setJiraReportIssueKey] = useState("")
+  const [jiraReportIntervalHours, setJiraReportIntervalHours] = useState("168")
+  const [jiraTestResult, setJiraTestResult] = useState<string | null>(null)
+  const [jiraReportResult, setJiraReportResult] = useState<string | null>(null)
   const [collectionLevel, setCollectionLevel] =
     useState<CollectionLevel>("L1")
   const [ssoEnabled, setSsoEnabled] = useState(false)
@@ -160,6 +191,23 @@ export function SettingsForm() {
     setGitUsername(data.storage.git.username ?? "")
     setGitCredential("")
     setClearGitCredential(false)
+    setEmailEnabled(data.email.enabled)
+    setSmtpHost(data.email.smtp_host)
+    setSmtpPort(String(data.email.smtp_port))
+    setSmtpUsername(data.email.smtp_username)
+    setSmtpPassword("")
+    setClearSmtpPassword(false)
+    setEmailFromAddress(data.email.from_address)
+    setJiraEnabled(data.jira.enabled)
+    setJiraSiteUrl(data.jira.site_url)
+    setJiraEmail(data.jira.email)
+    setJiraApiToken("")
+    setClearJiraApiToken(false)
+    setJiraDefaultProjectKey(data.jira.default_project_key)
+    setJiraReportIssueKey(data.jira.report_issue_key)
+    setJiraReportIntervalHours(String(data.jira.report_interval_hours))
+    setJiraTestResult(null)
+    setJiraReportResult(null)
     setCollectionLevel(data.data_policy.collection_level)
     setSsoEnabled(data.sso.enabled)
     setProvider(data.sso.provider)
@@ -308,6 +356,109 @@ export function SettingsForm() {
       setFormError(e instanceof Error ? e.message : "Storage migration failed"),
   })
 
+  const saveEmail = useMutation({
+    mutationFn: () => {
+      const port = Number(smtpPort)
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error("SMTP port must be between 1 and 65535")
+      }
+      if (emailEnabled && !smtpHost.trim()) {
+        throw new Error("SMTP host cannot be empty while email is enabled")
+      }
+      if (emailEnabled && !emailFromAddress.trim()) {
+        throw new Error("From address cannot be empty while email is enabled")
+      }
+      return api.updateEmail({
+        enabled: emailEnabled,
+        smtp_host: smtpHost.trim(),
+        smtp_port: port,
+        smtp_username: smtpUsername.trim(),
+        smtp_password: smtpPassword.trim() || undefined,
+        clear_smtp_password: clearSmtpPassword,
+        smtp_password_set: data?.email.smtp_password_set ?? false,
+        from_address: emailFromAddress.trim(),
+      })
+    },
+    onSuccess: () => {
+      setSmtpPassword("")
+      setClearSmtpPassword(false)
+      setMessage("Email settings saved")
+      setFormError(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: (e) =>
+      setFormError(e instanceof Error ? e.message : "Email save failed"),
+  })
+
+  const saveJira = useMutation({
+    mutationFn: () => {
+      if (jiraEnabled && !jiraSiteUrl.trim()) {
+        throw new Error("Site URL cannot be empty while Jira is enabled")
+      }
+      if (jiraEnabled && !jiraEmail.trim()) {
+        throw new Error("Account email cannot be empty while Jira is enabled")
+      }
+      const intervalHours = Number(jiraReportIntervalHours)
+      if (!Number.isInteger(intervalHours) || intervalHours < 1) {
+        throw new Error("Report interval must be a whole number of hours, at least 1")
+      }
+      return api.updateJira({
+        enabled: jiraEnabled,
+        site_url: jiraSiteUrl.trim(),
+        email: jiraEmail.trim(),
+        api_token: jiraApiToken.trim() || undefined,
+        clear_api_token: clearJiraApiToken,
+        api_token_set: data?.jira.api_token_set ?? false,
+        default_project_key: jiraDefaultProjectKey.trim(),
+        report_issue_key: jiraReportIssueKey.trim(),
+        last_reported_period: data?.jira.last_reported_period ?? null,
+        report_interval_hours: intervalHours,
+      })
+    },
+    onSuccess: () => {
+      setJiraApiToken("")
+      setClearJiraApiToken(false)
+      setJiraTestResult(null)
+      setMessage("Jira settings saved")
+      setFormError(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: (e) =>
+      setFormError(e instanceof Error ? e.message : "Jira save failed"),
+  })
+
+  const testJira = useMutation({
+    mutationFn: () => api.testJiraConnection(),
+    onSuccess: (result) => {
+      setJiraTestResult(
+        `Connected as ${result.account_display_name || result.account_email}` +
+          (jiraDefaultProjectKey.trim()
+            ? ` · ${result.sample_issue_count} issue(s) visible in ${jiraDefaultProjectKey.trim()}`
+            : ""),
+      )
+      setFormError(null)
+    },
+    onError: (e) => {
+      setJiraTestResult(null)
+      setFormError(e instanceof Error ? e.message : "Jira connection test failed")
+    },
+  })
+
+  const postJiraReport = useMutation({
+    mutationFn: () => api.postJiraReport(7),
+    onSuccess: (result) => {
+      setJiraReportResult(
+        `Posted to ${result.issue_key} for the period starting ${result.period_start}`,
+      )
+      setFormError(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: (e) => {
+      setJiraReportResult(null)
+      setFormError(e instanceof Error ? e.message : "Posting the usage report failed")
+    },
+  })
+
   const uploadLogo = useMutation({
     mutationFn: (file: File) => api.uploadProjectLogo(file),
     onSuccess: (settings) => {
@@ -378,8 +529,8 @@ export function SettingsForm() {
         !gitCredentialMatchesRepository))
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
-      <aside className="shrink-0 border-b border-(--border-soft) bg-(--bg-key)/35 p-4 lg:border-r lg:border-b-0 lg:p-5">
+    <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+      <aside className="min-h-0 shrink-0 overflow-y-auto border-b border-(--border-soft) bg-(--bg-key)/35 p-4 lg:border-r lg:border-b-0 lg:p-5">
         <div className="mb-4 hidden items-center gap-3 rounded-xl border border-(--border-soft) bg-(--bg-card) p-3 lg:flex">
           <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-(--bg-key)">
             {logoUrl ? (
@@ -616,6 +767,12 @@ export function SettingsForm() {
                 placeholder="https://conductor.example.com"
               />
             </Field>
+            {!publicUrl.trim() && (
+              <div className="rounded-lg border border-(--color-warning)/25 bg-(--color-warning)/8 px-3 py-2 text-xs text-(--color-text-muted)">
+                No public URL configured — invite-to-connect emails can&apos;t
+                be sent until you set one and save.
+              </div>
+            )}
             </SettingsCard>
 
             <SettingsCard title="Realtime (SSE)" description="Limits are enforced per Conductor instance and connection secret.">
@@ -888,6 +1045,277 @@ export function SettingsForm() {
           </section>
         )}
 
+        {tab === "email" && (
+          <section className="space-y-5">
+            <SectionHeader
+              eyebrow="Notifications"
+              title="Outbound email"
+              description="SMTP relay used to send invite-to-connect links and Jira usage-report notifications. Falls back to the CONDUCTOR_SMTP_* environment variables while disabled here."
+              trailing={<Badge tone={emailEnabled ? "success" : "neutral"}><StatusDot tone={emailEnabled ? "success" : "neutral"} />{emailEnabled ? "Enabled" : "Disabled"}</Badge>}
+            />
+            <SettingsCard>
+              <SwitchField
+                id="email-enabled"
+                label="Enable email"
+                description="Use the settings below instead of environment variables"
+                checked={emailEnabled}
+                onCheckedChange={setEmailEnabled}
+              />
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                <Field label="SMTP host">
+                  <Input
+                    disabled={!emailEnabled}
+                    value={smtpHost}
+                    onChange={(e) => setSmtpHost(e.target.value)}
+                    placeholder="smtp.gmail.com"
+                  />
+                </Field>
+                <Field label="Port">
+                  <Input
+                    disabled={!emailEnabled}
+                    inputMode="numeric"
+                    value={smtpPort}
+                    onChange={(e) => setSmtpPort(e.target.value)}
+                    placeholder="587"
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Username" hint="Usually the full mailbox address.">
+                  <Input
+                    disabled={!emailEnabled}
+                    value={smtpUsername}
+                    onChange={(e) => setSmtpUsername(e.target.value)}
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field
+                  label={
+                    data.email.smtp_password_set
+                      ? "Password (leave blank to keep)"
+                      : "Password"
+                  }
+                  hint="Write-only. The API never returns this value."
+                >
+                  <Input
+                    type="password"
+                    disabled={!emailEnabled}
+                    value={smtpPassword}
+                    onChange={(e) => {
+                      setSmtpPassword(e.target.value)
+                      setClearSmtpPassword(false)
+                    }}
+                    placeholder={
+                      data.email.smtp_password_set
+                        ? "Saved password"
+                        : "App password or SMTP secret"
+                    }
+                    autoComplete="new-password"
+                  />
+                </Field>
+              </div>
+              {data.email.smtp_password_set && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-(--border-soft) bg-(--bg-key)/45 px-3 py-2">
+                  <span className="text-xs text-(--color-text-muted)">
+                    {clearSmtpPassword
+                      ? "The saved password will be removed when you save."
+                      : "A password is saved for this SMTP account."}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setClearSmtpPassword((current) => !current)
+                      setSmtpPassword("")
+                    }}
+                  >
+                    {clearSmtpPassword ? "Keep password" : "Remove"}
+                  </Button>
+                </div>
+              )}
+              <Field label="From address">
+                <Input
+                  disabled={!emailEnabled}
+                  value={emailFromAddress}
+                  onChange={(e) => setEmailFromAddress(e.target.value)}
+                  placeholder="conductor@example.com"
+                />
+              </Field>
+            </SettingsCard>
+            <ActionRow>
+              <Button
+                variant="gradient"
+                disabled={saveEmail.isPending}
+                onClick={() => saveEmail.mutate()}
+              >
+                Save email
+              </Button>
+            </ActionRow>
+          </section>
+        )}
+
+        {tab === "jira" && (
+          <section className="space-y-5">
+            <SectionHeader
+              eyebrow="Reporting"
+              title="Jira connection"
+              description="Where usage reports are posted. Uses an Atlassian API token (Basic Auth), not OAuth — an admin can generate one from their own Atlassian account without registering an app."
+              trailing={<Badge tone={jiraEnabled ? "success" : "neutral"}><StatusDot tone={jiraEnabled ? "success" : "neutral"} />{jiraEnabled ? "Enabled" : "Disabled"}</Badge>}
+            />
+            <SettingsCard>
+              <SwitchField
+                id="jira-enabled"
+                label="Enable Jira"
+                description="Store connection details here instead of environment variables"
+                checked={jiraEnabled}
+                onCheckedChange={setJiraEnabled}
+              />
+              <Field label="Site URL" hint="e.g. https://your-domain.atlassian.net">
+                <Input
+                  disabled={!jiraEnabled}
+                  value={jiraSiteUrl}
+                  onChange={(e) => setJiraSiteUrl(e.target.value)}
+                  placeholder="https://your-domain.atlassian.net"
+                />
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Account email" hint="The Atlassian account the API token belongs to.">
+                  <Input
+                    disabled={!jiraEnabled}
+                    value={jiraEmail}
+                    onChange={(e) => setJiraEmail(e.target.value)}
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field
+                  label={
+                    data.jira.api_token_set
+                      ? "API token (leave blank to keep)"
+                      : "API token"
+                  }
+                  hint="Write-only. The API never returns this value."
+                >
+                  <Input
+                    type="password"
+                    disabled={!jiraEnabled}
+                    value={jiraApiToken}
+                    onChange={(e) => {
+                      setJiraApiToken(e.target.value)
+                      setClearJiraApiToken(false)
+                    }}
+                    placeholder={
+                      data.jira.api_token_set ? "Saved token" : "Paste API token"
+                    }
+                    autoComplete="new-password"
+                  />
+                </Field>
+              </div>
+              {data.jira.api_token_set && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-(--border-soft) bg-(--bg-key)/45 px-3 py-2">
+                  <span className="text-xs text-(--color-text-muted)">
+                    {clearJiraApiToken
+                      ? "The saved token will be removed when you save."
+                      : "A token is saved for this Jira connection."}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setClearJiraApiToken((current) => !current)
+                      setJiraApiToken("")
+                    }}
+                  >
+                    {clearJiraApiToken ? "Keep token" : "Remove"}
+                  </Button>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Default project key"
+                  hint="e.g. SCRUM. Used for the connection test."
+                >
+                  <Input
+                    disabled={!jiraEnabled}
+                    value={jiraDefaultProjectKey}
+                    onChange={(e) => setJiraDefaultProjectKey(e.target.value.toUpperCase())}
+                    placeholder="SCRUM"
+                  />
+                </Field>
+                <Field
+                  label="Report issue"
+                  hint="e.g. SCRUM-1. Usage reports are posted as a comment here."
+                >
+                  <Input
+                    disabled={!jiraEnabled}
+                    value={jiraReportIssueKey}
+                    onChange={(e) => setJiraReportIssueKey(e.target.value.toUpperCase())}
+                    placeholder="SCRUM-1"
+                  />
+                </Field>
+              </div>
+              <Field
+                label="Auto-report every (hours)"
+                hint="How often the background loop posts a report automatically, and the length of the period each one covers. 168 = weekly."
+              >
+                <Input
+                  disabled={!jiraEnabled}
+                  inputMode="numeric"
+                  value={jiraReportIntervalHours}
+                  onChange={(e) => setJiraReportIntervalHours(e.target.value)}
+                  placeholder="168"
+                />
+              </Field>
+              {data.jira.last_reported_period && (
+                <p className="text-[11px] text-(--color-text-subtle)">
+                  Last usage report posted for the period starting{" "}
+                  {data.jira.last_reported_period}.
+                </p>
+              )}
+              {jiraTestResult && (
+                <div className="rounded-lg border border-(--color-success)/25 bg-(--color-success)/8 px-3 py-2 text-xs text-(--color-text-muted)">
+                  {jiraTestResult}
+                </div>
+              )}
+              {jiraReportResult && (
+                <div className="rounded-lg border border-(--color-success)/25 bg-(--color-success)/8 px-3 py-2 text-xs text-(--color-text-muted)">
+                  {jiraReportResult}
+                </div>
+              )}
+            </SettingsCard>
+            <ActionRow>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  disabled={testJira.isPending || !data.jira.enabled}
+                  onClick={() => {
+                    setJiraTestResult(null)
+                    testJira.mutate()
+                  }}
+                >
+                  {testJira.isPending ? "Testing…" : "Test connection"}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={postJiraReport.isPending || !data.jira.enabled}
+                  onClick={() => {
+                    setJiraReportResult(null)
+                    postJiraReport.mutate()
+                  }}
+                >
+                  {postJiraReport.isPending ? "Posting…" : "Post usage report now"}
+                </Button>
+                <Button
+                  variant="gradient"
+                  disabled={saveJira.isPending}
+                  onClick={() => saveJira.mutate()}
+                >
+                  Save Jira
+                </Button>
+              </div>
+            </ActionRow>
+          </section>
+        )}
+
         {tab === "data-policy" && (
           <section className="space-y-5">
             <SectionHeader
@@ -1043,10 +1471,10 @@ function SettingsFormSkeleton() {
   return (
     <LoadingState
       label="Loading project settings"
-      className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]"
+      className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]"
     >
       <>
-        <aside className="shrink-0 border-b border-(--border-soft) bg-(--bg-key)/35 p-4 lg:border-r lg:border-b-0 lg:p-5">
+        <aside className="min-h-0 shrink-0 overflow-y-auto border-b border-(--border-soft) bg-(--bg-key)/35 p-4 lg:border-r lg:border-b-0 lg:p-5">
           <div className="mb-4 hidden items-center gap-3 rounded-xl border border-(--border-soft) bg-(--bg-card) p-3 lg:flex">
             <Skeleton className="size-10 shrink-0 rounded-lg" />
             <div className="min-w-0 flex-1 space-y-2">

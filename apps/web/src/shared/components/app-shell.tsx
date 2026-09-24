@@ -19,6 +19,7 @@ import {
   Plug,
   Settings,
   Shield,
+  ShieldCheck,
   Sparkles,
   Sun,
   Tags,
@@ -204,6 +205,12 @@ export function AppShell() {
         icon: Wallet,
         end: false,
         badge: spendNeedingAttention || undefined,
+      })
+      workspaceItems.push({
+        to: "/app/ai-policy",
+        label: "AI policy",
+        icon: ShieldCheck,
+        end: false,
       })
     }
 
