@@ -13,7 +13,7 @@ use crate::DatabaseKind;
 pub(crate) const USER_SELECT: &str = r#"
     SELECT id, email, display_name, password_hash, primary_role, status,
            must_change_password, session_version, sso_issuer, sso_subject,
-           last_seen_at, created_at
+           last_seen_at, created_at, jira_account_email
     FROM users
 "#;
 
@@ -643,6 +643,23 @@ impl UserRepo {
 
     pub async fn clear_must_change_password(&self, user_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE users SET must_change_password = 0 WHERE id = ?")
+            .bind(user_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Sets or clears the member's Jira account email (`None` clears it) —
+    /// a plain profile field for task-report matching, not a security
+    /// property, so it skips the audited access-profile transaction other
+    /// member fields go through.
+    pub async fn set_jira_account_email(
+        &self,
+        user_id: Uuid,
+        email: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE users SET jira_account_email = ? WHERE id = ?")
+            .bind(email)
             .bind(user_id.to_string())
             .execute(&self.pool)
             .await?;

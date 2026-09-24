@@ -127,6 +127,7 @@ pub fn map_user_row(r: &AnyRow) -> StorageResult<User> {
         must_change_password: must_change == 1,
         last_seen_at,
         created_at,
+        jira_account_email: r.try_get("jira_account_email").unwrap_or(None),
     })
 }
 

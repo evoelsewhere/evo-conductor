@@ -358,6 +358,7 @@ impl InstanceRepo {
                 must_change_password: false,
                 last_seen_at: None,
                 created_at: now,
+                jira_account_email: None,
             },
         ))
     }
