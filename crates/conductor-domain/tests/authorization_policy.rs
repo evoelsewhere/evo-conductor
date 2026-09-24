@@ -18,6 +18,7 @@ fn allowed_roles(permission: PermissionKey) -> &'static [PrimaryRole] {
         | P::SessionPasswordChange
         | P::ProjectBrandingRead
         | P::MemberPrivateReadSelf
+        | P::MemberProfileManageSelf
         | P::ResourceConsume
         | P::ResourceFeedbackSubmit
         | P::TelemetryMemberReadSelf

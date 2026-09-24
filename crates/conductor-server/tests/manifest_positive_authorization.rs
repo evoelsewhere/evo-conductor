@@ -17,10 +17,10 @@ use conductor_auth::{hash_password_async, hash_token};
 use conductor_domain::UnpricedReason;
 use conductor_domain::{
     role_has_permission, AuthenticationKind, AuthorizationAction as Action, ClientPlatform,
-    CreateResourceRequest, CreateSubRoleRequest, CreateTagRequest, DraftFile, PermissionKey,
-    PrimaryRole, RegisterClientRequest, ReleaseChannel, ReleaseResourceRequest, ResourceKind,
-    ResourceVisibility, SecretScope, SetupRequest, TelemetryEventRequest, TelemetryEventStatus,
-    TelemetryEventType, User, VersionMode,
+    CreateResourceRequest, CreateSubRoleRequest, CreateTagRequest, DraftFile, JiraTask,
+    PermissionKey, PrimaryRole, RegisterClientRequest, ReleaseChannel, ReleaseResourceRequest,
+    ResourceKind, ResourceVisibility, SecretScope, SetupRequest, TelemetryEventRequest,
+    TelemetryEventStatus, TelemetryEventType, User, VersionMode,
 };
 use conductor_server::core::authorization::{
     AuthorizationDecisionObserver, AuthorizationEvent, AuthorizationResult, AuthorizationService,
@@ -41,7 +41,7 @@ use support::{test_app_with_authorization, TestApp};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-const EXPECTED_CONNECTION_ROLE_CASES: usize = 33;
+const EXPECTED_CONNECTION_ROLE_CASES: usize = 36;
 const REVIEWED_ROUTE_INVENTORY: &str =
     include_str!("../../../docs/generated/req-004-route-inventory.json");
 
@@ -239,6 +239,32 @@ impl World {
             .await
             .expect("seed client installation")
             .id
+    }
+
+    async fn seed_jira_task(&self) -> String {
+        let issue_key = format!("PROOF-{}", Uuid::new_v4().simple());
+        let task = JiraTask {
+            issue_key: issue_key.clone(),
+            title: "Manifest authorization proof task".into(),
+            issue_type: "Task".into(),
+            resolved_type: "task".into(),
+            resolved_project: None,
+            assignee_display_name: None,
+            assignee_email: None,
+            assignee_account_id: None,
+            parent_key: None,
+            status: "To Do".into(),
+            jira_updated_at: None,
+            synced_at: chrono::Utc::now(),
+        };
+        self.app
+            .state
+            .db
+            .jira_tasks()
+            .upsert_many(self.project_id, &[task])
+            .await
+            .expect("seed jira task");
+        issue_key
     }
 
     async fn seed_resource(&self, released: bool) -> SeededResource {
@@ -697,6 +723,7 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | SpendLimitList
         | AiPolicyList
         | ModelPricingCatalogRead
+        | ModelPricingCatalogList
         | ConnectionTokensSelfList => PreparedRequest::empty(route, StatusCode::OK),
 
         SpendLimitUpsert => PreparedRequest::json(
@@ -1032,9 +1059,25 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 StatusCode::OK,
             )
         }
-        AnalyticsResourceUsageRead | ModelCostReportRead | MemberCostReportRead => {
-            PreparedRequest::empty(route, StatusCode::OK)
+        AnalyticsResourceUsageRead | ModelCostReportRead | MemberCostReportRead
+        | TaskCostReportRead | JiraTasksRead => PreparedRequest::empty(route, StatusCode::OK),
+
+        JiraTaskDetailRead => {
+            let issue_key = world.seed_jira_task().await;
+            PreparedRequest::empty_at(route, &[("{issue_key}", issue_key)], StatusCode::OK)
         }
+
+        TaskActivityDetailRead => {
+            let issue_key = world.seed_jira_task().await;
+            PreparedRequest::empty_at(route, &[("{issue_key}", issue_key)], StatusCode::OK)
+        }
+
+        MemberJiraAccountEmailUpdate => PreparedRequest::json(
+            route,
+            &[("{id}", world.actor.id.to_string())],
+            json!({ "jira_account_email": "proof@example.test" }),
+            StatusCode::OK,
+        ),
 
         TaxonomyAssignmentRead | TaxonomyAssignmentSet => {
             let (entity_type, entity_id) = if world.actor.primary_role == PrimaryRole::Contribute {
@@ -1323,13 +1366,20 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | AiPolicyUpsert
                 | AiPolicyDelete
                 | ModelPricingCatalogRead
+                | ModelPricingCatalogList
                 | ModelPricingSync
                 | ModelPricingReprice
                 | ClientRealtimeEvents
                 | ClientAiPolicyRead
                 | ProjectJiraUpdate
                 | ProjectJiraTest
-                | ProjectJiraReport => unreachable!("outer resource action match"),
+                | ProjectJiraReport
+                | TaskCostReportRead
+                | JiraTasksRead
+                | JiraTaskDetailRead
+                | MemberJiraAccountEmailUpdate
+                | ClientJiraTaskActivationRecord
+                | TaskActivityDetailRead => unreachable!("outer resource action match"),
             }
         }
 
@@ -1467,13 +1517,20 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | AiPolicyUpsert
                 | AiPolicyDelete
                 | ModelPricingCatalogRead
+                | ModelPricingCatalogList
                 | ModelPricingSync
                 | ModelPricingReprice
                 | ClientRealtimeEvents
                 | ClientAiPolicyRead
                 | ProjectJiraUpdate
                 | ProjectJiraTest
-                | ProjectJiraReport => unreachable!("outer analytics action match"),
+                | ProjectJiraReport
+                | TaskCostReportRead
+                | JiraTasksRead
+                | JiraTaskDetailRead
+                | MemberJiraAccountEmailUpdate
+                | ClientJiraTaskActivationRecord
+                | TaskActivityDetailRead => unreachable!("outer analytics action match"),
             }
         }
 
@@ -1494,7 +1551,8 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | ClientTelemetryIngest
         | ClientResourceUsageIngest
         | ClientRealtimeEvents
-        | ClientAiPolicyRead => unreachable!("non-browser action in browser fixture"),
+        | ClientAiPolicyRead
+        | ClientJiraTaskActivationRecord => unreachable!("non-browser action in browser fixture"),
     }
 }
 
@@ -1506,6 +1564,12 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
             PreparedRequest::empty(route, StatusCode::OK)
         }
         ClientAiPolicyRead => PreparedRequest::empty(route, StatusCode::OK),
+        ClientJiraTaskActivationRecord => PreparedRequest::json(
+            route,
+            &[],
+            json!({"issue_key": "PROOF-1"}),
+            StatusCode::OK,
+        ),
         ClientResourcesFetch => {
             let installation_id = world.seed_installation().await;
             PreparedRequest::json(
@@ -1717,12 +1781,18 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | AiPolicyUpsert
         | AiPolicyDelete
         | ModelPricingCatalogRead
+        | ModelPricingCatalogList
         | ModelPricingSync
         | ModelPricingReprice
         | AnalyticsViewDelete
         | ProjectJiraUpdate
         | ProjectJiraTest
-        | ProjectJiraReport => unreachable!("non-connection action in connection fixture"),
+        | ProjectJiraReport
+        | TaskCostReportRead
+        | JiraTasksRead
+        | JiraTaskDetailRead
+        | MemberJiraAccountEmailUpdate
+        | TaskActivityDetailRead => unreachable!("non-connection action in connection fixture"),
     }
 }
 
@@ -2052,6 +2122,9 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
             assert_eq!(body["duplicates"], 0, "{case}");
             assert_eq!(body["rejected"], 0, "{case}");
         }
+        ClientJiraTaskActivationRecord => {
+            assert_eq!(body["recorded"], true, "{case}");
+        }
         HealthRead
         | SetupStatusRead
         | SetupComplete
@@ -2122,7 +2195,13 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | ModelPricingSync
         | ProjectJiraTest
         | ProjectJiraReport
-        | ClientRealtimeEvents => {}
+        | ClientRealtimeEvents
+        | TaskCostReportRead
+        | JiraTasksRead
+        | JiraTaskDetailRead
+        | MemberJiraAccountEmailUpdate
+        | TaskActivityDetailRead
+        | ModelPricingCatalogList => {}
     }
 }
 
@@ -2560,7 +2639,7 @@ fn target_requirement_classification_is_manifest_driven() {
         .iter()
         .filter(|route| route_requires_target(route))
         .count();
-    assert_eq!(target_routes, 56);
+    assert_eq!(target_routes, 58);
     assert!(manifest
         .routes
         .iter()

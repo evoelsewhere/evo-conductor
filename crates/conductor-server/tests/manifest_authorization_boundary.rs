@@ -17,15 +17,16 @@ use serde_json::Value;
 use support::{test_app, TestApp};
 use tower::ServiceExt;
 
-const EXPECTED_BROWSER_ACTIONS: usize = 92;
-const EXPECTED_CONNECTION_ACTIONS: usize = 11;
-const EXPECTED_DENIED_ROLE_ACTION_CASES: usize = 111;
+const EXPECTED_BROWSER_ACTIONS: usize = 98;
+const EXPECTED_CONNECTION_ACTIONS: usize = 12;
+const EXPECTED_DENIED_ROLE_ACTION_CASES: usize = 117;
 
 const PATH_ID: &str = "00000000-0000-0000-0000-000000000001";
 const PATH_VERSION_ID: &str = "00000000-0000-0000-0000-000000000002";
 const PATH_SECRET_ID: &str = "00000000-0000-0000-0000-000000000003";
 const PATH_REQUEST_ID: &str = "00000000-0000-0000-0000-000000000004";
 const PATH_ENTITY_ID: &str = "00000000-0000-0000-0000-000000000005";
+const PATH_ISSUE_KEY: &str = "PROOF-1";
 
 const SUBSCRIBE_TOKEN: &str = "evc_manifest_subscribe_boundary_proof";
 const TELEMETRY_TOKEN: &str = "evc_manifest_telemetry_boundary_proof";
@@ -45,6 +46,7 @@ fn concrete_path(template: &str) -> String {
         .replace("{entity_id}", PATH_ENTITY_ID)
         .replace("{kind}", "agent")
         .replace("{*path}", "manifest.json")
+        .replace("{issue_key}", PATH_ISSUE_KEY)
         .replace("{id}", PATH_ID);
 
     assert!(
