@@ -88,6 +88,31 @@ pub struct RawMemberCostRow {
     pub total_cost_usd_micros: u64,
 }
 
+/// One raw model-call event for a single user, unaggregated -- the input the
+/// task-cost report buckets by activation window and status-at-the-time,
+/// which a `GROUP BY` sum can't do. Carries enough to both summarize (token
+/// splits, models, duration) and list individually (the task detail
+/// drill-down), so one query serves both.
+#[derive(Debug, Clone)]
+pub struct RawTelemetryEventSlice {
+    pub request_id: Option<String>,
+    pub session_id: Option<String>,
+    pub agent_name: Option<String>,
+    pub received_at: DateTime<Utc>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub total_tokens: u64,
+    pub duration_ms: u64,
+    pub total_cost_usd_micros: u64,
+    pub status: String,
+    pub is_error: bool,
+}
+
 /// One stored event that carries no server price yet, with everything needed
 /// to price it as of when it happened.
 #[derive(Debug, Clone)]
@@ -625,6 +650,78 @@ impl TelemetryRepo {
                     cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
                     reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
                     total_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                })
+            })
+            .collect())
+    }
+
+    /// Every model-call event for one user in the window, unaggregated and
+    /// ordered by time -- the task-cost report's own building block for
+    /// slicing a member's usage into activation windows and, inside those,
+    /// by the Jira status active at each event's moment. Not filtered by
+    /// role/tag/provider/model like the aggregate reports: a task's number
+    /// must equal what `member_cost_totals` already showed for that member,
+    /// or the two report views would silently disagree.
+    pub async fn member_event_series(
+        &self,
+        project_id: Uuid,
+        user_id: Uuid,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<RawTelemetryEventSlice>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"SELECT request_id, session_id, agent_name, received_at, provider, model,
+                      COALESCE(tokens_in,0) AS tokens_in,
+                      COALESCE(tokens_out,0) AS tokens_out,
+                      COALESCE(cache_read_tokens,0) AS cache_read_tokens,
+                      COALESCE(cache_write_tokens,0) AS cache_write_tokens,
+                      COALESCE(reasoning_tokens,0) AS reasoning_tokens,
+                      COALESCE(duration_ms,0) AS duration_ms,
+                      COALESCE(server_cost_usd_micros,0) AS cost_micros,
+                      status
+               FROM telemetry_events
+               WHERE project_id = ? AND user_id = ? AND event_type = ?
+                 AND received_at >= ? AND received_at <= ?
+               ORDER BY received_at ASC"#,
+        )
+        .bind(project_id.to_string())
+        .bind(user_id.to_string())
+        .bind(TelemetryEventType::ModelCall.as_str())
+        .bind(from.to_rfc3339())
+        .bind(to.to_rfc3339())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let received_at = row.get::<Option<String>, _>("received_at")?;
+                let tokens_in = non_negative(row.get::<i64, _>("tokens_in"));
+                let tokens_out = non_negative(row.get::<i64, _>("tokens_out"));
+                let cache_read_tokens = non_negative(row.get::<i64, _>("cache_read_tokens"));
+                let cache_write_tokens = non_negative(row.get::<i64, _>("cache_write_tokens"));
+                let reasoning_tokens = non_negative(row.get::<i64, _>("reasoning_tokens"));
+                let status = row.get::<String, _>("status");
+                Some(RawTelemetryEventSlice {
+                    request_id: row.get("request_id"),
+                    session_id: row.get("session_id"),
+                    agent_name: row.get("agent_name"),
+                    received_at: parse_dt(received_at),
+                    provider: row.get("provider"),
+                    model: row.get("model"),
+                    tokens_in,
+                    tokens_out,
+                    cache_read_tokens,
+                    cache_write_tokens,
+                    reasoning_tokens,
+                    total_tokens: tokens_in
+                        + tokens_out
+                        + cache_read_tokens
+                        + cache_write_tokens
+                        + reasoning_tokens,
+                    duration_ms: non_negative(row.get::<i64, _>("duration_ms")),
+                    total_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                    is_error: status != TelemetryEventStatus::Success.as_str(),
+                    status,
                 })
             })
             .collect())
