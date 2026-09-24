@@ -18,6 +18,7 @@ pub mod client_installation;
 pub mod core;
 pub mod dashboard;
 pub mod instance;
+pub mod jira_task;
 pub mod pricing;
 pub mod resource;
 pub mod resource_semver;
@@ -57,12 +58,17 @@ pub use dashboard::{
     DashboardRealtimeScope, DashboardSummary, DASHBOARD_PRESENCE_THRESHOLD_SECONDS,
 };
 pub use instance::{
-    AzureBlobStorageSettings, DataPolicySettings, EmailSettings, GitAuthMode, GitStorageSettings,
-    InstanceConfig, JiraSettings, LocalStorageSettings, ProjectBranding, ProjectSettings,
-    RealtimeSettings, S3StorageSettings, SetupRequest, SetupSsoRequest, SetupStatus, SsoConfig,
-    SsoProvider, StorageBackend, StorageMigrationResult, StorageSettings, UpdateDataPolicyRequest,
-    UpdateEmailRequest, UpdateInstanceRequest, UpdateJiraRequest, UpdateNetworkRequest,
-    UpdateSsoRequest, UpdateStorageRequest,
+    resolve_project_label, resolve_task_type, AzureBlobStorageSettings, DataPolicySettings,
+    EmailSettings, GitAuthMode, GitStorageSettings, InstanceConfig, JiraSettings,
+    LocalStorageSettings, ProjectBranding, ProjectPrefixRule, ProjectSettings, RealtimeSettings,
+    S3StorageSettings, SetupRequest, SetupSsoRequest, SetupStatus, SsoConfig, SsoProvider,
+    StorageBackend, StorageMigrationResult, StorageSettings, TaskTypeRule,
+    UpdateDataPolicyRequest, UpdateEmailRequest, UpdateInstanceRequest, UpdateJiraRequest,
+    UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
+};
+pub use jira_task::{
+    JiraStatusChange, JiraTask, JiraTaskListResponse, StatusTokenBreakdown, TaskActivationRequest,
+    TaskActivityItem, TaskActivityResponse, TaskCostReport, TaskCostRow,
 };
 pub use pricing::{
     normalize_model_key, price_components, price_model_call, price_model_call_tiered,
