@@ -1,6 +1,6 @@
 use axum::{
     body::{Body, Bytes},
-    extract::State,
+    extract::{Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::Response,
     Json,
@@ -9,7 +9,8 @@ use conductor_auth::{validate_oidc_redirect_uri, validate_oidc_url};
 use conductor_domain::{
     CollectionLevel, ConductorError, DataPolicySettings, ProjectBranding, ProjectSettings,
     RealtimeSettings, SsoProvider, StorageMigrationResult, UpdateDataPolicyRequest,
-    UpdateInstanceRequest, UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
+    UpdateEmailRequest, UpdateInstanceRequest, UpdateJiraRequest, UpdateNetworkRequest,
+    UpdateSsoRequest, UpdateStorageRequest,
 };
 use conductor_storage::repos::{LogoArtifact, SsoConfigUpdate};
 use sha2::{Digest, Sha256};
@@ -86,8 +87,43 @@ pub async fn get_settings(
         .ok_or(ConductorError::SetupRequired)?;
     let sso = state.db.instance().sso_config().await?;
     let storage = state.db.instance().storage_settings().await?;
+    let email = state.db.instance().email_settings().await?;
+    let jira = state.db.instance().jira_settings().await?;
     let collection_level = CollectionLevel::parse(&state.db.instance().collection_level().await?);
     let realtime_config = state.realtime.config();
+
+    let mut warnings = Vec::new();
+    if instance
+        .public_url
+        .as_deref()
+        .is_none_or(|url| url.trim().is_empty())
+    {
+        warnings.push(
+            "No public URL configured — invite-to-connect emails can't be sent until you set \
+             one below."
+                .to_string(),
+        );
+    }
+    if email.enabled && (email.smtp_host.trim().is_empty() || email.from_address.trim().is_empty())
+    {
+        warnings.push(
+            "Email is enabled but the SMTP host or from-address is missing — finish the Email \
+             tab below or invite/report emails will fail to send."
+                .to_string(),
+        );
+    }
+    if jira.enabled
+        && (jira.site_url.trim().is_empty()
+            || jira.email.trim().is_empty()
+            || !jira.api_token_set)
+    {
+        warnings.push(
+            "Jira is enabled but the connection isn't fully configured — finish the Jira tab \
+             below or usage reporting will fail to send."
+                .to_string(),
+        );
+    }
+
     Ok(Json(ProjectSettings {
         project_name: instance.project_name,
         display_name: instance.display_name,
@@ -104,6 +140,182 @@ pub async fn get_settings(
         data_policy: DataPolicySettings { collection_level },
         sso,
         storage,
+        email,
+        jira,
+        warnings,
+    }))
+}
+
+pub async fn update_email(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(request): Json<UpdateEmailRequest>,
+) -> ApiResult<Json<ProjectSettings>> {
+    if request.email.enabled {
+        if request.email.smtp_host.trim().is_empty() {
+            return Err(ConductorError::msg("smtp_host cannot be empty while email is enabled").into());
+        }
+        if request.email.from_address.trim().is_empty() {
+            return Err(
+                ConductorError::msg("from_address cannot be empty while email is enabled").into(),
+            );
+        }
+    }
+    if request.email.smtp_port == 0 {
+        return Err(ConductorError::msg("smtp_port must be between 1 and 65535").into());
+    }
+
+    let current = state.db.instance().email_settings().await?;
+    let mut settings = request.email;
+    settings.smtp_password_set = current.smtp_password_set;
+    let settings = crate::core::email::apply_email_settings_update(settings)
+        .await
+        .map_err(|error| ConductorError::msg(error.to_string()))?;
+    state.db.instance().update_email_settings(&settings).await?;
+    get_settings(State(state), AuthUser(user)).await
+}
+
+pub async fn update_jira(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(request): Json<UpdateJiraRequest>,
+) -> ApiResult<Json<ProjectSettings>> {
+    if request.jira.enabled {
+        if request.jira.site_url.trim().is_empty() {
+            return Err(ConductorError::msg("site_url cannot be empty while Jira is enabled").into());
+        }
+        if request.jira.email.trim().is_empty() {
+            return Err(ConductorError::msg("email cannot be empty while Jira is enabled").into());
+        }
+    }
+
+    let current = state.db.instance().jira_settings().await?;
+    let mut settings = request.jira;
+    settings.api_token_set = current.api_token_set;
+    let settings = crate::core::jira::apply_jira_settings_update(settings)
+        .await
+        .map_err(|error| ConductorError::msg(error.to_string()))?;
+    state.db.instance().update_jira_settings(&settings).await?;
+    get_settings(State(state), AuthUser(user)).await
+}
+
+#[derive(serde::Serialize)]
+pub struct JiraConnectionTestResult {
+    pub account_email: String,
+    pub account_display_name: String,
+    pub sample_issue_count: u32,
+}
+
+/// Round-trips against the live Jira site with the stored credentials —
+/// `myself` proves the token is valid at all, `search` proves it can
+/// actually read the configured project (a valid token with zero project
+/// access would pass `myself` and silently return nothing useful).
+pub async fn test_jira_connection(
+    State(state): State<AppState>,
+    AuthUser(_user): AuthUser,
+) -> ApiResult<Json<JiraConnectionTestResult>> {
+    let config = crate::core::jira::resolve_jira_config(&state)
+        .await
+        .map_err(|error| ConductorError::msg(error.to_string()))?;
+    let me = crate::core::jira::test_connection(&config)
+        .await
+        .map_err(|error| ApiError::conflict("jira_connection_failed", error.to_string()))?;
+    let sample_issue_count = if config.default_project_key.trim().is_empty() {
+        0
+    } else {
+        let jql = format!("project = {}", config.default_project_key.trim());
+        let issues = crate::core::jira::search_issues(&config, &jql)
+            .await
+            .map_err(|error| ApiError::conflict("jira_search_failed", error.to_string()))?;
+        // `/rest/api/3/search/jql` (the current endpoint — the older
+        // `/search` was sunset by Atlassian and no longer reports a total
+        // count) returns only the page of issues actually fetched, so this
+        // counts that page rather than the project's true total.
+        issues
+            .get("issues")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len())
+            .unwrap_or(0) as u32
+    };
+    Ok(Json(JiraConnectionTestResult {
+        account_email: me
+            .get("emailAddress")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        account_display_name: me
+            .get("displayName")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        sample_issue_count,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct PostJiraReportQuery {
+    /// Period length ending now. Defaults to a week — long enough to be
+    /// worth a comment, short enough to stay readable in one.
+    #[serde(default = "default_report_days")]
+    pub days: i64,
+}
+
+fn default_report_days() -> i64 {
+    7
+}
+
+#[derive(serde::Serialize)]
+pub struct JiraReportResult {
+    pub posted: bool,
+    pub period_start: String,
+    pub issue_key: String,
+}
+
+/// Manual trigger for T4.3 — the same pipeline T4.5's background loop will
+/// call, exposed here so posting a report doesn't require waiting for a
+/// scheduled run to prove the whole thing works.
+pub async fn post_jira_report(
+    State(state): State<AppState>,
+    AuthUser(_user): AuthUser,
+    Query(query): Query<PostJiraReportQuery>,
+) -> ApiResult<Json<JiraReportResult>> {
+    let instance = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?;
+    let project_id = state
+        .db
+        .instance()
+        .authorization_project_id()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?;
+    let jira = state.db.instance().jira_settings().await?;
+    if jira.report_issue_key.trim().is_empty() {
+        return Err(ConductorError::msg(
+            "set which issue reports post to (report_issue_key) before posting",
+        )
+        .into());
+    }
+    let to = chrono::Utc::now();
+    let from = to - chrono::Duration::days(query.days.clamp(1, 90));
+    let period_start = crate::core::jira::post_usage_report(
+        &state,
+        project_id,
+        &instance.project_name,
+        from,
+        to,
+    )
+    .await
+    .map_err(|error| ApiError::conflict("jira_report_failed", error.to_string()))?;
+    let mut jira = jira;
+    jira.last_reported_period = Some(period_start.clone());
+    state.db.instance().update_jira_settings(&jira).await?;
+    Ok(Json(JiraReportResult {
+        posted: true,
+        period_start,
+        issue_key: jira.report_issue_key,
     }))
 }
 
