@@ -17,6 +17,9 @@ import {
 import { AppShell } from "@/shared/components/app-shell"
 import { PageFrame } from "@/shared/components/page-frame"
 import { AiPolicyPage } from "@/features/ai-policy/pages/ai-policy-page"
+import { JiraReportPage } from "@/features/jira-report/pages/jira-report-page"
+import { JiraTaskDetailPage } from "@/features/jira-report/pages/jira-task-detail-page"
+import { ModelPricingPage } from "@/features/model-pricing/pages/model-pricing-page"
 import { ChangePasswordPage } from "@/features/auth/pages/change-password-page"
 import { ConnectEvofluxPage } from "@/features/auth/pages/connect-evoflux-page"
 import { LoginPage } from "@/features/auth/pages/login-page"
@@ -447,6 +450,24 @@ const aiPolicyRoute = createRoute({
   component: () => <PermissionBoundary permissions={[PERMISSION.PROJECT_SETTINGS_MANAGE]}><AiPolicyPage /></PermissionBoundary>,
 })
 
+const jiraReportRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/jira-report",
+  component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_PROJECT_READ]}><JiraReportPage /></PermissionBoundary>,
+})
+
+const jiraTaskDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/jira-report/$issueKey",
+  component: () => <PermissionBoundary permissions={[PERMISSION.TELEMETRY_PROJECT_READ]}><JiraTaskDetailPage /></PermissionBoundary>,
+})
+
+const modelPricingRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/model-pricing",
+  component: () => <PermissionBoundary permissions={[PERMISSION.PROJECT_SETTINGS_MANAGE]}><ModelPricingPage /></PermissionBoundary>,
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings",
@@ -495,6 +516,9 @@ const routeTree = rootRoute.addChildren([
     monitoringRoute,
     spendRoute,
     aiPolicyRoute,
+    jiraReportRoute,
+    jiraTaskDetailRoute,
+    modelPricingRoute,
     settingsRoute,
   ]),
 ])

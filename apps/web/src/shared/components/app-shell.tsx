@@ -23,6 +23,7 @@ import {
   Sparkles,
   Sun,
   Tags,
+  Ticket,
   UserRound,
   Users,
   Wallet,
@@ -196,6 +197,12 @@ export function AppShell() {
         icon: CircleDollarSign,
         end: false,
       })
+      workspaceItems.push({
+        to: "/app/jira-report",
+        label: "Jira report",
+        icon: Ticket,
+        end: false,
+      })
     }
 
     if (mayRequest(can(PERMISSION.PROJECT_SETTINGS_MANAGE))) {
@@ -210,6 +217,12 @@ export function AppShell() {
         to: "/app/ai-policy",
         label: "AI policy",
         icon: ShieldCheck,
+        end: false,
+      })
+      workspaceItems.push({
+        to: "/app/model-pricing",
+        label: "Model pricing",
+        icon: Tags,
         end: false,
       })
     }
