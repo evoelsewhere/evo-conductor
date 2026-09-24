@@ -13,8 +13,12 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
-use conductor_domain::{JiraSettings, ModelCostReport};
+use conductor_domain::{
+    resolve_project_label, resolve_task_type, JiraSettings, JiraTask, ModelCostReport,
+    ProjectPrefixRule, TaskTypeRule,
+};
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::core::state::AppState;
@@ -307,6 +311,206 @@ pub async fn post_usage_report(
     let adf = render_report_adf(&report, project_name, from, to);
     post_comment(&config, &config.report_issue_key.clone(), adf).await?;
     Ok(from.format("%Y-%m-%d").to_string())
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraSearchPage {
+    issues: Vec<JiraIssue>,
+    #[serde(rename = "nextPageToken")]
+    next_page_token: Option<String>,
+    #[serde(rename = "isLast", default)]
+    is_last: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraIssue {
+    key: String,
+    fields: JiraIssueFields,
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraIssueFields {
+    summary: String,
+    #[serde(default)]
+    issuetype: JiraNamedRef,
+    assignee: Option<JiraAssignee>,
+    parent: Option<JiraParent>,
+    #[serde(default)]
+    status: JiraNamedRef,
+    updated: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct JiraNamedRef {
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraAssignee {
+    #[serde(rename = "accountId")]
+    account_id: Option<String>,
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
+    /// Absent when the API token's account can't see it — Atlassian hides
+    /// this behind the site's user-privacy setting for some viewers, not
+    /// only unlicensed ones. Matching falls back accordingly, never errors.
+    #[serde(rename = "emailAddress")]
+    email: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraParent {
+    key: String,
+}
+
+/// Jira's own date format (`2024-01-01T10:00:00.000+0000`) isn't RFC 3339 —
+/// the offset has no colon. Falls back to `None` rather than failing the
+/// whole sync over one field a report never depends on.
+fn parse_jira_datetime(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S%.f%z")
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+/// Pages through every issue in `project_key` via `/rest/api/3/search/jql`,
+/// applying `task_type_rules`/`project_prefix_rules` to resolve each task's
+/// display type and sub-project label. Ordered by `updated DESC` so a sync
+/// interrupted partway through still lands the most recently active tasks
+/// first.
+pub async fn list_project_tasks(
+    config: &JiraConfig,
+    project_key: &str,
+    task_type_rules: &[TaskTypeRule],
+    project_prefix_rules: &[ProjectPrefixRule],
+) -> anyhow::Result<Vec<JiraTask>> {
+    let jql = url_encode(&format!("project = {project_key} ORDER BY updated DESC"));
+    let fields = "summary,issuetype,assignee,parent,status,updated";
+    let mut tasks = Vec::new();
+    let mut page_token: Option<String> = None;
+    let synced_at = Utc::now();
+
+    loop {
+        let mut path = format!(
+            "/rest/api/3/search/jql?jql={jql}&maxResults=100&fields={fields}"
+        );
+        if let Some(token) = &page_token {
+            path.push_str(&format!("&nextPageToken={}", url_encode(token)));
+        }
+        let page: JiraSearchPage = get_json(config, &path).await?;
+        let is_last = page.is_last || page.issues.is_empty();
+        let next_page_token = page.next_page_token.clone();
+        for issue in page.issues {
+            let resolved_type =
+                resolve_task_type(task_type_rules, &issue.fields.summary, &issue.fields.issuetype.name)
+                    .to_string();
+            let resolved_project =
+                resolve_project_label(project_prefix_rules, &issue.fields.summary)
+                    .map(str::to_string);
+            tasks.push(JiraTask {
+                issue_key: issue.key,
+                title: issue.fields.summary,
+                issue_type: issue.fields.issuetype.name,
+                resolved_type,
+                resolved_project,
+                assignee_display_name: issue.fields.assignee.as_ref().and_then(|a| a.display_name.clone()),
+                assignee_email: issue.fields.assignee.as_ref().and_then(|a| a.email.clone()),
+                assignee_account_id: issue.fields.assignee.and_then(|a| a.account_id),
+                parent_key: issue.fields.parent.map(|p| p.key),
+                status: issue.fields.status.name,
+                jira_updated_at: issue.fields.updated.as_deref().and_then(parse_jira_datetime),
+                synced_at,
+            });
+        }
+        if is_last || next_page_token.is_none() {
+            break;
+        }
+        page_token = next_page_token;
+    }
+    Ok(tasks)
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraChangelogPage {
+    values: Vec<JiraChangelogEntry>,
+    #[serde(rename = "isLast", default)]
+    is_last: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraChangelogEntry {
+    created: String,
+    items: Vec<JiraChangelogItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JiraChangelogItem {
+    field: String,
+    #[serde(rename = "fromString")]
+    from_string: Option<String>,
+    #[serde(rename = "toString")]
+    to_string: Option<String>,
+}
+
+/// Every status transition Jira has ever recorded for one issue, oldest
+/// first, plus a synthetic entry for "whatever it was before the first
+/// recorded transition" pinned to the Unix epoch — so a report event from
+/// before Conductor ever saw this issue's changelog still resolves to a
+/// real status rather than `None`. Only called for issues that have a
+/// `task_activations` row (see `TaskActivationRepo::distinct_issue_keys`):
+/// most issues in a project are never opened through the plugin, and paging
+/// a changelog nobody needs would just be wasted Jira API budget.
+pub async fn fetch_status_history(
+    config: &JiraConfig,
+    issue_key: &str,
+) -> anyhow::Result<Vec<conductor_domain::JiraStatusChange>> {
+    let mut changes = Vec::new();
+    let mut initial_status: Option<String> = None;
+    let mut start_at = 0i64;
+    loop {
+        let page: JiraChangelogPage = get_json(
+            config,
+            &format!("/rest/api/3/issue/{issue_key}/changelog?startAt={start_at}&maxResults=100"),
+        )
+        .await?;
+        let fetched = page.values.len();
+        for entry in &page.values {
+            let Some(changed_at) = parse_jira_datetime(&entry.created) else {
+                continue;
+            };
+            for item in &entry.items {
+                if item.field != "status" {
+                    continue;
+                }
+                if initial_status.is_none() {
+                    initial_status = item.from_string.clone();
+                }
+                if let Some(status) = &item.to_string {
+                    changes.push(conductor_domain::JiraStatusChange {
+                        issue_key: issue_key.to_string(),
+                        status: status.clone(),
+                        changed_at,
+                    });
+                }
+            }
+        }
+        if page.is_last || fetched == 0 {
+            break;
+        }
+        start_at += fetched as i64;
+    }
+    changes.sort_by_key(|change| change.changed_at);
+    if let Some(status) = initial_status {
+        changes.insert(
+            0,
+            conductor_domain::JiraStatusChange {
+                issue_key: issue_key.to_string(),
+                status,
+                changed_at: DateTime::<Utc>::UNIX_EPOCH,
+            },
+        );
+    }
+    Ok(changes)
 }
 
 fn url_encode(value: &str) -> String {
