@@ -5,6 +5,7 @@ import { motion } from "framer-motion"
 import { api } from "@/shared/api/client"
 import { BrandMark } from "@/shared/components/brand"
 import { ThemeToggle } from "@/shared/components/theme-toggle"
+import { safeRedirectTarget } from "@/shared/lib/redirect"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
 import { ErrorState } from "@/shared/ui/empty-state"
@@ -56,8 +57,13 @@ export function LoginPage({
     try {
       const session = await api.login(email.trim(), password)
       setSession(session.token, session.user)
+      const target = safeRedirectTarget()
       if (session.user.must_change_password) {
-        navigate({ to: "/change-password" })
+        window.location.href = target
+          ? `/change-password?redirect=${encodeURIComponent(target)}`
+          : "/change-password"
+      } else if (target) {
+        window.location.href = target
       } else {
         navigate({ to: "/app" })
       }

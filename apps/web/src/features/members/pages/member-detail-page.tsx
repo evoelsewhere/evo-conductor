@@ -8,6 +8,7 @@ import {
   Coins,
   Copy,
   KeyRound,
+  Mail,
   Pencil,
   Plus,
   Radio,
@@ -37,6 +38,7 @@ import {
   type User,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import { cn } from "@/shared/lib/utils"
 import { StatCard, StatCardGrid, StatCardGridSkeleton } from "@/shared/components/stat-card"
 import {
   MEMBER_QUERY_KEYS,
@@ -96,6 +98,13 @@ export function MemberDetailPage() {
   const dates = useUsageRange()
   const [editOpen, setEditOpen] = useState(false)
   const [tokenOpen, setTokenOpen] = useState(false)
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null)
+  const sendInvite = useMutation({
+    mutationFn: () => api.sendMemberInviteEmail(userId),
+    onSuccess: () => setInviteMessage("Connect email sent"),
+    onError: (e) =>
+      setInviteMessage(e instanceof Error ? e.message : "Failed to send email"),
+  })
 
   const member = useQuery({
     queryKey: MEMBER_QUERY_KEYS.detail(userId),
@@ -146,10 +155,23 @@ export function MemberDetailPage() {
       }
       action={
         canManage && member.data ? (
-          <Button variant="outline" onClick={() => setEditOpen(true)}>
-            <Pencil className="size-3.5" />
-            Edit member
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={sendInvite.isPending}
+              onClick={() => {
+                setInviteMessage(null)
+                sendInvite.mutate()
+              }}
+            >
+              <Mail className="size-3.5" />
+              {sendInvite.isPending ? "Sending…" : "Resend connect email"}
+            </Button>
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil className="size-3.5" />
+              Edit member
+            </Button>
+          </div>
         ) : undefined
       }
     >
@@ -170,6 +192,18 @@ export function MemberDetailPage() {
         {pageInitialLoading ? "Loading member overview…" : ""}
       </span>
 
+      {inviteMessage && (
+        <div
+          className={cn(
+            "mb-4 rounded-lg border px-3 py-2 text-sm",
+            sendInvite.isError
+              ? "border-(--color-danger)/30 bg-(--color-danger)/10 text-(--color-danger)"
+              : "border-(--color-success)/30 bg-(--color-success)/10 text-(--color-success)",
+          )}
+        >
+          {inviteMessage}
+        </div>
+      )}
       {member.error && !memberLoading && (
         <ErrorState className="mb-4" message={member.error.message} />
       )}

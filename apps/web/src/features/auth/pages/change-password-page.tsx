@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router"
 
 import { api } from "@/shared/api/client"
 import { BrandMark } from "@/shared/components/brand"
+import { safeRedirectTarget } from "@/shared/lib/redirect"
 import { useAuthStore } from "@/shared/stores/auth"
 import { Button } from "@/shared/ui/button"
 import { ErrorState } from "@/shared/ui/empty-state"
@@ -37,7 +38,12 @@ export function ChangePasswordPage() {
         new_password: next,
       })
       setSession(session.token, session.user)
-      navigate({ to: "/app" })
+      const target = safeRedirectTarget()
+      if (target) {
+        window.location.href = target
+      } else {
+        navigate({ to: "/app" })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed")
     } finally {

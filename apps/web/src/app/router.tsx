@@ -16,7 +16,9 @@ import {
 } from "@/shared/api/client"
 import { AppShell } from "@/shared/components/app-shell"
 import { PageFrame } from "@/shared/components/page-frame"
+import { AiPolicyPage } from "@/features/ai-policy/pages/ai-policy-page"
 import { ChangePasswordPage } from "@/features/auth/pages/change-password-page"
+import { ConnectEvofluxPage } from "@/features/auth/pages/connect-evoflux-page"
 import { LoginPage } from "@/features/auth/pages/login-page"
 import { PendingPage } from "@/features/auth/pages/pending-page"
 import { SsoCallbackPage } from "@/features/auth/pages/sso-callback-page"
@@ -111,6 +113,26 @@ const changePasswordRoute = createRoute({
   beforeLoad: () => {
     const token = authSession.getToken()
     if (!token) throw redirect({ to: "/login" })
+  },
+})
+
+const connectEvofluxRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/connect-evoflux",
+  component: ConnectEvofluxPage,
+  beforeLoad: async () => {
+    const status = await api.setupStatus()
+    if (!status.configured) throw redirect({ to: "/setup" })
+    const token = authSession.getToken()
+    if (!token) {
+      const target = window.location.pathname + window.location.search
+      window.location.href = `/login?redirect=${encodeURIComponent(target)}`
+      throw redirect({ to: "/login" })
+    }
+    // This route lives outside `/app`, so nothing else has hydrated the auth
+    // store from session storage yet — the page needs `user` to self-issue
+    // a connection token and show who's signed in.
+    useAuthStore.getState().hydrate()
   },
 })
 
@@ -419,6 +441,12 @@ const spendRoute = createRoute({
   component: () => <PermissionBoundary permissions={[PERMISSION.PROJECT_SETTINGS_MANAGE]}><SpendPage /></PermissionBoundary>,
 })
 
+const aiPolicyRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/ai-policy",
+  component: () => <PermissionBoundary permissions={[PERMISSION.PROJECT_SETTINGS_MANAGE]}><AiPolicyPage /></PermissionBoundary>,
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings",
@@ -435,6 +463,7 @@ const routeTree = rootRoute.addChildren([
   ssoCallbackRoute,
   pendingRoute,
   changePasswordRoute,
+  connectEvofluxRoute,
   appRoute.addChildren([
     dashboardRoute,
     membersRoute,
@@ -465,6 +494,7 @@ const routeTree = rootRoute.addChildren([
     tagsRoute,
     monitoringRoute,
     spendRoute,
+    aiPolicyRoute,
     settingsRoute,
   ]),
 ])

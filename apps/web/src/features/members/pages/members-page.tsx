@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Copy,
   KeyRound,
+  Mail,
   MoreHorizontal,
   Plus,
   RotateCcw,
@@ -26,6 +27,7 @@ import {
   type UserStatus,
 } from "@/shared/api/client"
 import { PageFrame } from "@/shared/components/page-frame"
+import { cn } from "@/shared/lib/utils"
 import {
   MEMBER_LIST_PAGE_SIZE,
   MEMBER_STATUS_TONES,
@@ -92,6 +94,7 @@ export function MembersPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
   const [tempPassword, setTempPassword] = useState<string | null>(null)
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<{
     action: "disable" | "reset"
     member: User
@@ -206,6 +209,12 @@ export function MembersPage() {
       setTempPassword(res.temporary_password)
     },
   })
+  const sendInvite = useMutation({
+    mutationFn: (id: string) => api.sendMemberInviteEmail(id),
+    onSuccess: () => setInviteMessage("Connect email sent"),
+    onError: (e) =>
+      setInviteMessage(e instanceof Error ? e.message : "Failed to send email"),
+  })
 
   const items = data?.items ?? []
   const total = data?.total ?? 0
@@ -249,6 +258,18 @@ export function MembersPage() {
           password={tempPassword}
           onDismiss={() => setTempPassword(null)}
         />
+      )}
+      {inviteMessage && (
+        <div
+          className={cn(
+            "mb-4 rounded-lg border px-3 py-2 text-sm",
+            sendInvite.isError
+              ? "border-(--color-danger)/30 bg-(--color-danger)/10 text-(--color-danger)"
+              : "border-(--color-success)/30 bg-(--color-success)/10 text-(--color-success)",
+          )}
+        >
+          {inviteMessage}
+        </div>
       )}
 
       {canManageMembers && portfolio.error && !portfolioLoading && (
@@ -537,6 +558,15 @@ export function MembersPage() {
                                 </MenuItem>
                               ) : null}
                               <MenuSeparator />
+                              <MenuItem
+                                disabled={sendInvite.isPending}
+                                onClick={() => {
+                                  setInviteMessage(null)
+                                  sendInvite.mutate(m.id)
+                                }}
+                              >
+                                <Mail className="size-4" /> Resend connect email
+                              </MenuItem>
                               <MenuItem onClick={() => setConfirmation({ action: "reset", member: m })}>
                                 <RotateCcw className="size-4" /> Reset password
                               </MenuItem>
