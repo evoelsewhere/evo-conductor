@@ -38,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
     let realtime = state.realtime.clone();
     spawn_model_pricing_sync(state.clone(), &config);
     spawn_jira_report_sync(state.clone());
+    spawn_jira_task_sync(state.clone());
     let app = build_router(state.clone(), &config);
 
     let addr = bind_addr(&config, &state).await?;
@@ -161,6 +162,69 @@ async fn run_jira_report_tick(state: &AppState) -> anyhow::Result<Option<u32>> {
     state.db.instance().update_jira_settings(&updated).await?;
     tracing::info!(period = %period_start, "jira usage report posted");
     Ok(Some(interval_hours))
+}
+
+/// Keeps the local `jira_tasks` mirror current so the task report page and
+/// the task-picker suggestion lookup never call Jira synchronously. Runs on
+/// a much shorter cadence than `spawn_jira_report_sync` -- that one posts a
+/// comment on a deliberately slow rhythm, this one feeds an interactive
+/// page and should reflect a newly created or renamed task within minutes.
+const JIRA_TASK_SYNC_INTERVAL_SECS: u64 = 900;
+
+fn spawn_jira_task_sync(state: AppState) {
+    tokio::spawn(async move {
+        loop {
+            if let Err(error) = run_jira_task_sync_tick(&state).await {
+                tracing::warn!(%error, "jira task sync failed; will retry next cycle");
+            }
+            tokio::time::sleep(Duration::from_secs(JIRA_TASK_SYNC_INTERVAL_SECS)).await;
+        }
+    });
+}
+
+async fn run_jira_task_sync_tick(state: &AppState) -> anyhow::Result<()> {
+    let jira = state.db.instance().jira_settings().await?;
+    if !jira.enabled || jira.default_project_key.trim().is_empty() {
+        return Ok(());
+    }
+    let project_id = state
+        .db
+        .instance()
+        .authorization_project_id()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Conductor setup is not complete"))?;
+    let config = conductor_server::core::jira::resolve_jira_config(state).await?;
+    let tasks = conductor_server::core::jira::list_project_tasks(
+        &config,
+        &jira.default_project_key,
+        &jira.task_type_rules,
+        &jira.project_prefix_rules,
+    )
+    .await?;
+    let count = tasks.len();
+    state.db.jira_tasks().upsert_many(project_id, &tasks).await?;
+    tracing::info!(count, "jira task sync completed");
+
+    let activated_issue_keys = state
+        .db
+        .task_activations()
+        .distinct_issue_keys(project_id)
+        .await?;
+    for issue_key in activated_issue_keys {
+        match conductor_server::core::jira::fetch_status_history(&config, &issue_key).await {
+            Ok(changes) => {
+                state
+                    .db
+                    .jira_status_history()
+                    .replace_for_issue(project_id, &issue_key, &changes)
+                    .await?;
+            }
+            Err(error) => {
+                tracing::warn!(%error, issue_key, "jira status history sync failed for issue; will retry next cycle");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Environment variables win; otherwise fall back to the bind address saved

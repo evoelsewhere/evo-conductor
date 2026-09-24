@@ -21,6 +21,7 @@ pub mod request_context;
 pub mod resource_authoring;
 pub mod routes;
 pub mod state;
+pub mod task_cost_report;
 
 pub use config::{Config, EmailConfig, ModelPricingConfig, RealtimeConfig};
 pub use error::{ApiError, ApiResult};
