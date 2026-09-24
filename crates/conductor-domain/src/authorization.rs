@@ -153,10 +153,17 @@ stable_string_enum! {
         ProjectSsoRead => "project.sso.read",
         ProjectSsoUpdate => "project.sso.update",
         ProjectStorageUpdate => "project.storage.update",
+        ProjectEmailUpdate => "project.email.update",
+        ProjectJiraUpdate => "project.jira.update",
+        ProjectJiraTest => "project.jira.test",
+        ProjectJiraReport => "project.jira.report",
         ProjectDataPolicyUpdate => "project.data_policy.update",
         SpendLimitList => "spend_limit.list",
         SpendLimitUpsert => "spend_limit.upsert",
         SpendLimitDelete => "spend_limit.delete",
+        AiPolicyList => "ai_policy.list",
+        AiPolicyUpsert => "ai_policy.upsert",
+        AiPolicyDelete => "ai_policy.delete",
         ModelPricingCatalogRead => "model_pricing.catalog.read",
         ModelPricingSync => "model_pricing.sync",
         ModelPricingReprice => "model_pricing.reprice",
@@ -164,6 +171,7 @@ stable_string_enum! {
         MemberPendingCountRead => "member.pending_count.read",
         MemberPrivateRead => "member.private.read",
         MemberCreate => "member.create",
+        MemberInviteEmail => "member.invite_email",
         MemberApprove => "member.approve",
         MemberAccessProfileUpdate => "member.access_profile.update",
         MemberDisable => "member.disable",
@@ -233,7 +241,8 @@ stable_string_enum! {
         ClientInventorySync => "client.inventory.sync",
         ClientTelemetryIngest => "client.telemetry.ingest",
         ClientResourceUsageIngest => "client.resource_usage.ingest",
-        ClientRealtimeEvents => "client.realtime.events"
+        ClientRealtimeEvents => "client.realtime.events",
+        ClientAiPolicyRead => "client.ai_policy.read"
     }
 }
 

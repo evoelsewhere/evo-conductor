@@ -1,4 +1,5 @@
 mod access;
+mod ai_policy;
 mod analytics_views;
 mod auth;
 mod client;
@@ -193,6 +194,46 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
         settings::update_storage,
     );
     routes.put(
+        "/settings/email",
+        browser(
+            A::ProjectEmailUpdate,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        settings::update_email,
+    );
+    routes.put(
+        "/settings/jira",
+        browser(
+            A::ProjectJiraUpdate,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        settings::update_jira,
+    );
+    routes.post(
+        "/settings/jira/test",
+        browser(
+            A::ProjectJiraTest,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        settings::test_jira_connection,
+    );
+    routes.post(
+        "/settings/jira/report",
+        browser(
+            A::ProjectJiraReport,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        settings::post_jira_report,
+    );
+    routes.put(
         "/settings/logo",
         browser(
             A::ProjectLogoUpload,
@@ -253,6 +294,16 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             project_member(),
         ),
         users::pending_count,
+    );
+    routes.post(
+        "/members/{id}/invite-email",
+        browser(
+            A::MemberInviteEmail,
+            Target::Member,
+            P::MemberManage,
+            Selector::AnyMemberPath,
+        ),
+        users::send_invite_email,
     );
     routes.get(
         "/members/{id}",
@@ -774,6 +825,36 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
         pricing::delete_spend_limit,
     );
     routes.get(
+        "/ai-policy",
+        browser(
+            A::AiPolicyList,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        ai_policy::list_ai_policies,
+    );
+    routes.put(
+        "/ai-policy",
+        browser(
+            A::AiPolicyUpsert,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        ai_policy::upsert_ai_policy,
+    );
+    routes.delete(
+        "/ai-policy",
+        browser(
+            A::AiPolicyDelete,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        ai_policy::delete_ai_policy,
+    );
+    routes.get(
         "/model-pricing",
         browser(
             A::ModelPricingCatalogRead,
@@ -968,6 +1049,16 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             Selector::InstallationOwnerBody,
         ),
         client::heartbeat,
+    );
+    routes.get(
+        "/v1/client/ai-policy",
+        connection(
+            A::ClientAiPolicyRead,
+            Target::Project,
+            Scope::SubscribeResources,
+            Selector::None,
+        ),
+        ai_policy::client_read_ai_policy,
     );
     routes.post(
         "/v1/telemetry/batch",
