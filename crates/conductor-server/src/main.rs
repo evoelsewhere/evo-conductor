@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let realtime = state.realtime.clone();
     spawn_model_pricing_sync(state.clone(), &config);
+    spawn_jira_report_sync(state.clone());
     let app = build_router(state.clone(), &config);
 
     let addr = bind_addr(&config, &state).await?;
@@ -91,6 +92,75 @@ fn spawn_model_pricing_sync(state: AppState, config: &Config) {
             tokio::time::sleep(period).await;
         }
     });
+}
+
+/// Post an automatic Jira usage-report comment on a cadence the admin sets
+/// from the Settings UI (`JiraSettings.report_interval_hours`), not an
+/// environment variable — unlike `spawn_model_pricing_sync`, there is no
+/// startup config gate here at all: whether this does anything is entirely
+/// database-driven (`jira.enabled`), re-read every tick, so toggling it in
+/// the UI takes effect on the next cycle without a restart.
+fn spawn_jira_report_sync(state: AppState) {
+    tokio::spawn(async move {
+        loop {
+            let sleep_hours = match run_jira_report_tick(&state).await {
+                Ok(Some(interval_hours)) => interval_hours,
+                Ok(None) => 1,
+                Err(error) => {
+                    tracing::warn!(%error, "jira usage report failed; will retry next cycle");
+                    1
+                }
+            };
+            tokio::time::sleep(Duration::from_secs(u64::from(sleep_hours) * 3600)).await;
+        }
+    });
+}
+
+/// One check-and-maybe-post cycle. Returns the interval to sleep for next —
+/// the configured cadence once Jira reporting is enabled, or a one-hour
+/// recheck while it's off/unconfigured, so enabling it doesn't wait for a
+/// stale, much-longer interval to elapse first.
+async fn run_jira_report_tick(state: &AppState) -> anyhow::Result<Option<u32>> {
+    let jira = state.db.instance().jira_settings().await?;
+    if !jira.enabled || jira.report_issue_key.trim().is_empty() {
+        return Ok(None);
+    }
+    let to = chrono::Utc::now();
+    let from = to - chrono::Duration::hours(i64::from(jira.report_interval_hours));
+    let period_start = from.format("%Y-%m-%d").to_string();
+    // T4.4's idempotency guard: a restart that resets this loop's sleep
+    // timer must not re-post a period a manual "post now" (or an earlier
+    // cycle) already covered.
+    if jira.last_reported_period.as_deref() == Some(period_start.as_str()) {
+        tracing::debug!(period = %period_start, "jira usage report already posted for this period");
+        return Ok(Some(jira.report_interval_hours));
+    }
+    let instance = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Conductor setup is not complete"))?;
+    let project_id = state
+        .db
+        .instance()
+        .authorization_project_id()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Conductor setup is not complete"))?;
+    let posted_period = conductor_server::core::jira::post_usage_report(
+        state,
+        project_id,
+        &instance.project_name,
+        from,
+        to,
+    )
+    .await?;
+    let mut updated = jira;
+    let interval_hours = updated.report_interval_hours;
+    updated.last_reported_period = Some(posted_period);
+    state.db.instance().update_jira_settings(&updated).await?;
+    tracing::info!(period = %period_start, "jira usage report posted");
+    Ok(Some(interval_hours))
 }
 
 /// Environment variables win; otherwise fall back to the bind address saved
