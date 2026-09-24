@@ -101,6 +101,7 @@ stable_string_enum! {
         MemberManage => "member.manage",
         MemberPrivateReadSelf => "member.private.read_self",
         MemberPrivateReadAny => "member.private.read_any",
+        MemberProfileManageSelf => "member.profile.manage_self",
         TelemetryProjectRead => "telemetry.project.read",
         TelemetryMemberReadSelf => "telemetry.member.read_self",
         TelemetryMemberReadAny => "telemetry.member.read_any",
@@ -157,6 +158,8 @@ stable_string_enum! {
         ProjectJiraUpdate => "project.jira.update",
         ProjectJiraTest => "project.jira.test",
         ProjectJiraReport => "project.jira.report",
+        JiraTasksRead => "jira_tasks.read",
+        JiraTaskDetailRead => "jira_tasks.detail.read",
         ProjectDataPolicyUpdate => "project.data_policy.update",
         SpendLimitList => "spend_limit.list",
         SpendLimitUpsert => "spend_limit.upsert",
@@ -165,6 +168,7 @@ stable_string_enum! {
         AiPolicyUpsert => "ai_policy.upsert",
         AiPolicyDelete => "ai_policy.delete",
         ModelPricingCatalogRead => "model_pricing.catalog.read",
+        ModelPricingCatalogList => "model_pricing.catalog.list",
         ModelPricingSync => "model_pricing.sync",
         ModelPricingReprice => "model_pricing.reprice",
         MemberDirectoryList => "member.directory.list",
@@ -174,6 +178,7 @@ stable_string_enum! {
         MemberInviteEmail => "member.invite_email",
         MemberApprove => "member.approve",
         MemberAccessProfileUpdate => "member.access_profile.update",
+        MemberJiraAccountEmailUpdate => "member.jira_account_email.update",
         MemberDisable => "member.disable",
         MemberEnable => "member.enable",
         MemberPasswordReset => "member.password.reset",
@@ -227,6 +232,8 @@ stable_string_enum! {
         AnalyticsResourceUsageRead => "analytics.resource_usage.read",
         ModelCostReportRead => "analytics.model_cost_report.read",
         MemberCostReportRead => "analytics.member_cost_report.read",
+        TaskCostReportRead => "analytics.task_cost_report.read",
+        TaskActivityDetailRead => "analytics.task_activity_detail.read",
         AnalyticsViewsList => "analytics_views.list",
         AnalyticsViewRead => "analytics_view.read",
         AnalyticsViewCreate => "analytics_view.create",
@@ -242,7 +249,8 @@ stable_string_enum! {
         ClientTelemetryIngest => "client.telemetry.ingest",
         ClientResourceUsageIngest => "client.resource_usage.ingest",
         ClientRealtimeEvents => "client.realtime.events",
-        ClientAiPolicyRead => "client.ai_policy.read"
+        ClientAiPolicyRead => "client.ai_policy.read",
+        ClientJiraTaskActivationRecord => "client.jira_task_activation.record"
     }
 }
 
@@ -1037,6 +1045,7 @@ fn grant_for_role(role: PrimaryRole, permission: PermissionKey) -> Option<Permis
         | P::SessionPasswordChange
         | P::ProjectBrandingRead
         | P::MemberPrivateReadSelf
+        | P::MemberProfileManageSelf
         | P::ResourceConsume
         | P::ResourceFeedbackSubmit
         | P::TelemetryMemberReadSelf
@@ -1081,6 +1090,7 @@ fn grant_for_role(role: PrimaryRole, permission: PermissionKey) -> Option<Permis
         | P::SessionSelfRead
         | P::SessionPasswordChange
         | P::MemberPrivateReadSelf
+        | P::MemberProfileManageSelf
         | P::TelemetryMemberReadSelf => ConstraintExpr::atom(TargetConstraint::SelfActor),
 
         P::ConnectionTokenIssueSelf | P::ConnectionTokenReadSelf | P::ConnectionTokenRevokeSelf => {
