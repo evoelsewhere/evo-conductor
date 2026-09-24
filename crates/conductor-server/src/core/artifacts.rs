@@ -28,6 +28,7 @@ use tokio::sync::{Mutex, RwLock};
 
 const DEFAULT_OBJECT_DIR: &str = "objects";
 const GIT_STORAGE_DIR: &str = "git-storage";
+const S3_SECRET_DIR: &str = "objects-s3/credentials";
 const GIT_AUTHOR_NAME: &str = "Evo Conductor";
 const GIT_AUTHOR_EMAIL: &str = "conductor@localhost";
 
@@ -55,6 +56,10 @@ struct ConfiguredStore {
     settings: StorageSettings,
     driver: StoreDriver,
     prefix: String,
+    /// A pending write-only secret file change (Git HTTPS token, S3 secret
+    /// access key) applied only after `persist()` succeeds, so a failed
+    /// settings save never leaves a dangling credential file.
+    credential_update: Option<CredentialUpdate>,
 }
 
 #[derive(Clone)]
@@ -68,18 +73,17 @@ struct GitObjectStore {
     branch: String,
     remote_url: String,
     authorization_header: Option<String>,
-    credential_update: Option<GitCredentialUpdate>,
     operation: Mutex<()>,
 }
 
 #[derive(Clone)]
-struct GitCredentialUpdate {
+struct CredentialUpdate {
     path: PathBuf,
     previous: Option<Vec<u8>>,
     desired: Option<Vec<u8>>,
 }
 
-struct GitCredentialRollback {
+struct CredentialRollback {
     path: PathBuf,
     previous: Option<Vec<u8>>,
 }
@@ -351,10 +355,10 @@ impl ArtifactStore {
         }
         drop(candidate_git_guard);
 
-        let credential_rollback = apply_git_credential_update(&candidate).await?;
+        let credential_rollback = apply_credential_update(&candidate).await?;
         if let Err(error) = persist(candidate.settings.clone()).await {
             if let Some(rollback) = credential_rollback {
-                rollback_git_credential(rollback).await?;
+                rollback_credential(rollback).await?;
             }
             return Err(error);
         }
@@ -368,6 +372,7 @@ async fn build_store(
     data_root: &Path,
 ) -> anyhow::Result<ConfiguredStore> {
     let mut effective = settings.clone();
+    let mut credential_update = None;
     let (driver, prefix) = match settings.backend {
         StorageBackend::Local => {
             let configured = settings
@@ -395,12 +400,67 @@ async fn build_store(
         StorageBackend::S3 => {
             require_setting("S3 bucket", &settings.s3.bucket)?;
             require_setting("S3 region", &settings.s3.region)?;
+            let access_key_id = clean_optional(Some(settings.s3.access_key_id.as_str()))
+                .map(str::to_string);
+
+            let secret_id = hex::encode(Sha256::digest(
+                format!(
+                    "{}\0{}\0{}",
+                    settings.s3.bucket.trim(),
+                    settings.s3.region.trim(),
+                    settings.s3.endpoint.as_deref().unwrap_or_default().trim()
+                )
+                .as_bytes(),
+            ));
+            let secret_path = data_root
+                .join(S3_SECRET_DIR)
+                .join(format!("{secret_id}.token"));
+            let previous_secret = read_secret_file(&secret_path).await?;
+            let requested_secret = settings
+                .s3
+                .secret_access_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let desired_secret = if settings.s3.clear_secret_access_key {
+                None
+            } else if let Some(secret) = requested_secret {
+                Some(secret.as_bytes().to_vec())
+            } else {
+                previous_secret.clone()
+            };
+            let secret_access_key = desired_secret
+                .as_deref()
+                .map(|bytes| String::from_utf8(bytes.to_vec()))
+                .transpose()
+                .context("S3 secret access key must be UTF-8")?;
+            if access_key_id.is_some() != secret_access_key.is_some() {
+                return Err(anyhow!(
+                    "S3 access key ID and secret access key must be set together"
+                ));
+            }
+
+            effective.s3.access_key_id = access_key_id.clone().unwrap_or_default();
+            effective.s3.secret_access_key = None;
+            effective.s3.clear_secret_access_key = false;
+            effective.s3.secret_access_key_set = secret_access_key.is_some();
+            credential_update = (previous_secret != desired_secret).then_some(CredentialUpdate {
+                path: secret_path,
+                previous: previous_secret,
+                desired: desired_secret,
+            });
+
             let mut builder = AmazonS3Builder::from_env()
                 .with_bucket_name(settings.s3.bucket.trim())
                 .with_region(settings.s3.region.trim())
                 .with_virtual_hosted_style_request(!settings.s3.path_style);
             if let Some(endpoint) = clean_optional(settings.s3.endpoint.as_deref()) {
                 builder = builder.with_endpoint(endpoint);
+            }
+            if let (Some(key_id), Some(secret)) = (&access_key_id, &secret_access_key) {
+                builder = builder
+                    .with_access_key_id(key_id)
+                    .with_secret_access_key(secret);
             }
             (
                 StoreDriver::Object(Arc::new(
@@ -426,7 +486,8 @@ async fn build_store(
             )
         }
         StorageBackend::Git => {
-            let store = build_git_store(&mut effective, data_root).await?;
+            let (store, update) = build_git_store(&mut effective, data_root).await?;
+            credential_update = update;
             (
                 StoreDriver::Git(Arc::new(store)),
                 normalize_prefix(&settings.git.prefix)?,
@@ -437,13 +498,14 @@ async fn build_store(
         settings: effective,
         driver,
         prefix,
+        credential_update,
     })
 }
 
 async fn build_git_store(
     settings: &mut StorageSettings,
     data_root: &Path,
-) -> anyhow::Result<GitObjectStore> {
+) -> anyhow::Result<(GitObjectStore, Option<CredentialUpdate>)> {
     let repository_url = validate_git_repository_url(&settings.git.repository_url)?;
     let branch = validate_git_branch(&settings.git.branch)?;
     let prefix = normalize_prefix(&settings.git.prefix)?;
@@ -519,22 +581,20 @@ async fn build_git_store(
 
     let checkout_identity = format!("{repository_url}\0{branch}\0{prefix}");
     let checkout_id = hex::encode(Sha256::digest(checkout_identity.as_bytes()));
+    let credential_update = (previous_credential != desired_credential).then_some(CredentialUpdate {
+        path: credential_path,
+        previous: previous_credential,
+        desired: desired_credential,
+    });
     let store = GitObjectStore {
         root: git_root.join("checkouts").join(checkout_id),
         branch,
         remote_url: repository_url,
         authorization_header,
-        credential_update: (previous_credential != desired_credential).then_some(
-            GitCredentialUpdate {
-                path: credential_path,
-                previous: previous_credential,
-                desired: desired_credential,
-            },
-        ),
         operation: Mutex::new(()),
     };
     store.initialize().await?;
-    Ok(store)
+    Ok((store, credential_update))
 }
 
 impl GitObjectStore {
@@ -776,58 +836,58 @@ impl GitObjectStore {
     }
 }
 
+/// Shared write-only secret file helper: Git HTTPS tokens and S3 secret
+/// access keys both go through this (tmp-file + atomic rename + symlink
+/// guard + 0600 perms), never into SQL.
 async fn write_secret_file(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .context("create Git credential directory")?;
+            .context("create credential directory")?;
     }
     match tokio::fs::symlink_metadata(path).await {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err(anyhow!("Git credential path must not be a symlink"));
+            return Err(anyhow!("credential path must not be a symlink"));
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("inspect Git credential path"),
+        Err(error) => return Err(error).context("inspect credential path"),
     }
     let temporary = path.with_extension(format!("conductor-{}.tmp", uuid::Uuid::new_v4()));
     tokio::fs::write(&temporary, bytes)
         .await
-        .context("write Git credential")?;
+        .context("write credential")?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         tokio::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))
             .await
-            .context("protect Git credential")?;
+            .context("protect credential")?;
     }
     tokio::fs::rename(&temporary, path)
         .await
-        .context("activate Git credential")?;
+        .context("activate credential")?;
     Ok(())
 }
 
 async fn read_secret_file(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
     match tokio::fs::symlink_metadata(path).await {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(anyhow!("Git credential path must not be a symlink"))
+            Err(anyhow!("credential path must not be a symlink"))
         }
         Ok(_) => tokio::fs::read(path)
             .await
             .map(Some)
-            .context("read Git credential"),
+            .context("read credential"),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).context("inspect Git credential path"),
+        Err(error) => Err(error).context("inspect credential path"),
     }
 }
 
-async fn apply_git_credential_update(
+async fn apply_credential_update(
     store: &ConfiguredStore,
-) -> anyhow::Result<Option<GitCredentialRollback>> {
-    let StoreDriver::Git(git) = &store.driver else {
-        return Ok(None);
-    };
-    let Some(update) = &git.credential_update else {
+) -> anyhow::Result<Option<CredentialRollback>> {
+    let Some(update) = &store.credential_update else {
         return Ok(None);
     };
     match &update.desired {
@@ -835,22 +895,22 @@ async fn apply_git_credential_update(
         None => match tokio::fs::remove_file(&update.path).await {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error).context("remove Git credential"),
+            Err(error) => return Err(error).context("remove stored credential"),
         },
     }
-    Ok(Some(GitCredentialRollback {
+    Ok(Some(CredentialRollback {
         path: update.path.clone(),
         previous: update.previous.clone(),
     }))
 }
 
-async fn rollback_git_credential(rollback: GitCredentialRollback) -> anyhow::Result<()> {
+async fn rollback_credential(rollback: CredentialRollback) -> anyhow::Result<()> {
     match rollback.previous {
         Some(secret) => write_secret_file(&rollback.path, &secret).await,
         None => match tokio::fs::remove_file(&rollback.path).await {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error).context("rollback Git credential"),
+            Err(error) => Err(error).context("rollback stored credential"),
         },
     }
 }

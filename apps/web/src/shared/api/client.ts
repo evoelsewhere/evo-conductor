@@ -930,6 +930,10 @@ export interface StorageSettings {
     endpoint: string | null
     prefix: string
     path_style: boolean
+    access_key_id: string
+    secret_access_key?: string | null
+    clear_secret_access_key?: boolean
+    secret_access_key_set: boolean
   }
   azure_blob: {
     account: string

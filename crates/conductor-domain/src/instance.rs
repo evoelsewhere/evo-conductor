@@ -144,10 +144,13 @@ pub struct UpdateDataPolicyRequest {
     pub collection_level: CollectionLevel,
 }
 
-/// Project-scoped object storage selection. S3 and Azure credentials use their
-/// process credential chains. A Git HTTPS token is accepted only as a
-/// write-only update field and must never be serialized back or persisted in
-/// SQL.
+/// Project-scoped object storage selection. Azure credentials use the process
+/// credential chain. S3 accepts explicit `access_key_id`/`secret_access_key`
+/// (falling back to the process AWS credential chain, e.g. an IAM role, when
+/// left blank) so a non-EC2 deployment doesn't have to wait out an IMDS
+/// timeout to reach a self-hosted/MinIO-style endpoint. A Git HTTPS token is
+/// accepted only as a write-only update field and must never be serialized
+/// back or persisted in SQL — the S3 secret key follows the same pattern.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageBackend {
@@ -204,6 +207,20 @@ pub struct S3StorageSettings {
     pub prefix: String,
     #[serde(default)]
     pub path_style: bool,
+    /// Optional explicit access key ID. Blank defers to the process AWS
+    /// credential chain (env vars, IAM role, IMDS).
+    #[serde(default)]
+    pub access_key_id: String,
+    /// Write-only secret access key. Deserialized from an update request but
+    /// never serialized into API responses or `instance.storage_config`.
+    #[serde(default, skip_serializing)]
+    pub secret_access_key: Option<String>,
+    /// Request-only command for deleting the stored secret key.
+    #[serde(default, skip_serializing)]
+    pub clear_secret_access_key: bool,
+    /// Safe response/persistence metadata; never proves a key is valid.
+    #[serde(default)]
+    pub secret_access_key_set: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

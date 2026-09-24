@@ -119,6 +119,9 @@ export function SettingsForm() {
   const [s3Endpoint, setS3Endpoint] = useState("")
   const [s3Prefix, setS3Prefix] = useState("")
   const [s3PathStyle, setS3PathStyle] = useState(false)
+  const [s3AccessKeyId, setS3AccessKeyId] = useState("")
+  const [s3SecretAccessKey, setS3SecretAccessKey] = useState("")
+  const [clearS3SecretAccessKey, setClearS3SecretAccessKey] = useState(false)
   const [azureAccount, setAzureAccount] = useState("")
   const [azureContainer, setAzureContainer] = useState("")
   const [azureEndpoint, setAzureEndpoint] = useState("")
@@ -180,6 +183,9 @@ export function SettingsForm() {
     setS3Endpoint(data.storage.s3.endpoint ?? "")
     setS3Prefix(data.storage.s3.prefix)
     setS3PathStyle(data.storage.s3.path_style)
+    setS3AccessKeyId(data.storage.s3.access_key_id)
+    setS3SecretAccessKey("")
+    setClearS3SecretAccessKey(false)
     setAzureAccount(data.storage.azure_blob.account)
     setAzureContainer(data.storage.azure_blob.container)
     setAzureEndpoint(data.storage.azure_blob.endpoint ?? "")
@@ -320,6 +326,10 @@ export function SettingsForm() {
             endpoint: s3Endpoint.trim() || null,
             prefix: s3Prefix.trim(),
             path_style: s3PathStyle,
+            access_key_id: s3AccessKeyId.trim(),
+            secret_access_key: s3SecretAccessKey.trim() || null,
+            clear_secret_access_key: clearS3SecretAccessKey,
+            secret_access_key_set: data?.storage.s3.secret_access_key_set ?? false,
           },
           azure_blob: {
             account: azureAccount.trim(),
@@ -346,6 +356,8 @@ export function SettingsForm() {
     onSuccess: (result) => {
       setGitCredential("")
       setClearGitCredential(false)
+      setS3SecretAccessKey("")
+      setClearS3SecretAccessKey(false)
       setMessage(
         `Storage switched to ${result.storage.backend}; ${result.objects_copied.toLocaleString()} objects verified`,
       )
@@ -839,7 +851,7 @@ export function SettingsForm() {
                   { value: "local", label: "Local filesystem" },
                   { value: "s3", label: "Amazon S3 / compatible" },
                   { value: "azure_blob", label: "Azure Blob Storage" },
-                  { value: "git", label: "Git repository" },
+                  { value: "git", label: "Git repository (GitHub, GitLab, self-hosted)" },
                 ]}
               />
             </Field>
@@ -860,14 +872,47 @@ export function SettingsForm() {
             {storageBackend === "s3" && (
               <div className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Bucket">
-                    <Input value={s3Bucket} onChange={(event) => setS3Bucket(event.target.value)} />
-                  </Field>
-                  <Field label="Region">
-                    <Input value={s3Region} onChange={(event) => setS3Region(event.target.value)} placeholder="ap-southeast-1" />
-                  </Field>
                   <Field label="Endpoint (optional)">
                     <Input value={s3Endpoint} onChange={(event) => setS3Endpoint(event.target.value)} placeholder="https://s3.example.com" />
+                  </Field>
+                  <Field label="Access Key ID">
+                    <Input
+                      value={s3AccessKeyId}
+                      onChange={(event) => setS3AccessKeyId(event.target.value)}
+                      placeholder="AKIA... or admin"
+                      autoComplete="off"
+                    />
+                  </Field>
+                  <Field
+                    label={
+                      data?.storage.s3.secret_access_key_set
+                        ? "Secret Access Key (leave blank to keep)"
+                        : "Secret Access Key"
+                    }
+                    hint="Write-only. The API never returns this value."
+                  >
+                    <Input
+                      type="password"
+                      value={s3SecretAccessKey}
+                      onChange={(event) => {
+                        setS3SecretAccessKey(event.target.value)
+                        setClearS3SecretAccessKey(false)
+                      }}
+                      placeholder={
+                        data?.storage.s3.secret_access_key_set
+                          ? "••••••••••••••••••••••••"
+                          : "Paste secret access key"
+                      }
+                      autoComplete="new-password"
+                    />
+                  </Field>
+                  <Field label="Region">
+                    <Input value={s3Region} onChange={(event) => setS3Region(event.target.value)} placeholder="us-east-1" />
+                  </Field>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Bucket">
+                    <Input value={s3Bucket} onChange={(event) => setS3Bucket(event.target.value)} />
                   </Field>
                   <Field label="Object prefix">
                     <Input value={s3Prefix} onChange={(event) => setS3Prefix(event.target.value)} placeholder="conductor/project" />
@@ -881,7 +926,7 @@ export function SettingsForm() {
                   onCheckedChange={setS3PathStyle}
                 />
                 <CredentialNotice>
-                  Credentials come from the AWS credential chain (IAM role, workload identity, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY). Secrets are never saved in Conductor SQL.
+                  Access Key ID and Secret Access Key are stored write-only (never returned by the API, never saved in Conductor SQL). Leave both blank to fall back to the process AWS credential chain (IAM role, workload identity, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars).
                 </CredentialNotice>
               </div>
             )}
@@ -912,14 +957,14 @@ export function SettingsForm() {
               <div className="space-y-4">
                 <Field
                   label="Repository URL"
-                  hint="HTTPS, SSH, SCP syntax or a mounted absolute repository path. Never embed a token in this URL."
+                  hint="HTTPS, SSH, SCP syntax or a mounted absolute repository path. Never embed a token in this URL. For GitHub: https://github.com/org/repo.git with a Personal Access Token below (fine-grained, Contents: read/write scope)."
                 >
                   <Input
                     value={gitRepositoryUrl}
                     onChange={(event) =>
                       setGitRepositoryUrl(event.target.value)
                     }
-                    placeholder="https://git.example.com/team/resources.git"
+                    placeholder="https://github.com/org/resources.git"
                   />
                 </Field>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -963,7 +1008,7 @@ export function SettingsForm() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Field
                       label="Username"
-                      hint="Provider-specific; commonly git, oauth2 or x-access-token."
+                      hint="Provider-specific; commonly git, oauth2 or x-access-token. For GitHub, any non-empty value works (e.g. x-access-token) — the token below carries the real auth."
                     >
                       <Input
                         value={gitUsername}
