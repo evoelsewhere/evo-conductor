@@ -340,6 +340,30 @@ export interface UpsertSpendLimitRequest {
   enabled: boolean
 }
 
+export type AiPolicyScope = "project" | "role"
+
+export interface AiPolicyView {
+  scope: AiPolicyScope
+  subject_id: string
+  default_provider: string | null
+  default_model: string | null
+  allowed_providers: string[]
+  allowed_tools: string[]
+}
+
+export interface AiPolicyListResponse {
+  policies: AiPolicyView[]
+}
+
+export interface UpsertAiPolicyRequest {
+  scope: AiPolicyScope
+  subject_id?: string
+  default_provider?: string | null
+  default_model?: string | null
+  allowed_providers: string[]
+  allowed_tools: string[]
+}
+
 export interface ModelPricingCatalog {
   version: string
   source: string
@@ -905,6 +929,42 @@ export interface DataPolicySettings {
   collection_level: CollectionLevel
 }
 
+export interface EmailSettings {
+  enabled: boolean
+  smtp_host: string
+  smtp_port: number
+  smtp_username: string
+  smtp_password?: string | null
+  clear_smtp_password?: boolean
+  smtp_password_set: boolean
+  from_address: string
+}
+
+export interface JiraSettings {
+  enabled: boolean
+  site_url: string
+  email: string
+  api_token?: string | null
+  clear_api_token?: boolean
+  api_token_set: boolean
+  default_project_key: string
+  report_issue_key: string
+  last_reported_period: string | null
+  report_interval_hours: number
+}
+
+export interface JiraReportResult {
+  posted: boolean
+  period_start: string
+  issue_key: string
+}
+
+export interface JiraConnectionTestResult {
+  account_email: string
+  account_display_name: string
+  sample_issue_count: number
+}
+
 export interface ProjectSettings {
   project_name: string
   display_name: string | null
@@ -917,6 +977,9 @@ export interface ProjectSettings {
   data_policy: DataPolicySettings
   sso: SsoConfig
   storage: StorageSettings
+  email: EmailSettings
+  jira: JiraSettings
+  warnings: string[]
 }
 
 export interface ConnectionSecret {
@@ -1617,6 +1680,10 @@ export const api = {
     request<{ temporary_password: string }>(`/members/${id}/reset-password`, {
       method: "POST",
     }),
+  sendMemberInviteEmail: (id: string) =>
+    request<{ sent: boolean }>(`/members/${id}/invite-email`, {
+      method: "POST",
+    }),
 
   subRoles: () => request<SubRole[]>("/sub-roles"),
   createSubRole: (body: {
@@ -1693,6 +1760,17 @@ export const api = {
       `/spend-limits${qs({ scope, period, subject_id: subjectId })}`,
       { method: "DELETE" },
     ),
+  aiPolicies: () => request<AiPolicyListResponse>("/ai-policy"),
+  upsertAiPolicy: (body: UpsertAiPolicyRequest) =>
+    request<AiPolicyView>("/ai-policy", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteAiPolicy: (scope: AiPolicyScope, subjectId?: string) =>
+    request<{ removed: boolean }>(
+      `/ai-policy${qs({ scope, subject_id: subjectId })}`,
+      { method: "DELETE" },
+    ),
   modelPricing: () => request<ModelPricingStatus>("/model-pricing"),
   syncModelPricing: () =>
     request<ModelPricingSyncResult>("/model-pricing/sync", { method: "POST" }),
@@ -1716,6 +1794,22 @@ export const api = {
         storage,
         migrate_existing: migrateExisting,
       }),
+    }),
+  updateEmail: (email: EmailSettings) =>
+    request<ProjectSettings>("/settings/email", {
+      method: "PUT",
+      body: JSON.stringify({ email }),
+    }),
+  updateJira: (jira: JiraSettings) =>
+    request<ProjectSettings>("/settings/jira", {
+      method: "PUT",
+      body: JSON.stringify({ jira }),
+    }),
+  testJiraConnection: () =>
+    request<JiraConnectionTestResult>("/settings/jira/test", { method: "POST" }),
+  postJiraReport: (days = 7) =>
+    request<JiraReportResult>(`/settings/jira/report${qs({ days })}`, {
+      method: "POST",
     }),
   uploadProjectLogo: (file: File) =>
     request<ProjectSettings>("/settings/logo", {
