@@ -123,6 +123,12 @@ pub struct ProjectSettings {
     pub data_policy: DataPolicySettings,
     pub sso: SsoConfig,
     pub storage: StorageSettings,
+    pub email: EmailSettings,
+    pub jira: JiraSettings,
+    /// Human-readable configuration gaps for this project, computed fresh on
+    /// every read (never persisted) — e.g. a missing public URL blocks
+    /// invite-to-connect emails. Empty when nothing needs attention.
+    pub warnings: Vec<String>,
 }
 
 /// Project policy advertised to every registered EvoFlux installation.
@@ -292,6 +298,133 @@ pub struct StorageMigrationResult {
 
 fn default_true() -> bool {
     true
+}
+
+/// Outbound SMTP configuration for transactional email (invite-to-connect
+/// links, Jira usage-report notifications). Stored per-project so an operator
+/// can configure it from the Settings UI instead of process environment
+/// variables; the environment (`CONDUCTOR_SMTP_*`) remains a fallback used
+/// only while this is disabled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmailSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub smtp_host: String,
+    #[serde(default = "default_smtp_port")]
+    pub smtp_port: u16,
+    #[serde(default)]
+    pub smtp_username: String,
+    /// Write-only password. Deserialized from an update request but never
+    /// serialized into API responses or `instance.email_config`.
+    #[serde(default, skip_serializing)]
+    pub smtp_password: Option<String>,
+    /// Request-only command for deleting the stored password.
+    #[serde(default, skip_serializing)]
+    pub clear_smtp_password: bool,
+    /// Safe response/persistence metadata; never proves a password is valid.
+    #[serde(default)]
+    pub smtp_password_set: bool,
+    #[serde(default)]
+    pub from_address: String,
+}
+
+impl Default for EmailSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            smtp_host: String::new(),
+            smtp_port: default_smtp_port(),
+            smtp_username: String::new(),
+            smtp_password: None,
+            clear_smtp_password: false,
+            smtp_password_set: false,
+            from_address: String::new(),
+        }
+    }
+}
+
+fn default_smtp_port() -> u16 {
+    587
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateEmailRequest {
+    pub email: EmailSettings,
+}
+
+/// Jira connection for this project's usage reporting (Phase 4). Configured
+/// from the Settings UI, never hardcoded — the token is an Atlassian API
+/// token (Basic Auth with `email`), not an OAuth app; a 3-legged OAuth flow
+/// needs a registered Atlassian app this deployment doesn't have, and a
+/// token is what an admin can obtain today without one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JiraSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    /// e.g. `https://your-domain.atlassian.net`.
+    #[serde(default)]
+    pub site_url: String,
+    /// The Atlassian account email the API token belongs to.
+    #[serde(default)]
+    pub email: String,
+    /// Write-only API token. Deserialized from an update request but never
+    /// serialized into API responses or `instance.jira_config`.
+    #[serde(default, skip_serializing)]
+    pub api_token: Option<String>,
+    /// Request-only command for deleting the stored token.
+    #[serde(default, skip_serializing)]
+    pub clear_api_token: bool,
+    /// Safe response/persistence metadata; never proves a token is valid.
+    #[serde(default)]
+    pub api_token_set: bool,
+    /// Issue key prefix usage reports are posted under by default, e.g. `SCRUM`.
+    #[serde(default)]
+    pub default_project_key: String,
+    /// The specific issue usage-report comments are posted to, e.g. `SCRUM-1`.
+    /// Comments attach to one issue, not a project — there is no
+    /// project-level comment in Jira's model.
+    #[serde(default)]
+    pub report_issue_key: String,
+    /// The last period (`YYYY-MM-DD`, the period's start date) a usage
+    /// report was successfully posted for — read-only, set by the report
+    /// action itself. Prevents the background loop (T4.5) from posting the
+    /// same period twice; never blocks a manual "post now".
+    #[serde(default)]
+    pub last_reported_period: Option<String>,
+    /// How often the background loop (T4.5) posts an automatic report, and
+    /// the length of the period each one covers. Admin-configurable here
+    /// rather than an environment variable or a hardcoded cadence — a
+    /// project's reporting rhythm is exactly the kind of thing that
+    /// shouldn't require a restart to change.
+    #[serde(default = "default_report_interval_hours")]
+    pub report_interval_hours: u32,
+}
+
+fn default_report_interval_hours() -> u32 {
+    168
+}
+
+impl Default for JiraSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            site_url: String::new(),
+            email: String::new(),
+            api_token: None,
+            clear_api_token: false,
+            api_token_set: false,
+            default_project_key: String::new(),
+            report_issue_key: String::new(),
+            report_interval_hours: default_report_interval_hours(),
+            last_reported_period: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateJiraRequest {
+    pub jira: JiraSettings,
 }
 
 /// Operator-tunable realtime (SSE) limits. Values unset in the database fall

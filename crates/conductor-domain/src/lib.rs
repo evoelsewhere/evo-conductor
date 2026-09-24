@@ -11,6 +11,7 @@
 //! telemetry   usage and presence reporting
 //! ```
 
+pub mod ai_policy;
 pub mod analytics;
 pub mod authorization;
 pub mod client_installation;
@@ -26,6 +27,9 @@ pub mod spend;
 pub mod telemetry;
 pub mod user;
 
+pub use ai_policy::{
+    AiPolicyListResponse, AiPolicyScope, AiPolicySelector, AiPolicyView, UpsertAiPolicyRequest,
+};
 pub use analytics::{
     validate_analytics_view_metadata, AnalyticsComparison, AnalyticsDashboardDensity,
     AnalyticsDashboardPreset, AnalyticsDateRange, AnalyticsDimension, AnalyticsMetric,
@@ -53,11 +57,12 @@ pub use dashboard::{
     DashboardRealtimeScope, DashboardSummary, DASHBOARD_PRESENCE_THRESHOLD_SECONDS,
 };
 pub use instance::{
-    AzureBlobStorageSettings, DataPolicySettings, GitAuthMode, GitStorageSettings, InstanceConfig,
-    LocalStorageSettings, ProjectBranding, ProjectSettings, RealtimeSettings, S3StorageSettings,
-    SetupRequest, SetupSsoRequest, SetupStatus, SsoConfig, SsoProvider, StorageBackend,
-    StorageMigrationResult, StorageSettings, UpdateDataPolicyRequest, UpdateInstanceRequest,
-    UpdateNetworkRequest, UpdateSsoRequest, UpdateStorageRequest,
+    AzureBlobStorageSettings, DataPolicySettings, EmailSettings, GitAuthMode, GitStorageSettings,
+    InstanceConfig, JiraSettings, LocalStorageSettings, ProjectBranding, ProjectSettings,
+    RealtimeSettings, S3StorageSettings, SetupRequest, SetupSsoRequest, SetupStatus, SsoConfig,
+    SsoProvider, StorageBackend, StorageMigrationResult, StorageSettings, UpdateDataPolicyRequest,
+    UpdateEmailRequest, UpdateInstanceRequest, UpdateJiraRequest, UpdateNetworkRequest,
+    UpdateSsoRequest, UpdateStorageRequest,
 };
 pub use pricing::{
     normalize_model_key, price_components, price_model_call, price_model_call_tiered,

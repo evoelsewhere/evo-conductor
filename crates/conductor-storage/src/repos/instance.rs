@@ -2,8 +2,8 @@ use std::sync::{Arc, OnceLock};
 
 use chrono::Utc;
 use conductor_domain::{
-    InstanceConfig, PrimaryRole, RealtimeSettings, SetupRequest, SetupStatus, SsoConfig,
-    SsoProvider, StorageBackend, StorageSettings, User, UserStatus,
+    EmailSettings, InstanceConfig, JiraSettings, PrimaryRole, RealtimeSettings, SetupRequest,
+    SetupStatus, SsoConfig, SsoProvider, StorageBackend, StorageSettings, User, UserStatus,
 };
 use sqlx::Row;
 use sqlx::{Any, Pool};
@@ -141,6 +141,48 @@ impl InstanceRepo {
         let config = serde_json::to_string(settings).unwrap_or_else(|_| "{}".into());
         sqlx::query("UPDATE instance SET storage_backend = ?, storage_config = ?, updated_at = ?")
             .bind(settings.backend.as_str())
+            .bind(config)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn email_settings(&self) -> Result<EmailSettings, sqlx::Error> {
+        let row = sqlx::query("SELECT email_config FROM instance LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(row) = row else {
+            return Ok(EmailSettings::default());
+        };
+        let config: String = row.get("email_config");
+        Ok(serde_json::from_str::<EmailSettings>(&config).unwrap_or_default())
+    }
+
+    pub async fn update_email_settings(&self, settings: &EmailSettings) -> Result<(), sqlx::Error> {
+        let config = serde_json::to_string(settings).unwrap_or_else(|_| "{}".into());
+        sqlx::query("UPDATE instance SET email_config = ?, updated_at = ?")
+            .bind(config)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn jira_settings(&self) -> Result<JiraSettings, sqlx::Error> {
+        let row = sqlx::query("SELECT jira_config FROM instance LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(row) = row else {
+            return Ok(JiraSettings::default());
+        };
+        let config: String = row.get("jira_config");
+        Ok(serde_json::from_str::<JiraSettings>(&config).unwrap_or_default())
+    }
+
+    pub async fn update_jira_settings(&self, settings: &JiraSettings) -> Result<(), sqlx::Error> {
+        let config = serde_json::to_string(settings).unwrap_or_else(|_| "{}".into());
+        sqlx::query("UPDATE instance SET jira_config = ?, updated_at = ?")
             .bind(config)
             .bind(Utc::now().to_rfc3339())
             .execute(&self.pool)

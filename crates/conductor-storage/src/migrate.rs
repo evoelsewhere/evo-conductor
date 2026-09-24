@@ -142,6 +142,8 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
             collection_level TEXT NOT NULL DEFAULT 'L1',
             storage_backend TEXT NOT NULL DEFAULT 'local',
             storage_config TEXT NOT NULL DEFAULT '{}',
+            email_config TEXT NOT NULL DEFAULT '{}',
+            jira_config TEXT NOT NULL DEFAULT '{}',
             setup_completed INTEGER NOT NULL DEFAULT 0,
             jwt_secret TEXT NOT NULL,
             created_at TEXT NOT NULL,
@@ -460,6 +462,25 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
             FOREIGN KEY(project_id) REFERENCES instance(id)
         )
         "#,
+        // `subject_id` is the primary role for a role policy; project
+        // policies leave it as the empty string, same convention as
+        // `spend_limits` above.
+        r#"
+        CREATE TABLE IF NOT EXISTS project_ai_policies (
+            id TEXT PRIMARY KEY NOT NULL,
+            project_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            subject_id TEXT NOT NULL DEFAULT '',
+            default_provider TEXT,
+            default_model TEXT,
+            allowed_providers TEXT NOT NULL DEFAULT '[]',
+            allowed_tools TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project_id, scope, subject_id),
+            FOREIGN KEY(project_id) REFERENCES instance(id)
+        )
+        "#,
         r#"
         CREATE TABLE IF NOT EXISTS model_price_catalogs (
             version TEXT PRIMARY KEY NOT NULL,
@@ -582,6 +603,7 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         "CREATE INDEX IF NOT EXISTS idx_analytics_views_owner ON analytics_views(project_id, owner_user_id, updated_at)",
         "CREATE INDEX IF NOT EXISTS idx_model_prices_catalog ON model_prices(catalog_version)",
         "CREATE INDEX IF NOT EXISTS idx_spend_limits_project ON spend_limits(project_id, enabled)",
+        "CREATE INDEX IF NOT EXISTS idx_project_ai_policies_project ON project_ai_policies(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_model_price_catalogs_fetched ON model_price_catalogs(fetched_at)",
     ];
 
@@ -625,6 +647,8 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         "ALTER TABLE instance ADD COLUMN realtime_heartbeat_seconds INTEGER",
         "ALTER TABLE instance ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'",
         "ALTER TABLE instance ADD COLUMN storage_config TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE instance ADD COLUMN email_config TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE instance ADD COLUMN jira_config TEXT NOT NULL DEFAULT '{}'",
         "ALTER TABLE resources ADD COLUMN status TEXT NOT NULL DEFAULT 'published'",
         "ALTER TABLE resources ADD COLUMN published_at TEXT",
         "ALTER TABLE resources ADD COLUMN project_id TEXT",
@@ -696,6 +720,11 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         "UPDATE resource_access_rules SET project_id = (SELECT project_id FROM resources WHERE resources.id = resource_access_rules.resource_id) WHERE project_id IS NULL OR project_id = ''",
         "UPDATE resources SET highest_semver = version WHERE highest_semver IS NULL AND status IN ('beta', 'published')",
         "UPDATE resources SET kind = 'plugin' WHERE kind = 'mcp'",
+        // ResourceKind::Agent was renamed to ResourceKind::AgentTeam without a
+        // data migration (commit 5de2ad5); rows written before that commit
+        // still carry the old string and fail to parse, taking down
+        // resources.list with a 500 for the whole project.
+        "UPDATE resources SET kind = 'agent_team' WHERE kind = 'agent'",
     ] {
         let _ = sqlx::query(sql).execute(pool).await;
     }
