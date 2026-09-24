@@ -194,7 +194,7 @@ fn every_browser_action_resolves_each_current_role_and_eligible_alternative() {
         }
     }
 
-    assert_eq!(browser_actions, 84);
+    assert_eq!(browser_actions, 92);
     assert_eq!(role_cases, browser_actions * PrimaryRole::ALL.len());
 }
 
@@ -268,11 +268,11 @@ fn every_connection_action_requires_its_exact_scope_for_all_current_roles() {
         scope_counts,
         BTreeMap::from([
             ("report_telemetry", 2),
-            ("subscribe_resources", 7),
+            ("subscribe_resources", 8),
             ("sync_inventory", 1),
         ])
     );
-    assert_eq!(role_cases, 10 * PrimaryRole::ALL.len());
+    assert_eq!(role_cases, 11 * PrimaryRole::ALL.len());
 }
 
 #[test]
@@ -299,8 +299,8 @@ fn public_bootstrap_and_protected_classes_are_explicit_and_exhaustive() {
         classes,
         BTreeMap::from([
             ("bootstrap", 1),
-            ("browser", 84),
-            ("connection", 10),
+            ("browser", 92),
+            ("connection", 11),
             ("public", 6),
         ])
     );

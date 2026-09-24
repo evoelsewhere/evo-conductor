@@ -41,7 +41,7 @@ use support::{test_app_with_authorization, TestApp};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-const EXPECTED_CONNECTION_ROLE_CASES: usize = 30;
+const EXPECTED_CONNECTION_ROLE_CASES: usize = 33;
 const REVIEWED_ROUTE_INVENTORY: &str =
     include_str!("../../../docs/generated/req-004-route-inventory.json");
 
@@ -695,6 +695,7 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | TaxonomySubRolesList
         | TaxonomyTagsList
         | SpendLimitList
+        | AiPolicyList
         | ModelPricingCatalogRead
         | ConnectionTokensSelfList => PreparedRequest::empty(route, StatusCode::OK),
 
@@ -713,6 +714,21 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         // which is what makes a repeated delete safe.
         SpendLimitDelete => {
             PreparedRequest::empty_with_query(route, "scope=project&period=week", StatusCode::OK)
+        }
+        AiPolicyUpsert => PreparedRequest::json(
+            route,
+            &[],
+            json!({
+                "scope": "project",
+                "allowed_providers": ["anthropic"],
+                "allowed_tools": []
+            }),
+            StatusCode::OK,
+        ),
+        // Nothing to remove yet; same "reports, doesn't fail" contract as
+        // SpendLimitDelete above.
+        AiPolicyDelete => {
+            PreparedRequest::empty_with_query(route, "scope=project", StatusCode::OK)
         }
         // No catalog has been synced in this fixture, so repricing examines
         // nothing and says so.
@@ -794,6 +810,31 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
             }),
             StatusCode::OK,
         ),
+        ProjectEmailUpdate => PreparedRequest::json(
+            route,
+            &[],
+            json!({
+                "email": serde_json::to_value(conductor_domain::EmailSettings::default())
+                    .expect("serialize default email settings")
+            }),
+            StatusCode::OK,
+        ),
+        ProjectJiraUpdate => PreparedRequest::json(
+            route,
+            &[],
+            json!({
+                "jira": serde_json::to_value(conductor_domain::JiraSettings::default())
+                    .expect("serialize default jira settings")
+            }),
+            StatusCode::OK,
+        ),
+        // Never reaches a real Jira site: the fixture never enables the
+        // connection, so `resolve_jira_config` refuses on configuration
+        // grounds before any network call — same shape as `ModelPricingSync`.
+        ProjectJiraTest => PreparedRequest::empty(route, StatusCode::BAD_REQUEST),
+        // Never reaches Jira: the fixture never sets a report_issue_key, so
+        // the handler refuses on configuration grounds first.
+        ProjectJiraReport => PreparedRequest::empty(route, StatusCode::BAD_REQUEST),
         MemberCreate => PreparedRequest::json(
             route,
             &[],
@@ -960,6 +1001,18 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 &[("{id}", target.id.to_string())],
                 json!({}),
                 StatusCode::OK,
+            )
+        }
+        // Authorization is expected to succeed here too — the test fixture
+        // never configures a public URL (or SMTP), so the handler fails on
+        // configuration grounds before it would even reach the "email not
+        // enabled" check, same pattern as `ModelPricingSync` above.
+        MemberInviteEmail => {
+            let target = world.seed_member(None).await;
+            PreparedRequest::empty_at(
+                route,
+                &[("{id}", target.id.to_string())],
+                StatusCode::BAD_REQUEST,
             )
         }
 
@@ -1205,11 +1258,13 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ProjectSsoRead
                 | ProjectSsoUpdate
                 | ProjectStorageUpdate
+                | ProjectEmailUpdate
                 | ProjectDataPolicyUpdate
                 | MemberDirectoryList
                 | MemberPendingCountRead
                 | MemberPrivateRead
                 | MemberCreate
+                | MemberInviteEmail
                 | MemberApprove
                 | MemberAccessProfileUpdate
                 | MemberDisable
@@ -1264,10 +1319,17 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | SpendLimitList
                 | SpendLimitUpsert
                 | SpendLimitDelete
+                | AiPolicyList
+                | AiPolicyUpsert
+                | AiPolicyDelete
                 | ModelPricingCatalogRead
                 | ModelPricingSync
                 | ModelPricingReprice
-                | ClientRealtimeEvents => unreachable!("outer resource action match"),
+                | ClientRealtimeEvents
+                | ClientAiPolicyRead
+                | ProjectJiraUpdate
+                | ProjectJiraTest
+                | ProjectJiraReport => unreachable!("outer resource action match"),
             }
         }
 
@@ -1325,11 +1387,13 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | ProjectSsoRead
                 | ProjectSsoUpdate
                 | ProjectStorageUpdate
+                | ProjectEmailUpdate
                 | ProjectDataPolicyUpdate
                 | MemberDirectoryList
                 | MemberPendingCountRead
                 | MemberPrivateRead
                 | MemberCreate
+                | MemberInviteEmail
                 | MemberApprove
                 | MemberAccessProfileUpdate
                 | MemberDisable
@@ -1399,10 +1463,17 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | SpendLimitList
                 | SpendLimitUpsert
                 | SpendLimitDelete
+                | AiPolicyList
+                | AiPolicyUpsert
+                | AiPolicyDelete
                 | ModelPricingCatalogRead
                 | ModelPricingSync
                 | ModelPricingReprice
-                | ClientRealtimeEvents => unreachable!("outer analytics action match"),
+                | ClientRealtimeEvents
+                | ClientAiPolicyRead
+                | ProjectJiraUpdate
+                | ProjectJiraTest
+                | ProjectJiraReport => unreachable!("outer analytics action match"),
             }
         }
 
@@ -1422,7 +1493,8 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         | ClientInventorySync
         | ClientTelemetryIngest
         | ClientResourceUsageIngest
-        | ClientRealtimeEvents => unreachable!("non-browser action in browser fixture"),
+        | ClientRealtimeEvents
+        | ClientAiPolicyRead => unreachable!("non-browser action in browser fixture"),
     }
 }
 
@@ -1433,6 +1505,7 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         ClientResourcesChanges => {
             PreparedRequest::empty(route, StatusCode::OK)
         }
+        ClientAiPolicyRead => PreparedRequest::empty(route, StatusCode::OK),
         ClientResourcesFetch => {
             let installation_id = world.seed_installation().await;
             PreparedRequest::json(
@@ -1571,11 +1644,13 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | ProjectSsoRead
         | ProjectSsoUpdate
         | ProjectStorageUpdate
+        | ProjectEmailUpdate
         | ProjectDataPolicyUpdate
         | MemberDirectoryList
         | MemberPendingCountRead
         | MemberPrivateRead
         | MemberCreate
+        | MemberInviteEmail
         | MemberApprove
         | MemberAccessProfileUpdate
         | MemberDisable
@@ -1638,10 +1713,16 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | SpendLimitList
         | SpendLimitUpsert
         | SpendLimitDelete
+        | AiPolicyList
+        | AiPolicyUpsert
+        | AiPolicyDelete
         | ModelPricingCatalogRead
         | ModelPricingSync
         | ModelPricingReprice
-        | AnalyticsViewDelete => unreachable!("non-connection action in connection fixture"),
+        | AnalyticsViewDelete
+        | ProjectJiraUpdate
+        | ProjectJiraTest
+        | ProjectJiraReport => unreachable!("non-connection action in connection fixture"),
     }
 }
 
@@ -1753,6 +1834,20 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
                 "{case}: nothing was configured for that period"
             );
         }
+        AiPolicyList => {
+            assert!(body["policies"].is_array(), "{case}: {body}");
+        }
+        AiPolicyUpsert => {
+            assert_eq!(body["scope"], "project", "{case}");
+            assert_eq!(body["subject_id"], "", "{case}");
+            assert_eq!(body["allowed_providers"], json!(["anthropic"]), "{case}");
+        }
+        AiPolicyDelete => {
+            assert_eq!(
+                body["removed"], false,
+                "{case}: nothing was configured for that scope"
+            );
+        }
         ModelPricingCatalogRead => {
             assert!(body["catalog"].is_null(), "{case}: the fixture never syncs");
             assert_eq!(body["sync_enabled"], false, "{case}");
@@ -1765,6 +1860,12 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         ProjectStorageUpdate => {
             assert_eq!(body["storage"]["backend"], "local", "{case}");
             assert_eq!(body["objects_copied"], 0, "{case}");
+        }
+        ProjectEmailUpdate => {
+            assert_eq!(body["email"]["enabled"], false, "{case}");
+        }
+        ProjectJiraUpdate => {
+            assert_eq!(body["jira"]["enabled"], false, "{case}");
         }
         ProjectLogoUpload => {
             assert!(
@@ -1967,6 +2068,7 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | MemberDirectoryList
         | MemberPendingCountRead
         | MemberPrivateRead
+        | MemberInviteEmail
         | MemberApprove
         | MemberAccessProfileUpdate
         | MemberDisable
@@ -2014,9 +2116,12 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | ClientResourceArtifactRead
         | ClientInventorySync
         | ClientTelemetryIngest
-        // Never reaches here: the fixture keeps sync disabled, so its case
-        // expects a refusal and skips the success-payload check.
+        | ClientAiPolicyRead
+        // Never reaches here: the fixture keeps sync/Jira disabled, so its
+        // case expects a refusal and skips the success-payload check.
         | ModelPricingSync
+        | ProjectJiraTest
+        | ProjectJiraReport
         | ClientRealtimeEvents => {}
     }
 }
@@ -2455,7 +2560,7 @@ fn target_requirement_classification_is_manifest_driven() {
         .iter()
         .filter(|route| route_requires_target(route))
         .count();
-    assert_eq!(target_routes, 54);
+    assert_eq!(target_routes, 56);
     assert!(manifest
         .routes
         .iter()

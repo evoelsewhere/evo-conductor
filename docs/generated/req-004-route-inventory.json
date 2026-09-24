@@ -2,7 +2,7 @@
   "schema_version": 1,
   "policy_revision": "req-004-v1",
   "generated_from": "conductor_server::http::authorization::route_manifest",
-  "route_count": 101,
+  "route_count": 110,
   "baseline_assumptions": [
     "role baselines use the current persisted active primary role",
     "browser and connection credentials are otherwise structurally valid",
@@ -492,6 +492,174 @@
     }
   ],
   "routes": [
+    {
+      "route_id": "ai_policy.delete",
+      "action": "ai_policy.delete",
+      "method": "DELETE",
+      "path": "/api/ai-policy",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "ai_policy.delete",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "ai_policy.list",
+      "action": "ai_policy.list",
+      "method": "GET",
+      "path": "/api/ai-policy",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "ai_policy.list",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "ai_policy.upsert",
+      "action": "ai_policy.upsert",
+      "method": "PUT",
+      "path": "/api/ai-policy",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "ai_policy.upsert",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
     {
       "route_id": "analytics.member_cost_report.read",
       "action": "analytics.member_cost_report.read",
@@ -1303,6 +1471,60 @@
               "response_projection": "full"
             }
           ]
+        }
+      }
+    },
+    {
+      "route_id": "client.ai_policy.read",
+      "action": "client.ai_policy.read",
+      "method": "GET",
+      "path": "/api/v1/client/ai-policy",
+      "target_type": "project",
+      "authentication": {
+        "class": "connection",
+        "policy": {
+          "requirement_id": "client.ai_policy.read",
+          "required_scope": "subscribe_resources",
+          "selector": {
+            "kind": "all_of",
+            "items": [
+              {
+                "kind": "none"
+              },
+              {
+                "kind": "current_scope_policy"
+              }
+            ]
+          }
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "required_scope": "subscribe_resources"
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "required_scope": "subscribe_resources"
+        },
+        "user": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "required_scope": "subscribe_resources"
         }
       }
     },
@@ -3165,6 +3387,62 @@
       }
     },
     {
+      "route_id": "member.invite_email",
+      "action": "member.invite_email",
+      "method": "POST",
+      "path": "/api/members/{id}/invite-email",
+      "target_type": "member",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "member.invite_email",
+          "alternatives": [
+            {
+              "permission": "member.manage",
+              "selector": {
+                "kind": "any_member_path"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "member.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "any_member_path"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
       "route_id": "member.password.reset",
       "action": "member.password.reset",
       "method": "POST",
@@ -3817,6 +4095,230 @@
         "class": "browser",
         "policy": {
           "requirement_id": "project.data_policy.update",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "project.email.update",
+      "action": "project.email.update",
+      "method": "PUT",
+      "path": "/api/settings/email",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "project.email.update",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "project.jira.report",
+      "action": "project.jira.report",
+      "method": "POST",
+      "path": "/api/settings/jira/report",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "project.jira.report",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "project.jira.test",
+      "action": "project.jira.test",
+      "method": "POST",
+      "path": "/api/settings/jira/test",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "project.jira.test",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "project.jira.update",
+      "action": "project.jira.update",
+      "method": "PUT",
+      "path": "/api/settings/jira",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "project.jira.update",
           "alternatives": [
             {
               "permission": "project.settings.manage",

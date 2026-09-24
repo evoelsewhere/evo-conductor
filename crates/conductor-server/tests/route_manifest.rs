@@ -17,7 +17,7 @@ fn manifest_is_complete_unique_and_matches_the_reviewed_baseline() {
             .map(|route| route.path)
             .collect::<BTreeSet<_>>()
             .len(),
-        79
+        86
     );
 
     let mut methods = BTreeMap::new();
@@ -36,19 +36,19 @@ fn manifest_is_complete_unique_and_matches_the_reviewed_baseline() {
     assert_eq!(
         methods,
         BTreeMap::from([
-            ("DELETE", 6),
-            ("GET", 43),
+            ("DELETE", 7),
+            ("GET", 45),
             ("PATCH", 6),
-            ("POST", 34),
-            ("PUT", 12),
+            ("POST", 37),
+            ("PUT", 15),
         ])
     );
     assert_eq!(
         classes,
         BTreeMap::from([
             ("bootstrap", 1),
-            ("browser", 84),
-            ("connection", 10),
+            ("browser", 92),
+            ("connection", 11),
             ("public", 6),
         ])
     );

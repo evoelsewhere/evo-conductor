@@ -27,7 +27,9 @@ use conductor_domain::{
 use conductor_server::core::artifacts::ArtifactStore;
 use conductor_server::core::authorization::AuthorizationService;
 use conductor_server::core::host_metrics::HostMetricsProvider;
-use conductor_server::{build_router, AppState, Config, ModelPricingConfig, RealtimeConfig};
+use conductor_server::{
+    build_router, AppState, Config, EmailConfig, ModelPricingConfig, RealtimeConfig,
+};
 use conductor_storage::core::url::sqlite_shared_memory_url;
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -234,6 +236,10 @@ async fn test_app_with_dependencies(
             enabled: false,
             ..ModelPricingConfig::default()
         },
+        // Tests never reach a real SMTP relay; email-sending paths are
+        // exercised against `EmailConfig::default()` (disabled), same
+        // reasoning as `model_pricing` above.
+        email: EmailConfig::default(),
     };
 
     TestApp {
