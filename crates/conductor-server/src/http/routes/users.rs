@@ -281,6 +281,58 @@ pub async fn create(
     }))
 }
 
+/// Emails an existing member a link to Conductor's own "Connect EvoFlux"
+/// page. Deliberately does **not** mint or see a connection secret itself —
+/// `POST /members/{id}/secrets` stays self-issue-only
+/// (`crates/conductor-server/src/http/routes/secrets.rs:92-94`); this only
+/// sends the invitation to go do that. See
+/// `documents/plans/task-detail-phase-0.md`, T0.6, in the `evoflux` repo for
+/// the full flow this is one step of.
+pub async fn send_invite_email(
+    State(state): State<AppState>,
+    Extension(route): Extension<RouteAuthorization>,
+    AuthUser(actor): AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let member = authorize_member_target(&state, &route, &actor, id).await?;
+
+    let instance = state
+        .db
+        .instance()
+        .get()
+        .await?
+        .ok_or(ConductorError::SetupRequired)?;
+    let public_url = instance
+        .public_url
+        .filter(|url| !url.trim().is_empty())
+        .ok_or_else(|| {
+            ConductorError::msg(
+                "set a public URL in network settings before sending invite emails",
+            )
+        })?;
+
+    let connect_url = format!(
+        "{}/connect-evoflux?member={}",
+        public_url.trim_end_matches('/'),
+        member.id
+    );
+    let body = crate::core::email::invite_to_connect_email_body(
+        &instance.project_name,
+        &member.display_name,
+        &connect_url,
+    );
+
+    let subject = format!("Connect EvoFlux to {}", instance.project_name);
+    let email_config = crate::core::email::resolve_email_config(&state)
+        .await
+        .map_err(|error| ApiError::conflict("email_send_failed", error.to_string()))?;
+    crate::core::email::send_email(&email_config, &member.email, &subject, &body)
+        .await
+        .map_err(|error| ApiError::conflict("email_send_failed", error.to_string()))?;
+
+    Ok(Json(serde_json::json!({ "sent": true })))
+}
+
 pub async fn update(
     State(state): State<AppState>,
     Extension(route): Extension<RouteAuthorization>,
