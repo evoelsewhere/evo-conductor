@@ -146,6 +146,9 @@ pub struct ClientHeartbeatResponse {
     pub server_time: DateTime<Utc>,
     pub heartbeat_interval_seconds: u32,
     pub connection_state: String,
+    /// Refreshed on every heartbeat so a role/display-name change made after
+    /// `register()` doesn't go stale until the client happens to reconnect.
+    pub member: ClientMember,
 }
 
 #[cfg(test)]

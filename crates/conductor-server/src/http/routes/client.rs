@@ -176,10 +176,34 @@ pub async fn heartbeat(
         .record(request.installation_id, instance.id, Utc::now(), 0, 1)
         .await?;
 
+    let sub_roles = state
+        .db
+        .roles()
+        .list_sub_roles()
+        .await?
+        .into_iter()
+        .filter(|role| principal.user.sub_role_ids.contains(&role.id))
+        .collect();
+    let tags = state
+        .db
+        .roles()
+        .list_tags()
+        .await?
+        .into_iter()
+        .filter(|tag| principal.user.tag_ids.contains(&tag.id))
+        .collect();
+
     Ok(Json(ClientHeartbeatResponse {
         server_time: Utc::now(),
         heartbeat_interval_seconds: CLIENT_HEARTBEAT_INTERVAL_SECONDS,
         connection_state: "active".to_string(),
+        member: ClientMember {
+            id: principal.user.id,
+            display_name: principal.user.display_name,
+            primary_role: principal.user.primary_role,
+            sub_roles,
+            tags,
+        },
     }))
 }
 
