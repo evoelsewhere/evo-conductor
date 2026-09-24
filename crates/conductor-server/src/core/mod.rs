@@ -9,8 +9,10 @@ pub mod artifacts;
 pub mod authorization;
 pub mod config;
 pub mod constants;
+pub mod email;
 pub mod error;
 pub mod host_metrics;
+pub mod jira;
 pub mod member_cost_report;
 pub mod model_cost_report;
 pub mod model_pricing;
@@ -20,6 +22,6 @@ pub mod resource_authoring;
 pub mod routes;
 pub mod state;
 
-pub use config::{Config, ModelPricingConfig, RealtimeConfig};
+pub use config::{Config, EmailConfig, ModelPricingConfig, RealtimeConfig};
 pub use error::{ApiError, ApiResult};
 pub use state::AppState;

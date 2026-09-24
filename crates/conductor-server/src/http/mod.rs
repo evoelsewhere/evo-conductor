@@ -21,6 +21,7 @@ pub fn build_router(mut state: AppState, config: &Config) -> Router {
     // one does, so it travels with the state the handler is given rather than
     // being read from the environment behind the caller's back.
     state.model_pricing = config.model_pricing.clone();
+    state.email = config.email.clone();
     let api = routes::router(state);
 
     Router::new()

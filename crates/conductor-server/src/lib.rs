@@ -11,5 +11,5 @@ pub mod core;
 pub mod http;
 pub mod route_inventory;
 
-pub use core::{ApiError, ApiResult, AppState, Config, ModelPricingConfig, RealtimeConfig};
+pub use core::{ApiError, ApiResult, AppState, Config, EmailConfig, ModelPricingConfig, RealtimeConfig};
 pub use http::build_router;

@@ -66,6 +66,32 @@ impl Default for ModelPricingConfig {
     }
 }
 
+/// SMTP settings for outbound transactional email (invite-to-connect links,
+/// Jira usage-report notifications). Disabled by default — no email is sent
+/// until an operator configures a real SMTP relay.
+#[derive(Debug, Clone)]
+pub struct EmailConfig {
+    pub enabled: bool,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_username: String,
+    pub smtp_password: String,
+    pub from_address: String,
+}
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            smtp_host: String::new(),
+            smtp_port: 587,
+            smtp_username: String::new(),
+            smtp_password: String::new(),
+            from_address: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -74,6 +100,7 @@ pub struct Config {
     pub web_dist: PathBuf,
     pub realtime: RealtimeConfig,
     pub model_pricing: ModelPricingConfig,
+    pub email: EmailConfig,
 }
 
 impl Config {
@@ -122,6 +149,23 @@ impl Config {
                     pricing_defaults.refresh_hours,
                 )
                 .clamp(1, 24 * 30),
+            },
+            email: {
+                let defaults = EmailConfig::default();
+                EmailConfig {
+                    enabled: env_bool("CONDUCTOR_EMAIL_ENABLED", defaults.enabled),
+                    smtp_host: std::env::var("CONDUCTOR_SMTP_HOST").unwrap_or(defaults.smtp_host),
+                    smtp_port: std::env::var("CONDUCTOR_SMTP_PORT")
+                        .ok()
+                        .and_then(|p| p.parse().ok())
+                        .unwrap_or(defaults.smtp_port),
+                    smtp_username: std::env::var("CONDUCTOR_SMTP_USERNAME")
+                        .unwrap_or(defaults.smtp_username),
+                    smtp_password: std::env::var("CONDUCTOR_SMTP_PASSWORD")
+                        .unwrap_or(defaults.smtp_password),
+                    from_address: std::env::var("CONDUCTOR_EMAIL_FROM")
+                        .unwrap_or(defaults.from_address),
+                }
             },
         }
     }
