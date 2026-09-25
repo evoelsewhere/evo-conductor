@@ -84,7 +84,11 @@ export interface ModelUsageBreakdown {
   tokens_in: number
   tokens_out: number
   total_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
   estimated_cost_usd_micros: number
+  /** How much cheaper cache reads were than paying full input price for the same tokens. */
+  cache_savings_usd_micros: number
   unpriced_calls: number
 }
 
@@ -108,8 +112,11 @@ export interface MemberUsageSummary {
   tokens_out: number
   total_tokens: number
   cache_read_tokens: number
+  cache_write_tokens: number
   reasoning_tokens: number
   estimated_cost_usd_micros: number
+  /** How much cheaper cache reads were than paying full input price for the same tokens. */
+  cache_savings_usd_micros: number
   unpriced_model_calls: number
   models: ModelUsageBreakdown[]
   daily: DailyTokenUsage[]
@@ -203,12 +210,15 @@ export interface ResourceUsageTotals {
   tokens_in: number
   tokens_out: number
   cache_read_tokens: number
+  cache_write_tokens: number
   reasoning_tokens: number
   tool_use_tokens: number
   total_tokens: number
   /** Conductor's own price. Clients report usage, never cost, so what
    *  Conductor could not price is missing here and counted below. */
   estimated_cost_usd_micros: number
+  /** How much cheaper cache reads were than paying full input price for the same tokens. */
+  cache_savings_usd_micros: number
   unpriced_model_calls: number
   average_tokens_per_request: number
   average_duration_ms: number
@@ -269,7 +279,11 @@ export interface ResourceUsageModel {
   model: string
   calls: number
   total_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
   estimated_cost_usd_micros: number
+  /** How much cheaper this model's cache reads were than paying full input price for the same tokens. */
+  cache_savings_usd_micros: number
   unpriced_calls: number
 }
 
@@ -500,6 +514,8 @@ export interface ModelCostReportRow {
   cache_read_cost_usd_micros: number
   cache_write_cost_usd_micros: number
   total_cost_usd_micros: number
+  /** How much cheaper cache reads were than paying full input price for the same tokens. */
+  cache_savings_usd_micros: number
   avg_usd_micros_per_million_tokens: number
 }
 
@@ -513,6 +529,7 @@ export interface ModelCostReportTotals {
   reasoning_tokens: number
   total_tokens: number
   total_cost_usd_micros: number
+  cache_savings_usd_micros: number
 }
 
 export interface ModelCostReport {
@@ -545,6 +562,7 @@ export interface MemberCostReportRow {
   reasoning_tokens: number
   total_tokens: number
   total_cost_usd_micros: number
+  cache_savings_usd_micros: number
   avg_usd_micros_per_million_tokens: number
 }
 
@@ -1050,6 +1068,9 @@ export interface TaskCostRow {
   calls: number
   total_tokens: number
   total_cost_usd_micros: number
+  /** How much cheaper this task's cache reads were than paying full input
+   * price for the same tokens; zero for a fallback row. */
+  cache_savings_usd_micros: number
   /** Split of `total_tokens`; available for both a precise task and a
    * fallback (whole-person) row. */
   tokens_in: number
@@ -1083,6 +1104,7 @@ export interface TaskActivityItem {
   total_tokens: number
   duration_ms: number
   total_cost_usd_micros: number
+  cache_savings_usd_micros: number
   status: string
   jira_status: string
 }
@@ -1108,6 +1130,33 @@ export interface JiraReportResult {
   posted: boolean
   period_start: string
   issue_key: string
+}
+
+export type ReportKind = "member" | "model" | "jira"
+export type ReportFormat = "xlsx" | "pptx"
+
+export interface ReportExportParams {
+  format: ReportFormat
+  from?: string
+  to?: string
+  kinds?: ReportKind[]
+}
+
+export type ReportDestination =
+  | { type: "email"; address: string }
+  | { type: "jira"; issue_key: string }
+
+export interface ReportDeliverRequest {
+  format: ReportFormat
+  from: string
+  to: string
+  kinds: ReportKind[]
+  destination: ReportDestination
+}
+
+export interface ReportDeliverResponse {
+  delivered: boolean
+  destination: ReportDestination
 }
 
 export interface JiraConnectionTestResult {
@@ -1787,6 +1836,46 @@ export const api = {
         to: params.to,
       })}`,
     ),
+  reportExportUrl: (params: ReportExportParams) =>
+    `/api/analytics/report/export${qs({
+      format: params.format,
+      from: params.from,
+      to: params.to,
+      kinds: params.kinds?.join(","),
+    })}`,
+  downloadReportExport: async (params: ReportExportParams) => {
+    const token = authSession.getToken()
+    const headers = new Headers()
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+    const res = await fetch(api.reportExportUrl(params), { headers })
+    if (!res.ok) {
+      let message = res.statusText
+      try {
+        const body = await res.json()
+        if (typeof body.error === "string") message = body.error
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(message, res.status)
+    }
+    const disposition = res.headers.get("Content-Disposition") ?? ""
+    const match = /filename="?([^";]+)"?/.exec(disposition)
+    const filename = match?.[1] ?? `usage-report.${params.format}`
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+  },
+  deliverReport: (request_: ReportDeliverRequest) =>
+    request<ReportDeliverResponse>("/analytics/report/deliver", {
+      method: "POST",
+      body: JSON.stringify(request_),
+    }),
   jiraTasks: (q?: string) =>
     request<JiraTaskListResponse>(`/jira/tasks${qs({ q })}`),
   updateJiraAccountEmail: (memberId: string, jiraAccountEmail: string | null) =>

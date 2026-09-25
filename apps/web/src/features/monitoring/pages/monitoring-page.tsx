@@ -6,6 +6,7 @@ import {
   DateRangeFilter,
   useUsageRange,
 } from "@/features/members/components/date-range-filter"
+import { ExportReportDialog } from "@/features/monitoring/components/export-report-dialog"
 import { formatTokens } from "@/features/members/components/usage-formatters"
 import { formatEstimatedCost } from "@/features/resource-usage/components/resource-usage-formatters"
 import { CostTableSkeleton, ModelCostTable } from "@/features/monitoring/components/model-cost-table"
@@ -44,6 +45,7 @@ function optional(value: string) {
 
 export function MonitoringPage() {
   const dates = useUsageRange()
+  const [exportOpen, setExportOpen] = useState(false)
   const [tab, setTab] = useState<MonitoringTab>(MONITORING_TAB.MODEL)
   const [sort, setSort] = useState<SortKey>("cost")
   const [filters, setFilters] = useState<MonitoringFilterState>(EMPTY_MONITORING_FILTERS)
@@ -93,14 +95,19 @@ export function MonitoringPage() {
       subtitle="Where project spend goes, by model and by member — filter by role, tag, provider or model to narrow either view."
       className="max-w-[100rem]"
       action={
-        <DateRangeFilter
-          preset={dates.preset}
-          onPresetChange={dates.setPreset}
-          customFrom={dates.customFrom}
-          onCustomFromChange={dates.setCustomFrom}
-          customTo={dates.customTo}
-          onCustomToChange={dates.setCustomTo}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <DateRangeFilter
+            preset={dates.preset}
+            onPresetChange={dates.setPreset}
+            customFrom={dates.customFrom}
+            onCustomFromChange={dates.setCustomFrom}
+            customTo={dates.customTo}
+            onCustomToChange={dates.setCustomTo}
+          />
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+            Export report
+          </Button>
+        </div>
       }
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -157,7 +164,7 @@ export function MonitoringPage() {
               <StatCard
                 label="Cache tokens"
                 value={formatTokens((totals?.cache_read_tokens ?? 0) + (totals?.cache_write_tokens ?? 0))}
-                hint={`${formatTokens(totals?.cache_read_tokens ?? 0)} read · ${formatTokens(totals?.cache_write_tokens ?? 0)} write`}
+                hint={`${formatTokens(totals?.cache_read_tokens ?? 0)} read · ${formatTokens(totals?.cache_write_tokens ?? 0)} write · ${formatEstimatedCost(totals?.cache_savings_usd_micros ?? 0)} saved`}
                 icon={Gauge}
               />
               <StatCard
@@ -213,6 +220,12 @@ export function MonitoringPage() {
           </Card>
         </div>
       )}
+      <ExportReportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        from={dates.range.from}
+        to={dates.range.to}
+      />
     </PageFrame>
   )
 }
