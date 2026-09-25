@@ -32,8 +32,9 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use conductor_domain::{
-    normalize_model_key, price_model_call_tiered, rate_from_usd_per_million, ModelPricing,
-    ModelRates, PricedCost, RateTier, ServiceTierRates, TokenUsage, UnpricedReason,
+    cache_read_savings_usd_micros, normalize_model_key, price_model_call_tiered,
+    rate_from_usd_per_million, ModelPricing, ModelRates, PricedCost, RateTier, ServiceTierRates,
+    TokenUsage, UnpricedReason,
 };
 use conductor_storage::repos::{ModelPriceRow, PriceCatalogSnapshot};
 use conductor_storage::{Db, StorageError};
@@ -56,6 +57,21 @@ pub struct SyncOutcome {
     /// True when the fetched document was byte-identical to the last sync, so
     /// no parsing or writing happened.
     pub unchanged: bool,
+}
+
+const PROVIDER_ALIASES: &[(&str, &str)] = &[
+    ("googlegenai", "google"),
+    ("kimi", "kimi-for-coding"),
+    ("copilot", "github-copilot"),
+];
+
+pub fn resolve_provider_alias(provider: &str) -> &str {
+    let normalized = provider.trim().to_ascii_lowercase();
+    PROVIDER_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == normalized)
+        .map(|(_, canonical)| *canonical)
+        .unwrap_or(provider)
 }
 
 /// The newest rate per model, held in memory so pricing a telemetry batch
@@ -86,6 +102,7 @@ impl RateTable {
     }
 
     fn get(&self, provider: &str, model: &str) -> Option<&ModelPricing> {
+        let provider = resolve_provider_alias(provider);
         self.rates
             .get(&(normalize_model_key(provider), normalize_model_key(model)))
     }
@@ -188,13 +205,14 @@ pub async fn price_event(
     usage: TokenUsage,
     service_tier: Option<&str>,
     reported_at: DateTime<Utc>,
-) -> Result<(PricedCost, Option<String>), StorageError> {
+) -> Result<(PricedCost, Option<String>, Option<i64>), StorageError> {
     let snapshot = table.snapshot();
     if !snapshot.is_loaded() {
         return Ok((
             PricedCost::Unpriced {
                 reason: UnpricedReason::NoCatalog,
             },
+            None,
             None,
         ));
     }
@@ -204,8 +222,11 @@ pub async fn price_event(
                 reason: UnpricedReason::ModelUnknown,
             },
             None,
+            None,
         ));
     };
+
+    let provider = resolve_provider_alias(provider);
 
     let predates_snapshot = snapshot
         .newest_effective_from
@@ -230,11 +251,15 @@ pub async fn price_event(
                 reason: UnpricedReason::ModelUnknown,
             },
             None,
+            None,
         ));
     };
     let cost = price_model_call_tiered(&pricing, usage, service_tier);
+    let cache_savings = cost
+        .cost_micros()
+        .and(cache_read_savings_usd_micros(&pricing, usage, service_tier));
     let version = cost.cost_micros().and(catalog_version);
-    Ok((cost, version))
+    Ok((cost, version, cache_savings))
 }
 
 #[derive(Debug, Deserialize)]

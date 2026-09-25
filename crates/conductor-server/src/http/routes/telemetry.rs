@@ -237,7 +237,9 @@ pub async fn ingest(
     // falling back to a number computed somewhere else.
     let mut priced = Vec::with_capacity(request.events.len());
     for event in &request.events {
-        let (cost, catalog_version) = if event.event_type == TelemetryEventType::ModelCall {
+        let (cost, catalog_version, cache_savings_usd_micros) = if event.event_type
+            == TelemetryEventType::ModelCall
+        {
             model_pricing::price_event(
                 &state.db,
                 &state.model_rates,
@@ -261,6 +263,7 @@ pub async fn ingest(
                     reason: conductor_domain::UnpricedReason::NoMatchingComponent,
                 },
                 None,
+                None,
             )
         };
         // Ingest always prices from the rate in force; the estimate basis
@@ -273,6 +276,7 @@ pub async fn ingest(
             cost,
             catalog_version,
             basis,
+            cache_savings_usd_micros,
         });
     }
 
