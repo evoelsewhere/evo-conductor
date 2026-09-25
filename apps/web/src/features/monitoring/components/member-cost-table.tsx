@@ -20,7 +20,7 @@ export function MemberCostTable({
   totals,
 }: {
   rows: MemberCostReportRow[]
-  totals?: { total_cost_usd_micros: number; total_tokens: number }
+  totals?: { total_cost_usd_micros: number; total_tokens: number; cache_savings_usd_micros?: number }
 }) {
   const grandCost = totals?.total_cost_usd_micros || 1
 
@@ -37,6 +37,7 @@ export function MemberCostTable({
             <TableTh className={`${TH} text-right font-normal`}>Cache WR</TableTh>
             <TableTh className={`${TH} text-right`}>Total tokens</TableTh>
             <TableTh className={`${TH} border-l border-(--border-soft) text-right`}>Total cost</TableTh>
+            <TableTh className={`${TH} text-right font-normal text-(--color-success)`}>Saved</TableTh>
             <TableTh className={`${TH} text-right`}>Avg $/1M</TableTh>
           </tr>
         </TableHead>
@@ -82,6 +83,11 @@ export function MemberCostTable({
                 <NumCell value={formatTokens(row.cache_write_tokens)} className={TD} />
                 <NumCell value={formatTokens(row.total_tokens)} className={TD} strong />
                 <NumCell value={formatEstimatedCost(row.total_cost_usd_micros)} className={TD} border strong />
+                <NumCell
+                  value={row.cache_savings_usd_micros > 0 ? formatEstimatedCost(row.cache_savings_usd_micros) : "—"}
+                  className={`${TD} text-(--color-success)`}
+                  strong
+                />
                 <TableTd className={`${TD} text-right tabular-nums text-(--color-text-muted)`}>
                   {formatEstimatedCost(row.avg_usd_micros_per_million_tokens)}
                 </TableTd>
@@ -96,6 +102,9 @@ export function MemberCostTable({
               <TableTd colSpan={4} className={`${TD} border-l border-(--border-soft)`} />
               <TableTd className={`${TD} text-right`}>{formatTokens(totals.total_tokens)}</TableTd>
               <TableTd className={`${TD} border-l border-(--border-soft) text-right`}>{formatEstimatedCost(totals.total_cost_usd_micros)}</TableTd>
+              <TableTd className={`${TD} text-right text-(--color-success)`}>
+                {formatEstimatedCost(totals.cache_savings_usd_micros ?? 0)}
+              </TableTd>
               <TableTd className={TD} />
             </tr>
           </tfoot>

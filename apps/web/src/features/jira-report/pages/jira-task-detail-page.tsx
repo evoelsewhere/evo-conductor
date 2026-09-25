@@ -126,7 +126,11 @@ export function JiraTaskDetailPage() {
           <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <Stat label="Input tokens" value={formatTokens(row.tokens_in)} />
             <Stat label="Output tokens" value={formatTokens(row.tokens_out)} />
-            <Stat label="Cache tokens" value={formatTokens(row.cache_read_tokens + row.cache_write_tokens)} />
+            <Stat
+              label="Cache tokens"
+              value={formatTokens(row.cache_read_tokens + row.cache_write_tokens)}
+              hint={row.cache_savings_usd_micros > 0 ? `$${formatMicrosAsUsd(row.cache_savings_usd_micros)} saved` : undefined}
+            />
             <Stat label="Total time" value={row.total_duration_ms > 0 ? formatDuration(row.total_duration_ms) : "—"} />
             <Stat label="Cost" value={`$${formatMicrosAsUsd(row.total_cost_usd_micros)}`} />
             <Stat label="Requests" value={row.calls.toLocaleString()} />
@@ -203,11 +207,12 @@ export function JiraTaskDetailPage() {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-(--border-card) bg-(--bg-card) px-3.5 py-2.5">
       <div className="text-lg font-semibold tabular-nums">{value}</div>
       <div className="mt-0.5 text-[11px] text-(--color-text-muted)">{label}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-(--color-success)">{hint}</div>}
     </div>
   )
 }
@@ -496,14 +501,20 @@ function buildModelBreakdown(items: TaskActivityItem[]): ModelUsageBreakdown[] {
       tokens_in: 0,
       tokens_out: 0,
       total_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
       estimated_cost_usd_micros: 0,
+      cache_savings_usd_micros: 0,
       unpriced_calls: 0,
     }
     entry.calls += 1
     entry.tokens_in += item.tokens_in
     entry.tokens_out += item.tokens_out
     entry.total_tokens += item.total_tokens
+    entry.cache_read_tokens += item.cache_read_tokens
+    entry.cache_write_tokens += item.cache_write_tokens
     entry.estimated_cost_usd_micros += item.total_cost_usd_micros
+    entry.cache_savings_usd_micros += item.cache_savings_usd_micros
     byModel.set(key, entry)
   }
   return [...byModel.values()].sort((a, b) => b.total_tokens - a.total_tokens)

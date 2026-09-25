@@ -3,6 +3,7 @@ import { ArrowRight, Boxes } from "lucide-react"
 
 import { DASHBOARD_TOP_SIGNAL_LIMIT } from "@/features/dashboard/lib/dashboard-config"
 import { formatTokens } from "@/features/members/components/usage-formatters"
+import { formatEstimatedCost } from "@/features/resource-usage/components/resource-usage-formatters"
 import type {
   ResourceUsageBreakdown,
   ResourceUsageModel,
@@ -175,6 +176,12 @@ function ModelSignals({
             </span>
             <span className="block truncate text-[0.68rem] text-(--color-text-subtle)">
               {formatTokens(item.total_tokens)} tokens
+              {item.cache_savings_usd_micros > 0 && (
+                <span className="text-(--color-success)">
+                  {" · "}
+                  {formatEstimatedCost(item.cache_savings_usd_micros)} saved
+                </span>
+              )}
             </span>
           </span>
           <span className="text-right text-xs font-semibold tabular-nums">

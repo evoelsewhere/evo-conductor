@@ -289,9 +289,9 @@ export function MemberDetailPage() {
             tone="success"
           />
           <StatCard
-            label="Cache read"
-            value={formatTokens(usage.data?.cache_read_tokens ?? 0)}
-            hint={`${formatTokens(usage.data?.reasoning_tokens ?? 0)} reasoning tokens`}
+            label="Cache tokens"
+            value={formatTokens((usage.data?.cache_read_tokens ?? 0) + (usage.data?.cache_write_tokens ?? 0))}
+            hint={`${formatEstimatedCost(usage.data?.cache_savings_usd_micros ?? 0)} saved · ${formatTokens(usage.data?.reasoning_tokens ?? 0)} reasoning`}
             icon={Bot}
             tone="warning"
           />

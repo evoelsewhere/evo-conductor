@@ -34,7 +34,7 @@ export function ModelCostTable({
             <TableTh rowSpan={2} className={`${TH} align-bottom`}>Model</TableTh>
             <TableTh rowSpan={2} className={`${TH} align-bottom text-right`}>Calls</TableTh>
             <TableTh colSpan={5} className={`${TH} border-l border-(--border-soft) text-center`}>Tokens burned</TableTh>
-            <TableTh colSpan={5} className={`${TH} border-l border-(--border-soft) text-center`}>Cost — USD</TableTh>
+            <TableTh colSpan={6} className={`${TH} border-l border-(--border-soft) text-center`}>Cost — USD</TableTh>
             <TableTh rowSpan={2} className={`${TH} border-l border-(--border-soft) align-bottom text-right`}>Avg $/1M</TableTh>
           </tr>
           <tr>
@@ -48,6 +48,7 @@ export function ModelCostTable({
             <TableTh className={`${TH} text-right font-normal`}>Cache RD</TableTh>
             <TableTh className={`${TH} text-right font-normal`}>Cache WR</TableTh>
             <TableTh className={`${TH} text-right`}>Total</TableTh>
+            <TableTh className={`${TH} text-right font-normal text-(--color-success)`}>Saved</TableTh>
           </tr>
         </TableHead>
         <TableBody>
@@ -91,6 +92,11 @@ export function ModelCostTable({
                 <NumCell value={formatEstimatedCost(row.cache_read_cost_usd_micros)} className={TD} />
                 <NumCell value={formatEstimatedCost(row.cache_write_cost_usd_micros)} className={TD} />
                 <NumCell value={formatEstimatedCost(row.total_cost_usd_micros)} className={TD} strong />
+                <NumCell
+                  value={row.cache_savings_usd_micros > 0 ? formatEstimatedCost(row.cache_savings_usd_micros) : "—"}
+                  className={`${TD} text-(--color-success)`}
+                  strong
+                />
                 <TableTd className={`${TD} border-l border-(--border-soft) text-right tabular-nums text-(--color-text-muted)`}>
                   {formatEstimatedCost(row.avg_usd_micros_per_million_tokens)}
                 </TableTd>
@@ -103,7 +109,7 @@ export function ModelCostTable({
             <tr className="border-t border-(--border-soft) font-medium">
               <TableTd colSpan={2} className={TD}>Total</TableTd>
               <TableTd colSpan={5} className={`${TD} border-l border-(--border-soft) text-right`}>{formatTokens(totals.total_tokens)}</TableTd>
-              <TableTd colSpan={5} className={`${TD} border-l border-(--border-soft) text-right`}>{formatEstimatedCost(totals.total_cost_usd_micros)}</TableTd>
+              <TableTd colSpan={6} className={`${TD} border-l border-(--border-soft) text-right`}>{formatEstimatedCost(totals.total_cost_usd_micros)}</TableTd>
               <TableTd className={`${TD} border-l border-(--border-soft)`} />
             </tr>
           </tfoot>
