@@ -776,6 +776,12 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         // derived from it, so it stays `NULL` on the same rows that stay
         // unpriced rather than reading as "no savings".
         "ALTER TABLE telemetry_events ADD COLUMN cache_savings_usd_micros BIGINT",
+        // The inventory row a client last reported before its currently
+        // reported one -- kept so a plugin version cutover doesn't
+        // retroactively invalidate telemetry already in flight under the
+        // installation/version that was valid when it was generated.
+        "ALTER TABLE installation_resource_inventory ADD COLUMN previous_applied_version_id TEXT",
+        "ALTER TABLE installation_resource_inventory ADD COLUMN previous_plugin_installation_id TEXT",
     ];
     for sql in alters {
         let _ = sqlx::query(sql).execute(pool).await;

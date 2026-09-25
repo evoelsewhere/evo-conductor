@@ -495,6 +495,133 @@ async fn inventory_rejects_unknown_state_and_cross_resource_versions() {
     assert_eq!(count, 0);
 }
 
+/// A plugin version update mints a brand-new plugin_installation_id and the
+/// client re-syncs inventory to the new (version, installation) pair, but
+/// telemetry generated moments earlier -- and still sitting in the client's
+/// outbox when the update lands -- still names the just-superseded pair.
+/// That telemetry must still validate once, not be permanently poisoned.
+#[tokio::test]
+async fn telemetry_still_validates_against_the_plugin_installation_a_version_update_just_replaced() {
+    let app = test_app().await;
+    let project_id = seed_instance(&app).await;
+    let owner = app.seed_user(PrimaryRole::User).await;
+    let (resource_id, version_id_a) =
+        seed_resource(&app, project_id, owner.id, "plugin", "jira-plugin", "Jira plugin").await;
+    let version_id_b = Uuid::new_v4();
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        r#"
+        INSERT INTO resource_versions (
+            id, project_id, resource_id, version, status, payload, release_channel,
+            content_sha256, content_size, created_by, created_at, published_at
+        ) VALUES (?, ?, ?, '1.3.0', 'published', '{}', 'published', 'def', 2, ?, ?, ?)
+        "#,
+    )
+    .bind(version_id_b.to_string())
+    .bind(project_id.to_string())
+    .bind(resource_id.to_string())
+    .bind(owner.id.to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(app.state.db.pool())
+    .await
+    .expect("seed second resource version");
+
+    let raw = "evc_plugin_cutover";
+    seed_connection_token(&app, &owner, raw).await;
+    let installation_id = register(&app, raw).await;
+
+    let inventory_item = |version_id: Uuid, plugin_installation_id: &str| {
+        json!({
+            "installation_id": installation_id,
+            "items": [{
+                "resource_id": resource_id,
+                "desired_version_id": version_id,
+                "applied_version_id": version_id,
+                "release_channel": "published",
+                "content_sha256": if version_id == version_id_a { "abc" } else { "def" },
+                "plugin_installation_id": plugin_installation_id,
+                "observed_state": "applied",
+                "error_category": null,
+                "observed_at": chrono::Utc::now().to_rfc3339()
+            }]
+        })
+    };
+    let telemetry_referencing = |version_id: Uuid, plugin_installation_id: &str| {
+        let mut batch = event_batch(&installation_id, Uuid::new_v4());
+        batch["events"][1]["resources"] = json!([{
+            "resource_id": resource_id,
+            "version_id": version_id,
+            "relation": "plugin_contributed_tool",
+            "plugin_installation_id": plugin_installation_id
+        }]);
+        batch
+    };
+
+    let (status, _) = app
+        .put(
+            "/api/v1/client/inventory",
+            Some(raw),
+            inventory_item(version_id_a, "install-a"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            telemetry_referencing(version_id_a, "install-a"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "current generation must validate");
+
+    // The version update: the client re-syncs inventory under a new
+    // installation id before its outbox has drained the events above.
+    let (status, _) = app
+        .put(
+            "/api/v1/client/inventory",
+            Some(raw),
+            inventory_item(version_id_b, "install-b"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            telemetry_referencing(version_id_a, "install-a"),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "telemetry from the just-superseded installation must still validate once"
+    );
+
+    let (status, _) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            telemetry_referencing(version_id_b, "install-b"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "the new generation must validate too");
+
+    let (status, _) = app
+        .post(
+            "/api/v1/telemetry/batch",
+            Some(raw),
+            telemetry_referencing(version_id_a, "install-never-recorded"),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a generation older than the one just replaced must still be rejected"
+    );
+}
+
 #[tokio::test]
 async fn resource_usage_analytics_attributes_member_role_version_tokens_and_cost() {
     let observer = Arc::new(RecordingObserver::default());

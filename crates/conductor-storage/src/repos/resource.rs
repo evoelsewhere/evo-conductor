@@ -325,6 +325,12 @@ impl ResourceRepo {
         version_id: Uuid,
         plugin_installation_id: &str,
     ) -> Result<bool, sqlx::Error> {
+        // A plugin version update mints a new plugin_installation_id and this
+        // table keeps only the latest report, so also accept the immediately
+        // prior (version_id, plugin_installation_id) pair recorded at the
+        // moment of that cutover -- otherwise telemetry generated just
+        // before an update, and still in flight when it lands, can never
+        // validate again.
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*)
@@ -337,19 +343,25 @@ impl ResourceRepo {
              AND resource.project_id = inventory.project_id
              AND resource.kind = 'plugin'
             JOIN resource_versions version
-              ON version.id = inventory.applied_version_id
+              ON version.id = ?
              AND version.project_id = inventory.project_id
              AND version.resource_id = inventory.resource_id
              AND version.status <> 'draft'
             WHERE inventory.project_id = ? AND inventory.installation_id = ?
-              AND inventory.resource_id = ? AND inventory.applied_version_id = ?
-              AND inventory.plugin_installation_id = ?
+              AND inventory.resource_id = ?
+              AND (
+                (inventory.applied_version_id = ? AND inventory.plugin_installation_id = ?)
+                OR (inventory.previous_applied_version_id = ? AND inventory.previous_plugin_installation_id = ?)
+              )
               AND inventory.observed_state IN ('applied', 'in_sync', 'trust_pending')
             "#,
         )
+        .bind(version_id.to_string())
         .bind(project_id.to_string())
         .bind(installation_id.to_string())
         .bind(resource_id.to_string())
+        .bind(version_id.to_string())
+        .bind(plugin_installation_id)
         .bind(version_id.to_string())
         .bind(plugin_installation_id)
         .fetch_one(&self.pool)
@@ -1632,6 +1644,41 @@ impl ResourceRepo {
                     "plugin installation id requires a Plugin resource",
                 ));
             }
+            // A version update mints a brand-new plugin_installation_id and
+            // this table only ever keeps the latest report, so telemetry
+            // still in flight under the just-superseded installation would
+            // otherwise never validate again (see inventory_plugin_matches).
+            // Keep exactly one generation of grace: on a real cutover, carry
+            // the row being replaced into previous_*; otherwise leave
+            // whatever previous_* already recorded untouched.
+            let existing: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> =
+                sqlx::query_as(
+                    "SELECT applied_version_id, plugin_installation_id, \
+                     previous_applied_version_id, previous_plugin_installation_id \
+                     FROM installation_resource_inventory \
+                     WHERE project_id = ? AND installation_id = ? AND resource_id = ?",
+                )
+                .bind(project_id.to_string())
+                .bind(request.installation_id.to_string())
+                .bind(item.resource_id.to_string())
+                .fetch_optional(&mut *tx)
+                .await?;
+            let (previous_applied_version_id, previous_plugin_installation_id) = match existing {
+                Some((
+                    existing_applied_version_id,
+                    Some(existing_plugin_installation_id),
+                    _,
+                    _,
+                )) if item.plugin_installation_id.as_deref()
+                    != Some(existing_plugin_installation_id.as_str()) =>
+                {
+                    (existing_applied_version_id, Some(existing_plugin_installation_id))
+                }
+                Some((_, _, previous_applied_version_id, previous_plugin_installation_id)) => {
+                    (previous_applied_version_id, previous_plugin_installation_id)
+                }
+                None => (None, None),
+            };
             sqlx::query(
                 "DELETE FROM installation_resource_inventory WHERE project_id = ? AND installation_id = ? AND resource_id = ?",
             )
@@ -1645,8 +1692,9 @@ impl ResourceRepo {
                 INSERT INTO installation_resource_inventory (
                     project_id, installation_id, resource_id, desired_version_id,
                     applied_version_id, release_channel, content_sha256,
-                    plugin_installation_id, observed_state, error_category, observed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    plugin_installation_id, observed_state, error_category, observed_at,
+                    previous_applied_version_id, previous_plugin_installation_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(project_id.to_string())
@@ -1660,6 +1708,8 @@ impl ResourceRepo {
             .bind(item.observed_state.as_str())
             .bind(item.error_category.as_deref())
             .bind(item.observed_at.to_rfc3339())
+            .bind(previous_applied_version_id)
+            .bind(previous_plugin_installation_id)
             .execute(&mut *tx)
             .await?;
             accepted = accepted.saturating_add(1);
