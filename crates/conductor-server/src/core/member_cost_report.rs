@@ -40,6 +40,7 @@ pub async fn build(
             acc.reasoning_tokens += row.reasoning_tokens;
             acc.total_tokens += row.total_tokens;
             acc.total_cost_usd_micros += row.total_cost_usd_micros;
+            acc.cache_savings_usd_micros += row.cache_savings_usd_micros;
             acc
         });
 
@@ -76,6 +77,7 @@ fn to_row(row: RawMemberCostRow) -> MemberCostReportRow {
         reasoning_tokens: row.reasoning_tokens,
         total_tokens,
         total_cost_usd_micros: row.total_cost_usd_micros,
+        cache_savings_usd_micros: row.cache_savings_usd_micros,
         avg_usd_micros_per_million_tokens,
     }
 }
@@ -105,6 +107,7 @@ mod tests {
             cache_write_tokens: 0,
             reasoning_tokens: 0,
             total_cost_usd_micros: total_cost,
+            cache_savings_usd_micros: 0,
         }
     }
 

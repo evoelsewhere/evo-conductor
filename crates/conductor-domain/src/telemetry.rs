@@ -218,7 +218,12 @@ pub struct ModelUsageBreakdown {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub total_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    /// How much cheaper this model's cache reads were than paying full
+    /// input price for the same tokens.
+    pub cache_savings_usd_micros: u64,
     pub unpriced_calls: u64,
 }
 
@@ -244,11 +249,15 @@ pub struct MemberUsageSummary {
     pub tokens_out: u64,
     pub total_tokens: u64,
     pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     /// Same authoritative cost the project analytics report, over the same
     /// `received_at` window, so a member's own page and the admin analytics
     /// agree for a given range.
     pub estimated_cost_usd_micros: u64,
+    /// How much cheaper this member's cache reads were than paying full
+    /// input price for the same tokens, over the same window.
+    pub cache_savings_usd_micros: u64,
     pub unpriced_model_calls: u64,
     pub models: Vec<ModelUsageBreakdown>,
     pub daily: Vec<DailyTokenUsage>,
@@ -377,6 +386,7 @@ pub struct ResourceUsageTotals {
     pub tokens_in: u64,
     pub tokens_out: u64,
     pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     pub tool_use_tokens: u64,
     pub total_tokens: u64,
@@ -385,6 +395,9 @@ pub struct ResourceUsageTotals {
     /// figure is either Conductor-priced or absent. What is absent shows up
     /// in `unpriced_model_calls` rather than being filled in from elsewhere.
     pub estimated_cost_usd_micros: u64,
+    /// How much cheaper this window's cache reads were than paying full
+    /// input price for the same tokens.
+    pub cache_savings_usd_micros: u64,
     /// Model calls Conductor could not price. Volume this number covers is
     /// missing from `estimated_cost_usd_micros`, not free.
     pub unpriced_model_calls: u64,
@@ -459,7 +472,12 @@ pub struct ResourceUsageModel {
     pub model: String,
     pub calls: u64,
     pub total_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
     pub estimated_cost_usd_micros: u64,
+    /// How much cheaper this model's cache reads were than paying full
+    /// input price for the same tokens.
+    pub cache_savings_usd_micros: u64,
     pub unpriced_calls: u64,
 }
 
@@ -492,6 +510,11 @@ pub struct ModelCostReportRow {
     pub cache_read_cost_usd_micros: u64,
     pub cache_write_cost_usd_micros: u64,
     pub total_cost_usd_micros: u64,
+    /// How much cheaper this row's cache reads were than paying full input
+    /// price for the same tokens -- a separate figure from
+    /// `cache_read_cost_usd_micros`, which is what the cache reads
+    /// themselves cost, not what they saved against the alternative.
+    pub cache_savings_usd_micros: u64,
     /// Blended cost per million tokens: `total_cost_usd_micros / total_tokens
     /// * 1e6`. Zero when `total_tokens` is zero.
     pub avg_usd_micros_per_million_tokens: u64,
@@ -508,6 +531,7 @@ pub struct ModelCostReportTotals {
     pub reasoning_tokens: u64,
     pub total_tokens: u64,
     pub total_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -538,6 +562,7 @@ pub struct MemberCostReportRow {
     pub reasoning_tokens: u64,
     pub total_tokens: u64,
     pub total_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: u64,
     /// Blended cost per million tokens: `total_cost_usd_micros / total_tokens
     /// * 1e6`. Zero when `total_tokens` is zero.
     pub avg_usd_micros_per_million_tokens: u64,

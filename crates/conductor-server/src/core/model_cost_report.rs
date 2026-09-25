@@ -17,7 +17,7 @@ use conductor_storage::repos::{CostReportFilters, RawModelCostRow};
 use conductor_storage::Db;
 use uuid::Uuid;
 
-use crate::core::model_pricing::{RateTable, SharedRateTable};
+use crate::core::model_pricing::{resolve_provider_alias, RateTable, SharedRateTable};
 
 pub async fn build(
     db: &Db,
@@ -37,6 +37,9 @@ pub async fn build(
         .into_iter()
         .map(|row| split_components(row, &snapshot))
         .collect();
+
+    let rows = merge_alias_duplicates(rows);
+
     // The storage query already orders by cost, but component splitting must
     // not be allowed to reorder it -- a caller expecting "highest spend
     // first" would silently get wrong results.
@@ -54,6 +57,7 @@ pub async fn build(
             acc.reasoning_tokens += row.reasoning_tokens;
             acc.total_tokens += row.total_tokens;
             acc.total_cost_usd_micros += row.total_cost_usd_micros;
+            acc.cache_savings_usd_micros += row.cache_savings_usd_micros;
             acc
         });
 
@@ -69,6 +73,44 @@ pub async fn build(
 /// `sort_by` so component splitting -- which touches every row -- cannot
 /// quietly change an ordering the caller depends on.
 fn sort_by_cost_desc(mut rows: Vec<ModelCostReportRow>) -> Vec<ModelCostReportRow> {
+    rows.sort_by_key(|row| std::cmp::Reverse(row.total_cost_usd_micros));
+    rows
+}
+
+/// Merge rows whose provider was an alias for the same canonical provider.
+///
+/// `model_cost_totals` groups by the raw `provider` stored on the event, so
+/// `googlegenai` and `google` would otherwise appear as two separate lines
+/// even though they resolve to the same rate card. This collapses them into
+/// one, keeping the canonical provider name.
+fn merge_alias_duplicates(rows: Vec<ModelCostReportRow>) -> Vec<ModelCostReportRow> {
+    use std::collections::HashMap;
+
+    let mut merged: HashMap<(String, String), ModelCostReportRow> = HashMap::new();
+    for row in rows {
+        let key = (resolve_provider_alias(&row.provider).to_string(), row.model.clone());
+        if let Some(existing) = merged.get_mut(&key) {
+            existing.calls += row.calls;
+            existing.unpriced_calls += row.unpriced_calls;
+            existing.input_tokens += row.input_tokens;
+            existing.output_tokens += row.output_tokens;
+            existing.cache_read_tokens += row.cache_read_tokens;
+            existing.cache_write_tokens += row.cache_write_tokens;
+            existing.reasoning_tokens += row.reasoning_tokens;
+            existing.total_tokens += row.total_tokens;
+            existing.input_cost_usd_micros += row.input_cost_usd_micros;
+            existing.output_cost_usd_micros += row.output_cost_usd_micros;
+            existing.cache_read_cost_usd_micros += row.cache_read_cost_usd_micros;
+            existing.cache_write_cost_usd_micros += row.cache_write_cost_usd_micros;
+            existing.total_cost_usd_micros += row.total_cost_usd_micros;
+            existing.cache_savings_usd_micros += row.cache_savings_usd_micros;
+        } else {
+            let mut row = row;
+            row.provider = resolve_provider_alias(&row.provider).to_string();
+            merged.insert(key, row);
+        }
+    }
+    let mut rows: Vec<_> = merged.into_values().collect();
     rows.sort_by_key(|row| std::cmp::Reverse(row.total_cost_usd_micros));
     rows
 }
@@ -130,6 +172,7 @@ fn split_components(row: RawModelCostRow, rates: &RateTable) -> ModelCostReportR
         cache_read_cost_usd_micros: cache_read,
         cache_write_cost_usd_micros: cache_write,
         total_cost_usd_micros: row.total_cost_usd_micros,
+        cache_savings_usd_micros: row.cache_savings_usd_micros,
         avg_usd_micros_per_million_tokens,
     }
 }
@@ -179,6 +222,7 @@ mod tests {
             cache_write_tokens: 0,
             reasoning_tokens: 0,
             total_cost_usd_micros: total_cost,
+            cache_savings_usd_micros: 0,
         }
     }
 
