@@ -19,6 +19,7 @@ pub mod core;
 pub mod dashboard;
 pub mod instance;
 pub mod jira_task;
+pub mod presentation_report;
 pub mod pricing;
 pub mod resource;
 pub mod resource_semver;
@@ -70,10 +71,15 @@ pub use jira_task::{
     JiraStatusChange, JiraTask, JiraTaskListResponse, StatusTokenBreakdown, TaskActivationRequest,
     TaskActivityItem, TaskActivityResponse, TaskCostReport, TaskCostRow,
 };
+pub use presentation_report::{
+    OutlierTask, PresentationReport, ReportCallouts, ReportDeliverRequest, ReportDeliverResponse,
+    ReportDestination, ReportFormat, ReportKind, ReportWindow, TopEntry,
+};
 pub use pricing::{
-    normalize_model_key, price_components, price_model_call, price_model_call_tiered,
-    rate_from_usd_per_million, resolve_rates, CostComponents, ModelPricing, ModelRates, PricedCost,
-    PricingBasis, RateTier, ServiceTierRates, TokenUsage, UnpricedReason,
+    cache_read_savings_usd_micros, normalize_model_key, price_components, price_model_call,
+    price_model_call_tiered, rate_from_usd_per_million, resolve_rates, CostComponents,
+    ModelPricing, ModelRates, PricedCost, PricingBasis, RateTier, ServiceTierRates, TokenUsage,
+    UnpricedReason,
 };
 pub use resource::{
     CreateDraftFileRequest, CreateResourceRequest, DeleteDraftEntryRequest,
