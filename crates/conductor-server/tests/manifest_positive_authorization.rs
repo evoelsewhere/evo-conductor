@@ -1062,6 +1062,25 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
         AnalyticsResourceUsageRead | ModelCostReportRead | MemberCostReportRead
         | TaskCostReportRead | JiraTasksRead => PreparedRequest::empty(route, StatusCode::OK),
 
+        PresentationReportExport => {
+            PreparedRequest::empty_with_query(route, "format=xlsx", StatusCode::OK)
+        }
+        // Never reaches SMTP or Jira: the fixture enables neither, so
+        // `resolve_email_config`/`resolve_jira_config` refuse on
+        // configuration grounds first -- same shape as `ProjectJiraReport`.
+        PresentationReportDeliver => PreparedRequest::json(
+            route,
+            &[],
+            json!({
+                "format": "xlsx",
+                "from": "2026-01-01T00:00:00Z",
+                "to": "2026-01-31T00:00:00Z",
+                "kinds": ["member"],
+                "destination": { "type": "email", "address": "report@example.test" }
+            }),
+            StatusCode::BAD_REQUEST,
+        ),
+
         JiraTaskDetailRead => {
             let issue_key = world.seed_jira_task().await;
             PreparedRequest::empty_at(route, &[("{issue_key}", issue_key)], StatusCode::OK)
@@ -1379,7 +1398,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | JiraTaskDetailRead
                 | MemberJiraAccountEmailUpdate
                 | ClientJiraTaskActivationRecord
-                | TaskActivityDetailRead => unreachable!("outer resource action match"),
+                | TaskActivityDetailRead
+                | PresentationReportExport
+                | PresentationReportDeliver => unreachable!("outer resource action match"),
             }
         }
 
@@ -1530,7 +1551,9 @@ async fn prepare_browser_request(world: &World, route: &RouteSpec) -> PreparedRe
                 | JiraTaskDetailRead
                 | MemberJiraAccountEmailUpdate
                 | ClientJiraTaskActivationRecord
-                | TaskActivityDetailRead => unreachable!("outer analytics action match"),
+                | TaskActivityDetailRead
+                | PresentationReportExport
+                | PresentationReportDeliver => unreachable!("outer analytics action match"),
             }
         }
 
@@ -1792,7 +1815,9 @@ async fn prepare_connection_request(world: &World, route: &RouteSpec) -> Prepare
         | JiraTasksRead
         | JiraTaskDetailRead
         | MemberJiraAccountEmailUpdate
-        | TaskActivityDetailRead => unreachable!("non-connection action in connection fixture"),
+        | TaskActivityDetailRead
+        | PresentationReportExport
+        | PresentationReportDeliver => unreachable!("non-connection action in connection fixture"),
     }
 }
 
@@ -2201,6 +2226,8 @@ async fn assert_success_response(world: &World, route: &RouteSpec, body: &Value,
         | JiraTaskDetailRead
         | MemberJiraAccountEmailUpdate
         | TaskActivityDetailRead
+        | PresentationReportExport
+        | PresentationReportDeliver
         | ModelPricingCatalogList => {}
     }
 }

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "policy_revision": "req-004-v1",
   "generated_from": "conductor_server::http::authorization::route_manifest",
-  "route_count": 117,
+  "route_count": 119,
   "baseline_assumptions": [
     "role baselines use the current persisted active primary role",
     "browser and connection credentials are otherwise structurally valid",
@@ -759,6 +759,133 @@
         "class": "browser",
         "policy": {
           "requirement_id": "analytics.model_cost_report.read",
+          "alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "aggregate_only"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "telemetry.project.read",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "aggregate_only"
+            }
+          ]
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "analytics.presentation_report.deliver",
+      "action": "analytics.presentation_report.deliver",
+      "method": "POST",
+      "path": "/api/analytics/report/deliver",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "analytics.presentation_report.deliver",
+          "alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "selector": {
+                "kind": "project_member"
+              }
+            }
+          ]
+        }
+      },
+      "body_policy": {
+        "kind": "default"
+      },
+      "role_baselines": {
+        "admin": {
+          "outcome": "conditional",
+          "target_dependent": true,
+          "possible_response_projections": [
+            "full"
+          ],
+          "feasible_alternatives": [
+            {
+              "permission": "project.settings.manage",
+              "role_grant_constraints": {
+                "kind": "same_project"
+              },
+              "route_selector": {
+                "kind": "project_member"
+              },
+              "target_dependent": true,
+              "response_projection": "full"
+            }
+          ]
+        },
+        "contribute": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        },
+        "user": {
+          "outcome": "deny",
+          "target_dependent": false,
+          "possible_response_projections": []
+        }
+      }
+    },
+    {
+      "route_id": "analytics.presentation_report.export",
+      "action": "analytics.presentation_report.export",
+      "method": "GET",
+      "path": "/api/analytics/report/export",
+      "target_type": "project",
+      "authentication": {
+        "class": "browser",
+        "policy": {
+          "requirement_id": "analytics.presentation_report.export",
           "alternatives": [
             {
               "permission": "telemetry.project.read",
