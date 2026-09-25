@@ -771,6 +771,11 @@ pub async fn run(pool: &Pool<Any>, kind: DatabaseKind) -> Result<(), sqlx::Error
         "ALTER TABLE users ADD COLUMN jira_account_email TEXT",
         "ALTER TABLE jira_tasks ADD COLUMN assignee_email TEXT",
         "ALTER TABLE jira_tasks ADD COLUMN resolved_project TEXT",
+        // How much cheaper a cache read was than paying full input price for
+        // the same tokens -- computed alongside `server_cost_usd_micros`, not
+        // derived from it, so it stays `NULL` on the same rows that stay
+        // unpriced rather than reading as "no savings".
+        "ALTER TABLE telemetry_events ADD COLUMN cache_savings_usd_micros BIGINT",
     ];
     for sql in alters {
         let _ = sqlx::query(sql).execute(pool).await;
