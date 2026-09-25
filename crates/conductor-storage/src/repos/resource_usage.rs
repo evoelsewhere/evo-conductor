@@ -112,10 +112,12 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.tokens_in),0) AS tokens_in,
               COALESCE(SUM(e.tokens_out),0) AS tokens_out,
               COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
+              COALESCE(SUM(e.cache_write_tokens),0) AS cache_write_tokens,
               COALESCE(SUM(e.reasoning_tokens),0) AS reasoning_tokens,
               COALESCE(SUM(e.tool_use_tokens),0) AS tool_use_tokens,
               COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
-              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
+              COALESCE(SUM(e.cache_savings_usd_micros),0) AS cache_savings_micros,
+              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL AND (e.tokens_in > 0 OR e.tokens_out > 0) THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(SUM(CASE WHEN e.event_type='request' THEN e.duration_ms ELSE 0 END),0) AS duration_ms "#,
         ));
         push_scoped_events(&mut builder, query);
@@ -163,10 +165,12 @@ impl ResourceUsageRepo {
             tokens_in,
             tokens_out,
             cache_read_tokens,
+            cache_write_tokens: n(row.get("cache_write_tokens")),
             reasoning_tokens,
             tool_use_tokens,
             total_tokens,
             estimated_cost_usd_micros: n(row.get("cost_micros")),
+            cache_savings_usd_micros: n(row.get("cache_savings_micros")),
             unpriced_model_calls: n(row.get("unpriced_model_calls")),
             average_tokens_per_request: total_tokens.checked_div(requests).unwrap_or_default(),
             average_duration_ms: duration_ms.checked_div(requests).unwrap_or_default(),
@@ -218,7 +222,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(e.reasoning_tokens),0) AS reasoning_tokens,
               COALESCE(SUM(e.tool_use_tokens),0) AS tool_use_tokens,
               COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
-              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls "#,
+              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL AND (e.tokens_in > 0 OR e.tokens_out > 0) THEN 1 ELSE 0 END),0) AS unpriced_model_calls "#,
         ));
         push_scoped_events(&mut builder, query);
         builder.push(" GROUP BY SUBSTR(e.received_at,1,10) ORDER BY date");
@@ -349,8 +353,11 @@ impl ResourceUsageRepo {
         builder.push(") AS provider,COALESCE(e.model,");
         builder.push_bind(UNKNOWN_TELEMETRY_LABEL);
         builder.push(r#") AS model,COUNT(*) AS calls,COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
+          COALESCE(SUM(e.cache_read_tokens),0) AS cache_read_tokens,
+          COALESCE(SUM(e.cache_write_tokens),0) AS cache_write_tokens,
           COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
-          COALESCE(SUM(CASE WHEN e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_calls "#);
+          COALESCE(SUM(e.cache_savings_usd_micros),0) AS cache_savings_micros,
+          COALESCE(SUM(CASE WHEN e.server_cost_usd_micros IS NULL AND (e.tokens_in > 0 OR e.tokens_out > 0) THEN 1 ELSE 0 END),0) AS unpriced_calls "#);
         push_scoped_events(&mut builder, query);
         builder.push(" AND e.event_type='model_call' GROUP BY e.provider,e.model ORDER BY calls DESC LIMIT 20");
         Ok(builder
@@ -363,7 +370,10 @@ impl ResourceUsageRepo {
                 model: row.get("model"),
                 calls: n(row.get("calls")),
                 total_tokens: n(row.get("total_tokens")),
+                cache_read_tokens: n(row.get("cache_read_tokens")),
+                cache_write_tokens: n(row.get("cache_write_tokens")),
                 estimated_cost_usd_micros: n(row.get("cost_micros")),
+                cache_savings_usd_micros: n(row.get("cache_savings_micros")),
                 unpriced_calls: n(row.get("unpriced_calls")),
             })
             .collect())
@@ -483,7 +493,7 @@ impl ResourceUsageRepo {
               COALESCE(SUM(CASE WHEN e.event_type='tool_call' THEN 1 ELSE 0 END),0) AS tool_calls,
               COALESCE(SUM(e.tokens_in+e.tokens_out),0) AS total_tokens,
               COALESCE(SUM(e.server_cost_usd_micros),0) AS cost_micros,
-              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
+              COALESCE(SUM(CASE WHEN e.event_type='model_call' AND e.server_cost_usd_micros IS NULL AND (e.tokens_in > 0 OR e.tokens_out > 0) THEN 1 ELSE 0 END),0) AS unpriced_model_calls,
               COALESCE(MAX(CASE WHEN e.event_type='request' THEN e.duration_ms END),
                        SUM(CASE WHEN e.event_type<>'request' THEN e.duration_ms ELSE 0 END),0) AS duration_ms "#,
         );
