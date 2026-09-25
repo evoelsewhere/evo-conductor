@@ -228,6 +228,50 @@ pub async fn post_comment(
     .await
 }
 
+/// Uploads a file as an attachment on an arbitrary, caller-specified issue --
+/// unlike `post_comment`'s usual caller (the fixed `report_issue_key`), the
+/// report-export "send to Jira" path names whichever issue the user typed
+/// in, so this takes the key directly rather than reading it from settings.
+///
+/// Jira's attachments endpoint is a multipart upload guarded by
+/// `X-Atlassian-Token: no-check` -- without that header it 403s, treating
+/// the request as a possible XSRF attempt.
+pub async fn upload_attachment(
+    config: &JiraConfig,
+    issue_key: &str,
+    filename: &str,
+    content_type: &str,
+    bytes: Vec<u8>,
+) -> anyhow::Result<()> {
+    if issue_key.trim().is_empty() {
+        bail!("no issue key given to attach the report to");
+    }
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(filename.to_string())
+        .mime_str(content_type)
+        .context("invalid attachment content type")?;
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    let response = client()?
+        .post(format!(
+            "{}/rest/api/3/issue/{issue_key}/attachments",
+            config.site_url
+        ))
+        .basic_auth(&config.email, Some(&config.api_token))
+        .header("X-Atlassian-Token", "no-check")
+        .header("Accept", "application/json")
+        .multipart(form)
+        .send()
+        .await
+        .context("Jira attachment upload failed")?;
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        bail!("Jira returned {status}: {}", truncate(&text, 500));
+    }
+    Ok(())
+}
+
 /// Renders a `ModelCostReport` as an Atlassian Document Format comment body —
 /// a heading plus a preformatted text block. A `codeBlock` node, not an ADF
 /// table: far less markup to get right, and a monospace breakdown reads
