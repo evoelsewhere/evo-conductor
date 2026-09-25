@@ -234,6 +234,8 @@ stable_string_enum! {
         MemberCostReportRead => "analytics.member_cost_report.read",
         TaskCostReportRead => "analytics.task_cost_report.read",
         TaskActivityDetailRead => "analytics.task_activity_detail.read",
+        PresentationReportExport => "analytics.presentation_report.export",
+        PresentationReportDeliver => "analytics.presentation_report.deliver",
         AnalyticsViewsList => "analytics_views.list",
         AnalyticsViewRead => "analytics_view.read",
         AnalyticsViewCreate => "analytics_view.create",

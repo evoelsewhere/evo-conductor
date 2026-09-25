@@ -6,6 +6,7 @@ mod client;
 mod dashboard;
 mod health;
 mod jira_tasks;
+mod presentation_report;
 mod pricing;
 mod realtime;
 mod resource_delivery;
@@ -973,6 +974,29 @@ fn declare_routes(routes: &mut impl RouteRegistrar) {
             project_member(),
         ),
         telemetry::task_activity_detail,
+    );
+    routes.get(
+        "/analytics/report/export",
+        browser(
+            A::PresentationReportExport,
+            Target::Project,
+            P::TelemetryProjectRead,
+            project_member(),
+        ),
+        presentation_report::export,
+    );
+    routes.post(
+        "/analytics/report/deliver",
+        browser(
+            // Sends project usage data to an address/issue the caller
+            // types in -- an exfiltration path a plain telemetry read isn't,
+            // so this needs the same tier as changing project settings.
+            A::PresentationReportDeliver,
+            Target::Project,
+            P::ProjectSettingsManage,
+            project_member(),
+        ),
+        presentation_report::deliver,
     );
     routes.get(
         "/jira/tasks",
