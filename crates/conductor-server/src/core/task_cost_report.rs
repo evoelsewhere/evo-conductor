@@ -156,6 +156,7 @@ struct TaskAccumulator {
     total_tokens: u64,
     total_duration_ms: u64,
     total_cost_usd_micros: u64,
+    cache_savings_usd_micros: u64,
     models: Vec<String>,
     models_seen: HashSet<String>,
 }
@@ -171,6 +172,7 @@ impl TaskAccumulator {
         self.total_tokens += event.total_tokens;
         self.total_duration_ms += event.duration_ms;
         self.total_cost_usd_micros += event.total_cost_usd_micros;
+        self.cache_savings_usd_micros += event.cache_savings_usd_micros;
         if let (Some(provider), Some(model)) = (&event.provider, &event.model) {
             let key = format!("{provider}:{model}");
             if self.models_seen.insert(key.clone()) {
@@ -355,6 +357,7 @@ struct Numbers {
     total_tokens: u64,
     total_duration_ms: u64,
     total_cost_usd_micros: u64,
+    cache_savings_usd_micros: u64,
     models: Vec<String>,
     by_status: Vec<StatusTokenBreakdown>,
 }
@@ -371,6 +374,7 @@ impl Default for Numbers {
             total_tokens: 0,
             total_duration_ms: 0,
             total_cost_usd_micros: 0,
+            cache_savings_usd_micros: 0,
             models: Vec::new(),
             by_status: Vec::new(),
         }
@@ -477,6 +481,7 @@ pub async fn build(
                         total_tokens: precise_totals.total_tokens,
                         total_duration_ms: precise_totals.total_duration_ms,
                         total_cost_usd_micros: precise_totals.total_cost_usd_micros,
+                        cache_savings_usd_micros: precise_totals.cache_savings_usd_micros,
                         models: precise_totals.models.clone(),
                         by_status,
                     },
@@ -513,6 +518,7 @@ pub async fn build(
             calls: numbers.calls,
             total_tokens: numbers.total_tokens,
             total_cost_usd_micros: numbers.total_cost_usd_micros,
+            cache_savings_usd_micros: numbers.cache_savings_usd_micros,
             tokens_in: numbers.tokens_in,
             tokens_out: numbers.tokens_out,
             cache_read_tokens: numbers.cache_read_tokens,
@@ -609,6 +615,7 @@ pub async fn task_activity_detail(
             total_tokens: event.total_tokens,
             duration_ms: event.duration_ms,
             total_cost_usd_micros: event.total_cost_usd_micros,
+            cache_savings_usd_micros: event.cache_savings_usd_micros,
             status: event.status.clone(),
             jira_status: status_at(&history, event.received_at, &task.status).to_string(),
         })

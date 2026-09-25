@@ -92,6 +92,10 @@ pub struct TaskCostRow {
     pub calls: u64,
     pub total_tokens: u64,
     pub total_cost_usd_micros: u64,
+    /// How much cheaper this task's cache reads were than paying full input
+    /// price for the same tokens; zero for a fallback row, same as the token
+    /// split below.
+    pub cache_savings_usd_micros: u64,
     /// The four figures below split `total_tokens` -- only meaningful when
     /// `precise` is true; a fallback row leaves them all zero rather than
     /// implying a split of a whole-person total it doesn't actually have.
@@ -147,6 +151,7 @@ pub struct TaskActivityItem {
     pub total_tokens: u64,
     pub duration_ms: u64,
     pub total_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: u64,
     pub status: String,
     /// The Jira workflow status active at the moment of this request.
     pub jira_status: String,
