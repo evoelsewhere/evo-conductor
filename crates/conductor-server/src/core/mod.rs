@@ -16,6 +16,8 @@ pub mod jira;
 pub mod member_cost_report;
 pub mod model_cost_report;
 pub mod model_pricing;
+pub mod presentation_report;
+pub mod report_export;
 pub mod reprice;
 pub mod request_context;
 pub mod resource_authoring;
