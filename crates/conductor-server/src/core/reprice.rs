@@ -11,10 +11,15 @@
 //!    was computed from the rate in force would silently change a figure a
 //!    member's receipt already reconciled against.
 
-use conductor_domain::{price_model_call_tiered, PricedCost, PricingBasis, UnpricedReason};
+use conductor_domain::{
+    cache_read_savings_usd_micros, price_model_call_tiered, PricedCost, PricingBasis,
+    UnpricedReason,
+};
 use conductor_storage::repos::{RepriceCandidate, RepricedCost};
 use conductor_storage::{Db, StorageError};
 use uuid::Uuid;
+
+use crate::core::model_pricing::resolve_provider_alias;
 
 /// Rows per transaction. Small enough to keep a lock window short on a table
 /// that ingest is still writing to.
@@ -76,6 +81,7 @@ pub async fn run(db: &Db, project_id: Uuid, basis: Basis) -> Result<RepriceRepor
                         // provenance it does not have.
                         catalog_version: Some(resolved.catalog_version),
                         basis: Some(resolved.basis),
+                        cache_savings_usd_micros: resolved.cache_savings_usd_micros,
                     });
                 }
                 _ => {
@@ -89,6 +95,7 @@ pub async fn run(db: &Db, project_id: Uuid, basis: Basis) -> Result<RepriceRepor
                         },
                         catalog_version: None,
                         basis: None,
+                        cache_savings_usd_micros: None,
                     });
                 }
             }
@@ -102,11 +109,86 @@ pub async fn run(db: &Db, project_id: Uuid, basis: Basis) -> Result<RepriceRepor
     Ok(report)
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CacheSavingsBackfillReport {
+    pub examined: u64,
+    pub filled_in: u64,
+    /// No rate could be resolved at all (model since removed from the
+    /// catalog, or genuinely never had one) -- left `NULL`, not zero, for the
+    /// same reason an unpriced call stays unpriced rather than reading free.
+    pub left_unresolved: u64,
+}
+
+/// Fill in `cache_savings_usd_micros` for rows priced before that column
+/// existed. Never touches `server_cost_usd_micros`, `pricing_basis`, or
+/// `priced_catalog_version` -- those are already reconciled figures; this
+/// only adds a previously-absent auxiliary one.
+pub async fn backfill_cache_savings(
+    db: &Db,
+    project_id: Uuid,
+) -> Result<CacheSavingsBackfillReport, StorageError> {
+    let mut report = CacheSavingsBackfillReport::default();
+    let mut after_id: Option<Uuid> = None;
+    loop {
+        let candidates = db
+            .telemetry()
+            .priced_calls_missing_cache_savings(project_id, after_id, BATCH)
+            .await?;
+        if candidates.is_empty() {
+            break;
+        }
+        after_id = candidates.last().map(|candidate| candidate.id);
+
+        let mut savings = Vec::with_capacity(candidates.len());
+        for candidate in &candidates {
+            report.examined += 1;
+            match cache_savings_for(db, candidate).await? {
+                Some(value) => {
+                    report.filled_in += 1;
+                    savings.push((candidate.id, value));
+                }
+                None => report.left_unresolved += 1,
+            }
+        }
+        db.telemetry().apply_cache_savings_backfill(&savings).await?;
+
+        if candidates.len() < BATCH as usize {
+            break;
+        }
+    }
+    Ok(report)
+}
+
+async fn cache_savings_for(
+    db: &Db,
+    candidate: &RepriceCandidate,
+) -> Result<Option<i64>, StorageError> {
+    let (Some(provider), Some(model)) = (candidate.provider.as_deref(), candidate.model.as_deref())
+    else {
+        return Ok(None);
+    };
+    let provider = resolve_provider_alias(provider);
+    let prices = db.model_prices();
+    let service_tier = candidate.service_tier.as_deref();
+
+    let pricing = match prices.pricing_at(provider, model, candidate.reported_at).await? {
+        Some(found) => Some(found.pricing),
+        None => prices
+            .earliest_pricing(provider, model)
+            .await?
+            .map(|found| found.pricing),
+    };
+    Ok(pricing.and_then(|pricing| {
+        cache_read_savings_usd_micros(&pricing, candidate.usage, service_tier)
+    }))
+}
+
 /// A repriced event, with the catalog that actually supplied its rate.
 struct Resolved {
     cost: PricedCost,
     basis: PricingBasis,
     catalog_version: String,
+    cache_savings_usd_micros: Option<i64>,
 }
 
 async fn resolve(
@@ -118,6 +200,12 @@ async fn resolve(
     else {
         return Ok(None);
     };
+    // `pricing_at`/`earliest_pricing` look the raw stored provider up
+    // directly against `model_prices` -- unlike `RateTable::get`, they never
+    // ran it through the alias table, so an event recorded under an alias
+    // (`googlegenai`, `kimi`, `copilot`) could never reprice even once the
+    // canonical provider's rate existed.
+    let provider = resolve_provider_alias(provider);
     let prices = db.model_prices();
     let service_tier = candidate.service_tier.as_deref();
 
@@ -125,21 +213,38 @@ async fn resolve(
         .pricing_at(provider, model, candidate.reported_at)
         .await?
     {
+        let cost = price_model_call_tiered(&found.pricing, candidate.usage, service_tier);
+        let cache_savings_usd_micros = cost
+            .cost_micros()
+            .and(cache_read_savings_usd_micros(
+                &found.pricing,
+                candidate.usage,
+                service_tier,
+            ));
         return Ok(Some(Resolved {
-            cost: price_model_call_tiered(&found.pricing, candidate.usage, service_tier),
+            cost,
             basis: PricingBasis::InForce,
             catalog_version: found.catalog_version,
+            cache_savings_usd_micros,
         }));
     }
     if basis == Basis::InForceOnly {
         return Ok(None);
     }
-    Ok(prices
-        .earliest_pricing(provider, model)
-        .await?
-        .map(|found| Resolved {
-            cost: price_model_call_tiered(&found.pricing, candidate.usage, service_tier),
+    Ok(prices.earliest_pricing(provider, model).await?.map(|found| {
+        let cost = price_model_call_tiered(&found.pricing, candidate.usage, service_tier);
+        let cache_savings_usd_micros = cost
+            .cost_micros()
+            .and(cache_read_savings_usd_micros(
+                &found.pricing,
+                candidate.usage,
+                service_tier,
+            ));
+        Resolved {
+            cost,
             basis: PricingBasis::EarliestKnown,
             catalog_version: found.catalog_version,
-        }))
+            cache_savings_usd_micros,
+        }
+    }))
 }

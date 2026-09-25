@@ -5,6 +5,7 @@
 //! locked out of the console still needs them, and because repricing a long
 //! backlog outlives the patience of a browser or a proxy.
 
+mod backfill_cache_savings;
 mod limits;
 mod reprice;
 mod route_inventory;
@@ -22,6 +23,10 @@ evo-conductor <command>
 
   reprice [--estimate-pre-catalog]
       Put a cost on model calls Conductor has none for yet.
+
+  backfill-cache-savings
+      Fill in cache-read savings on already-priced calls from before that
+      figure existed.
 
   limits
       Report every enabled limit against its own current period.
@@ -54,6 +59,7 @@ pub fn wants_usage(args: &[String]) -> bool {
 pub async fn run(args: &[String], state: &AppState) -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("reprice") => reprice::run(&args[1..], state).await,
+        Some("backfill-cache-savings") => backfill_cache_savings::run(&args[1..], state).await,
         Some("limits") => limits::run(&args[1..], state).await,
         Some("route-inventory") => route_inventory::run(&args[1..]).await,
         Some("help" | "--help" | "-h") | None => {
