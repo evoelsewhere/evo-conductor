@@ -33,14 +33,18 @@ hex = "0.4"
 hmac = "0.12"
 jsonwebtoken = "9"
 libc = "0.2"
+image = { version = "0.25", default-features = false, features = ["png"] }
 object_store = { version = "0.12", features = ["aws", "azure"] }
+plotters = { version = "0.3", default-features = false, features = ["bitmap_backend", "line_series", "area_series", "ttf"] }
+quick-xml = "0.37"
 rand = "0.8"
+rust_xlsxwriter = { version = "0.89", features = ["chrono"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 sqlx = { version = "0.8", features = ["runtime-tokio", "any", "sqlite", "postgres", "mysql", "chrono", "uuid"] }
 sysinfo = "0.37"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 url = "2"
 dashmap = "6"

@@ -22,8 +22,12 @@ chrono = { workspace = true }
 dotenvy = { workspace = true }
 hex = { workspace = true }
 hmac = { workspace = true }
+image = { workspace = true }
 object_store = { workspace = true }
+plotters = { workspace = true }
+quick-xml = { workspace = true }
 rand = { workspace = true }
+rust_xlsxwriter = { workspace = true }
 # Outbound fetch for the models.dev price catalog (rustls, no OpenSSL).
 reqwest = { workspace = true }
 lettre = { workspace = true }
