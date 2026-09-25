@@ -193,6 +193,33 @@ pub fn price_model_call_tiered(
     )
 }
 
+/// How much cheaper a cache read was than paying full input price for the
+/// same tokens, resolving the long-context band and service tier the same
+/// way `price_model_call_tiered` does. `None` when the catalog publishes no
+/// input rate, no cache-read rate, or neither -- there is nothing to compare
+/// a cache read against, which is a different claim from "it saved nothing".
+/// Never negative: a catalog that (briefly, during a price change) quotes a
+/// cache read at or above the input rate reads as zero savings, not a loss.
+pub fn cache_read_savings_usd_micros(
+    pricing: &ModelPricing,
+    usage: TokenUsage,
+    service_tier: Option<&str>,
+) -> Option<i64> {
+    let rates = resolve_rates(pricing, usage.tokens_in, service_tier);
+    let (Some(input_rate), Some(cache_read_rate)) = (rates.input, rates.cache_read) else {
+        return None;
+    };
+    let cache_read = usage.cache_read.max(0) as i128;
+    if cache_read == 0 {
+        return Some(0);
+    }
+    let per_token_savings = i128::from(input_rate) - i128::from(cache_read_rate);
+    if per_token_savings <= 0 {
+        return Some(0);
+    }
+    Some(round_scaled(cache_read * per_token_savings))
+}
+
 /// Token counts exactly as EvoFlux reports them: `tokens_in` already includes
 /// cache reads and cache writes, `tokens_out` already includes reasoning
 /// tokens. Conductor's own aggregates rely on the same rule, which is why
@@ -1092,5 +1119,81 @@ mod tests {
         };
         let components = price_components(summed_usage, &rates).expect("priced");
         assert_eq!(components.total_usd_micros(), per_event_total);
+    }
+
+    fn sonnet_pricing() -> ModelPricing {
+        ModelPricing::flat(sonnet_rates())
+    }
+
+    #[test]
+    fn cache_read_savings_is_the_input_rate_minus_the_cache_read_rate() {
+        let usage = TokenUsage {
+            tokens_in: 500_000,
+            tokens_out: 10_000,
+            cache_read: 100_000,
+            cache_write: 0,
+            reasoning: 0,
+        };
+        // 100_000 cache-read tokens at (3.00 - 0.30) per million saved.
+        let expected = 100_000 * (3_000_000 - 300_000) / 1_000_000;
+        assert_eq!(
+            cache_read_savings_usd_micros(&sonnet_pricing(), usage, None),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn cache_read_savings_is_none_without_both_an_input_and_a_cache_read_rate() {
+        let usage = TokenUsage {
+            tokens_in: 500_000,
+            tokens_out: 0,
+            cache_read: 100_000,
+            cache_write: 0,
+            reasoning: 0,
+        };
+        let no_cache_rate = ModelPricing::flat(ModelRates {
+            cache_read: None,
+            ..sonnet_rates()
+        });
+        assert_eq!(
+            cache_read_savings_usd_micros(&no_cache_rate, usage, None),
+            None
+        );
+    }
+
+    #[test]
+    fn cache_read_savings_is_zero_without_any_cache_reads() {
+        let usage = TokenUsage {
+            tokens_in: 500_000,
+            tokens_out: 10_000,
+            cache_read: 0,
+            cache_write: 0,
+            reasoning: 0,
+        };
+        assert_eq!(
+            cache_read_savings_usd_micros(&sonnet_pricing(), usage, None),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn cache_read_savings_is_never_negative() {
+        let usage = TokenUsage {
+            tokens_in: 500_000,
+            tokens_out: 0,
+            cache_read: 100_000,
+            cache_write: 0,
+            reasoning: 0,
+        };
+        // A catalog that quotes a cache read at or above the input rate.
+        let inverted = ModelPricing::flat(ModelRates {
+            input: rate_from_usd_per_million(0.3),
+            cache_read: rate_from_usd_per_million(3.0),
+            ..ModelRates::default()
+        });
+        assert_eq!(
+            cache_read_savings_usd_micros(&inverted, usage, None),
+            Some(0)
+        );
     }
 }
