@@ -26,6 +26,10 @@ pub struct PricedTelemetryEvent<'a> {
     pub catalog_version: Option<String>,
     /// Whether the rate actually covered the event, or was an estimate.
     pub basis: Option<PricingBasis>,
+    /// How much cheaper this event's cache reads were than paying full input
+    /// price for the same tokens. `None` on the same rows that stay unpriced
+    /// (nothing to compare a cache read against without a resolved rate).
+    pub cache_savings_usd_micros: Option<i64>,
 }
 
 impl<'a> PricedTelemetryEvent<'a> {
@@ -37,6 +41,7 @@ impl<'a> PricedTelemetryEvent<'a> {
             cost: PricedCost::Unpriced { reason },
             catalog_version: None,
             basis: None,
+            cache_savings_usd_micros: None,
         }
     }
 }
@@ -67,6 +72,10 @@ pub struct RawModelCostRow {
     pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     pub total_cost_usd_micros: u64,
+    /// How much cheaper the cache reads in this row were than paying full
+    /// input price for the same tokens. Summed only across rows Conductor
+    /// could compute it for, same as `total_cost_usd_micros`.
+    pub cache_savings_usd_micros: u64,
 }
 
 /// Per-member token and cost sums, with the member's current identity joined
@@ -86,6 +95,7 @@ pub struct RawMemberCostRow {
     pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
     pub total_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: u64,
 }
 
 /// One raw model-call event for a single user, unaggregated -- the input the
@@ -109,6 +119,7 @@ pub struct RawTelemetryEventSlice {
     pub total_tokens: u64,
     pub duration_ms: u64,
     pub total_cost_usd_micros: u64,
+    pub cache_savings_usd_micros: u64,
     pub status: String,
     pub is_error: bool,
 }
@@ -137,6 +148,8 @@ pub struct RepricedCost {
     pub cost: PricedCost,
     pub catalog_version: Option<String>,
     pub basis: Option<PricingBasis>,
+    /// Same meaning as `PricedTelemetryEvent::cache_savings_usd_micros`.
+    pub cache_savings_usd_micros: Option<i64>,
 }
 
 pub struct TelemetryRepo {
@@ -182,10 +195,10 @@ impl TelemetryRepo {
                     status, error_category, reported_at,
                     received_at, service_tier,
                     server_cost_usd_micros, priced_catalog_version, pricing_basis,
-                    unpriced_reason,
+                    unpriced_reason, cache_savings_usd_micros,
                     primary_role_snapshot, sub_role_ids_snapshot,
                     tag_ids_snapshot, tool_calls, active_agents
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 ON DUPLICATE KEY UPDATE id = id
                 "#
                 }
@@ -199,10 +212,10 @@ impl TelemetryRepo {
                     status, error_category, reported_at,
                     received_at, service_tier,
                     server_cost_usd_micros, priced_catalog_version, pricing_basis,
-                    unpriced_reason,
+                    unpriced_reason, cache_savings_usd_micros,
                     primary_role_snapshot, sub_role_ids_snapshot,
                     tag_ids_snapshot, tool_calls, active_agents
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 ON CONFLICT (id) DO NOTHING
                 "#
                 }
@@ -236,6 +249,7 @@ impl TelemetryRepo {
                 .bind(priced.catalog_version.as_deref())
                 .bind(priced.basis.map(PricingBasis::as_str))
                 .bind(priced.cost.unpriced_reason().map(|reason| reason.as_str()))
+                .bind(priced.cache_savings_usd_micros)
                 .bind(user.primary_role.as_str())
                 .bind(&sub_role_ids)
                 .bind(&tag_ids)
@@ -324,7 +338,7 @@ impl TelemetryRepo {
                    COALESCE(SUM(e.tokens_out), 0) AS tokens_out,
                    COALESCE(SUM(e.cache_read_tokens), 0) AS cache_read_tokens,
                    COALESCE(SUM(e.server_cost_usd_micros), 0) AS estimated_cost_usd_micros,
-                   COALESCE(SUM(CASE WHEN e.event_type = 'model_call' AND e.server_cost_usd_micros IS NULL THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
+                   COALESCE(SUM(CASE WHEN e.event_type = 'model_call' AND e.server_cost_usd_micros IS NULL AND (e.tokens_in > 0 OR e.tokens_out > 0) THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
                    COALESCE(SUM(CASE WHEN EXISTS (
                        SELECT 1 FROM telemetry_resource_attributions a
                        WHERE a.event_id = e.id AND a.project_id = e.project_id
@@ -412,10 +426,13 @@ impl TelemetryRepo {
                    COALESCE(SUM(tokens_in), 0) AS tokens_in,
                    COALESCE(SUM(tokens_out), 0) AS tokens_out,
                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                   COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
                    COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
                    COALESCE(SUM(server_cost_usd_micros), 0) AS cost_micros,
+                   COALESCE(SUM(cache_savings_usd_micros), 0) AS cache_savings_micros,
                    COALESCE(SUM(CASE WHEN event_type = 'model_call'
                                       AND server_cost_usd_micros IS NULL
+                                      AND (tokens_in > 0 OR tokens_out > 0)
                                  THEN 1 ELSE 0 END), 0) AS unpriced_model_calls
             FROM telemetry_events
             WHERE user_id = ? AND request_id IS NOT NULL
@@ -438,8 +455,12 @@ impl TelemetryRepo {
                    COUNT(*) AS calls,
                    COALESCE(SUM(tokens_in), 0) AS tokens_in,
                    COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                   COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                   COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
                    COALESCE(SUM(server_cost_usd_micros), 0) AS cost_micros,
+                   COALESCE(SUM(cache_savings_usd_micros), 0) AS cache_savings_micros,
                    COALESCE(SUM(CASE WHEN server_cost_usd_micros IS NULL
+                                      AND (tokens_in > 0 OR tokens_out > 0)
                                  THEN 1 ELSE 0 END), 0) AS unpriced_calls
             FROM telemetry_events
             WHERE user_id = ? AND event_type = ?
@@ -467,7 +488,10 @@ impl TelemetryRepo {
                 tokens_in,
                 tokens_out,
                 total_tokens: tokens_in.saturating_add(tokens_out),
+                cache_read_tokens: non_negative(row.get::<i64, _>("cache_read_tokens")),
+                cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
                 estimated_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                cache_savings_usd_micros: non_negative(row.get::<i64, _>("cache_savings_micros")),
                 unpriced_calls: non_negative(row.get::<i64, _>("unpriced_calls")),
             }
         })
@@ -520,8 +544,10 @@ impl TelemetryRepo {
             tokens_out,
             total_tokens: tokens_in.saturating_add(tokens_out),
             cache_read_tokens: non_negative(row.get::<i64, _>("cache_read_tokens")),
+            cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
             reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
             estimated_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+            cache_savings_usd_micros: non_negative(row.get::<i64, _>("cache_savings_micros")),
             unpriced_model_calls: non_negative(row.get::<i64, _>("unpriced_model_calls")),
             models,
             daily,
@@ -552,13 +578,15 @@ impl TelemetryRepo {
             r#") AS model,
                COUNT(*) AS calls,
                COALESCE(SUM(CASE WHEN e.server_cost_usd_micros IS NULL
+                                  AND (e.tokens_in > 0 OR e.tokens_out > 0)
                              THEN 1 ELSE 0 END), 0) AS unpriced_calls,
                COALESCE(SUM(e.tokens_in), 0) AS tokens_in,
                COALESCE(SUM(e.tokens_out), 0) AS tokens_out,
                COALESCE(SUM(e.cache_read_tokens), 0) AS cache_read_tokens,
                COALESCE(SUM(e.cache_write_tokens), 0) AS cache_write_tokens,
                COALESCE(SUM(e.reasoning_tokens), 0) AS reasoning_tokens,
-               COALESCE(SUM(e.server_cost_usd_micros), 0) AS cost_micros
+               COALESCE(SUM(e.server_cost_usd_micros), 0) AS cost_micros,
+               COALESCE(SUM(e.cache_savings_usd_micros), 0) AS cache_savings_micros
             FROM telemetry_events e
             WHERE e.project_id="#,
         );
@@ -586,6 +614,7 @@ impl TelemetryRepo {
                 cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
                 reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
                 total_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                cache_savings_usd_micros: non_negative(row.get::<i64, _>("cache_savings_micros")),
             })
             .collect())
     }
@@ -606,13 +635,15 @@ impl TelemetryRepo {
             r#"SELECT e.user_id, u.display_name, u.email, u.primary_role,
                COUNT(*) AS calls,
                COALESCE(SUM(CASE WHEN e.server_cost_usd_micros IS NULL
+                                  AND (e.tokens_in > 0 OR e.tokens_out > 0)
                              THEN 1 ELSE 0 END), 0) AS unpriced_calls,
                COALESCE(SUM(e.tokens_in), 0) AS tokens_in,
                COALESCE(SUM(e.tokens_out), 0) AS tokens_out,
                COALESCE(SUM(e.cache_read_tokens), 0) AS cache_read_tokens,
                COALESCE(SUM(e.cache_write_tokens), 0) AS cache_write_tokens,
                COALESCE(SUM(e.reasoning_tokens), 0) AS reasoning_tokens,
-               COALESCE(SUM(e.server_cost_usd_micros), 0) AS cost_micros
+               COALESCE(SUM(e.server_cost_usd_micros), 0) AS cost_micros,
+               COALESCE(SUM(e.cache_savings_usd_micros), 0) AS cache_savings_micros
             FROM telemetry_events e JOIN users u ON u.id=e.user_id
             WHERE e.project_id="#,
         );
@@ -650,6 +681,9 @@ impl TelemetryRepo {
                     cache_write_tokens: non_negative(row.get::<i64, _>("cache_write_tokens")),
                     reasoning_tokens: non_negative(row.get::<i64, _>("reasoning_tokens")),
                     total_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                    cache_savings_usd_micros: non_negative(
+                        row.get::<i64, _>("cache_savings_micros"),
+                    ),
                 })
             })
             .collect())
@@ -678,6 +712,7 @@ impl TelemetryRepo {
                       COALESCE(reasoning_tokens,0) AS reasoning_tokens,
                       COALESCE(duration_ms,0) AS duration_ms,
                       COALESCE(server_cost_usd_micros,0) AS cost_micros,
+                      COALESCE(cache_savings_usd_micros,0) AS cache_savings_micros,
                       status
                FROM telemetry_events
                WHERE project_id = ? AND user_id = ? AND event_type = ?
@@ -720,6 +755,9 @@ impl TelemetryRepo {
                         + reasoning_tokens,
                     duration_ms: non_negative(row.get::<i64, _>("duration_ms")),
                     total_cost_usd_micros: non_negative(row.get::<i64, _>("cost_micros")),
+                    cache_savings_usd_micros: non_negative(
+                        row.get::<i64, _>("cache_savings_micros"),
+                    ),
                     is_error: status != TelemetryEventStatus::Success.as_str(),
                     status,
                 })
@@ -763,7 +801,7 @@ impl TelemetryRepo {
                        0
                    ) AS duration_ms,
                    COALESCE(SUM(server_cost_usd_micros), 0) AS cost_micros,
-                   COALESCE(SUM(CASE WHEN event_type = ? AND server_cost_usd_micros IS NULL THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
+                   COALESCE(SUM(CASE WHEN event_type = ? AND server_cost_usd_micros IS NULL AND (tokens_in > 0 OR tokens_out > 0) THEN 1 ELSE 0 END), 0) AS unpriced_model_calls,
                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS errors,
                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS blocked,
                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS cancelled
@@ -891,6 +929,8 @@ impl TelemetryRepo {
             let event_type = TelemetryEventType::parse(row.get::<String, _>("event_type").as_str())
                 .unwrap_or(TelemetryEventType::ModelCall);
             let event_duration = non_negative(row.get::<i64, _>("duration_ms"));
+            let event_tokens_in = non_negative(row.get::<i64, _>("tokens_in"));
+            let event_tokens_out = non_negative(row.get::<i64, _>("tokens_out"));
             match event_type {
                 TelemetryEventType::ModelCall => {
                     model_calls += 1;
@@ -901,14 +941,15 @@ impl TelemetryRepo {
                             estimated_cost_usd_micros =
                                 estimated_cost_usd_micros.saturating_add(non_negative(cost));
                         }
-                        None => unpriced_model_calls = unpriced_model_calls.saturating_add(1),
+                        None if event_tokens_in > 0 || event_tokens_out > 0 => {
+                            unpriced_model_calls = unpriced_model_calls.saturating_add(1)
+                        }
+                        None => {}
                     }
                 }
                 TelemetryEventType::ToolCall => tool_calls += 1,
                 TelemetryEventType::Request => request_duration_ms = Some(event_duration),
             }
-            let event_tokens_in = non_negative(row.get::<i64, _>("tokens_in"));
-            let event_tokens_out = non_negative(row.get::<i64, _>("tokens_out"));
             let status = TelemetryEventStatus::parse(row.get::<String, _>("status").as_str())
                 .unwrap_or(TelemetryEventStatus::Error);
             request_status = merge_request_status(request_status, status);
@@ -1014,6 +1055,97 @@ impl TelemetryRepo {
             .collect())
     }
 
+    /// Already-priced rows with cache reads but no cache-savings figure yet --
+    /// the backfill counterpart to `unpriced_model_calls`, for rows from
+    /// before `cache_savings_usd_micros` existed. Never touches
+    /// `server_cost_usd_micros` itself, so it carries none of the
+    /// reconciliation risk repricing an already-priced cost would.
+    pub async fn priced_calls_missing_cache_savings(
+        &self,
+        project_id: Uuid,
+        after_id: Option<Uuid>,
+        limit: u32,
+    ) -> Result<Vec<RepriceCandidate>, sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, provider, model, service_tier, reported_at, tokens_in,
+                   tokens_out, cache_read_tokens, cache_write_tokens,
+                   reasoning_tokens
+            FROM telemetry_events
+            WHERE project_id = ?
+              AND event_type = 'model_call'
+              AND server_cost_usd_micros IS NOT NULL
+              AND cache_savings_usd_micros IS NULL
+              AND cache_read_tokens > 0
+              AND (? IS NULL OR id > ?)
+            ORDER BY id ASC
+            LIMIT ?
+            "#,
+        )
+        .bind(project_id.to_string())
+        .bind(after_id.map(|id| id.to_string()))
+        .bind(after_id.map(|id| id.to_string()))
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                let raw: String = row.get("id");
+                let id = Uuid::parse_str(&raw).ok()?;
+                let reported_at: String = row.get("reported_at");
+                Some(RepriceCandidate {
+                    id,
+                    provider: row.get("provider"),
+                    model: row.get("model"),
+                    service_tier: row.get("service_tier"),
+                    reported_at: parse_dt(reported_at),
+                    usage: conductor_domain::TokenUsage {
+                        tokens_in: row.get("tokens_in"),
+                        tokens_out: row.get("tokens_out"),
+                        cache_read: row.get("cache_read_tokens"),
+                        cache_write: row.get("cache_write_tokens"),
+                        reasoning: row.get("reasoning_tokens"),
+                    },
+                })
+            })
+            .collect())
+    }
+
+    /// Write back a batch of backfilled cache-savings figures, touching only
+    /// that one column. Guarded the same way as `apply_repriced_costs`, on
+    /// `cache_savings_usd_micros IS NULL` instead, so a concurrent ingest or
+    /// reprice that already filled it in wins and a re-run cannot
+    /// double-apply.
+    pub async fn apply_cache_savings_backfill(
+        &self,
+        savings: &[(Uuid, i64)],
+    ) -> Result<u32, sqlx::Error> {
+        if savings.is_empty() {
+            return Ok(0);
+        }
+        let mut updated = 0u32;
+        let mut tx = self.pool.begin().await?;
+        for (id, cache_savings_usd_micros) in savings {
+            let affected = sqlx::query(
+                r#"
+                UPDATE telemetry_events
+                SET cache_savings_usd_micros = ?
+                WHERE id = ? AND cache_savings_usd_micros IS NULL
+                "#,
+            )
+            .bind(cache_savings_usd_micros)
+            .bind(id.to_string())
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            updated += u32::from(affected > 0);
+        }
+        tx.commit().await?;
+        Ok(updated)
+    }
+
     /// Write back a batch of repriced rows in one transaction.
     ///
     /// Guarded by `server_cost_usd_micros IS NULL` so a concurrent ingest that
@@ -1031,7 +1163,8 @@ impl TelemetryRepo {
                 SET server_cost_usd_micros = ?,
                     priced_catalog_version = ?,
                     pricing_basis = ?,
-                    unpriced_reason = ?
+                    unpriced_reason = ?,
+                    cache_savings_usd_micros = ?
                 WHERE id = ? AND server_cost_usd_micros IS NULL
                 "#,
             )
@@ -1039,6 +1172,7 @@ impl TelemetryRepo {
             .bind(row.catalog_version.as_deref())
             .bind(row.basis.map(PricingBasis::as_str))
             .bind(row.cost.unpriced_reason().map(|reason| reason.as_str()))
+            .bind(row.cache_savings_usd_micros)
             .bind(row.id.to_string())
             .execute(&mut *tx)
             .await?
