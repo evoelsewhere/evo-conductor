@@ -12,11 +12,37 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use conductor_domain::EmailSettings;
 use lettre::message::header::ContentType;
+use lettre::message::{Attachment, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 use crate::core::config::EmailConfig;
 use crate::core::state::AppState;
+
+fn require_configured(config: &EmailConfig) -> anyhow::Result<()> {
+    if !config.enabled {
+        bail!("email is not enabled (CONDUCTOR_EMAIL_ENABLED is not set)");
+    }
+    if config.smtp_host.is_empty() || config.from_address.is_empty() {
+        bail!("email is enabled but CONDUCTOR_SMTP_HOST/CONDUCTOR_EMAIL_FROM are not set");
+    }
+    Ok(())
+}
+
+fn build_transport(
+    config: &EmailConfig,
+) -> anyhow::Result<AsyncSmtpTransport<Tokio1Executor>> {
+    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.smtp_host)
+        .context("failed to configure SMTP relay")?
+        .port(config.smtp_port);
+    if !config.smtp_username.is_empty() {
+        builder = builder.credentials(Credentials::new(
+            config.smtp_username.clone(),
+            config.smtp_password.clone(),
+        ));
+    }
+    Ok(builder.build())
+}
 
 pub async fn send_email(
     config: &EmailConfig,
@@ -24,12 +50,7 @@ pub async fn send_email(
     subject: &str,
     html_body: &str,
 ) -> anyhow::Result<()> {
-    if !config.enabled {
-        bail!("email is not enabled (CONDUCTOR_EMAIL_ENABLED is not set)");
-    }
-    if config.smtp_host.is_empty() || config.from_address.is_empty() {
-        bail!("email is enabled but CONDUCTOR_SMTP_HOST/CONDUCTOR_EMAIL_FROM are not set");
-    }
+    require_configured(config)?;
 
     let message = Message::builder()
         .from(
@@ -44,18 +65,50 @@ pub async fn send_email(
         .body(html_body.to_string())
         .context("failed to build email message")?;
 
-    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.smtp_host)
-        .context("failed to configure SMTP relay")?
-        .port(config.smtp_port);
-    if !config.smtp_username.is_empty() {
-        builder = builder.credentials(Credentials::new(
-            config.smtp_username.clone(),
-            config.smtp_password.clone(),
-        ));
-    }
-    let mailer = builder.build();
+    build_transport(config)?
+        .send(message)
+        .await
+        .context("failed to send email via SMTP")?;
+    Ok(())
+}
 
-    mailer
+/// Same as `send_email`, with one file attached -- the report-export
+/// delivery path. A separate function rather than an `Option` parameter on
+/// `send_email`: every other caller sends a plain notification body and
+/// should never need to think about attachment plumbing.
+pub async fn send_email_with_attachment(
+    config: &EmailConfig,
+    to: &str,
+    subject: &str,
+    html_body: &str,
+    attachment_filename: &str,
+    attachment_content_type: &str,
+    attachment_bytes: Vec<u8>,
+) -> anyhow::Result<()> {
+    require_configured(config)?;
+
+    let content_type = ContentType::parse(attachment_content_type)
+        .unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
+    let attachment = Attachment::new(attachment_filename.to_string())
+        .body(attachment_bytes, content_type);
+
+    let message = Message::builder()
+        .from(
+            config
+                .from_address
+                .parse()
+                .context("invalid CONDUCTOR_EMAIL_FROM address")?,
+        )
+        .to(to.parse().context("invalid recipient email address")?)
+        .subject(subject)
+        .multipart(
+            MultiPart::mixed()
+                .singlepart(SinglePart::html(html_body.to_string()))
+                .singlepart(attachment),
+        )
+        .context("failed to build email message")?;
+
+    build_transport(config)?
         .send(message)
         .await
         .context("failed to send email via SMTP")?;
